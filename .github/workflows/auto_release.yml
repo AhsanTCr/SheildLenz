@@ -69,10 +69,47 @@ jobs:
           echo "NEW_CODE=$NEW_CODE" >> "$GITHUB_ENV"
           echo "INCREMENT_LABEL=0.${INCREMENT}" >> "$GITHUB_ENV"
 
-          # Use original matching keystore (SHA256: 99:E4:CB:C4:F6:04:31:90:F1:66:D6:C7:8B:71:AD:CE:6F:7E:CB:2F:B3:2F:EB:3E:95:7C:25:20:3A:A9:BE:AF)
-          echo "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" | base64 -d > "/tmp/release.jks"
+          # Prepare and strictly verify canonical matching release keystore
+          # Canonical SHA256: 99:E4:CB:C4:F6:04:31:90:F1:66:D6:C7:8B:71:AD:CE:6F:7E:CB:2F:B3:2F:EB:3E:95:7C:25:20:3A:A9:BE:AF
+          EXPECTED_SHA256="99:E4:CB:C4:F6:04:31:90:F1:66:D6:C7:8B:71:AD:CE:6F:7E:CB:2F:B3:2F:EB:3E:95:7C:25:20:3A:A9:BE:AF"
+          rm -f /tmp/release.jks /tmp/debug_restored.jks
 
-          keytool -list -keystore "/tmp/release.jks" -storepass android -alias upload
+          if [ -f "my-upload-key.jks" ]; then
+            KEY_SHA=$(keytool -list -v -keystore "my-upload-key.jks" -storepass android -alias upload 2>/dev/null | grep -oP 'SHA256:\s*\K[0-9A-Fa-f:]+' | tr '[:lower:]' '[:upper:]' || true)
+            if [ "$KEY_SHA" = "$EXPECTED_SHA256" ]; then
+              cp my-upload-key.jks /tmp/release.jks
+            fi
+          fi
+
+          if [ ! -f "/tmp/release.jks" ] && [ -f "debug.keystore" ]; then
+            KEY_SHA=$(keytool -list -v -keystore "debug.keystore" -storepass android -alias androiddebugkey 2>/dev/null | grep -oP 'SHA256:\s*\K[0-9A-Fa-f:]+' | tr '[:lower:]' '[:upper:]' || true)
+            if [ "$KEY_SHA" = "$EXPECTED_SHA256" ]; then
+              keytool -importkeystore \
+                -srckeystore debug.keystore -srcstorepass android -srcalias androiddebugkey \
+                -destkeystore /tmp/release.jks -deststorepass android -destkeypass android \
+                -destalias upload -deststoretype PKCS12 -noprompt
+            fi
+          fi
+
+          if [ ! -f "/tmp/release.jks" ] && [ -f "debug.keystore.base64" ]; then
+            tr -d '[:space:]' < debug.keystore.base64 | base64 -d > /tmp/debug_restored.jks
+            keytool -importkeystore \
+              -srckeystore /tmp/debug_restored.jks -srcstorepass android -srcalias androiddebugkey \
+              -destkeystore /tmp/release.jks -deststorepass android -destkeypass android \
+              -destalias upload -deststoretype PKCS12 -noprompt
+          fi
+
+          if [ ! -f "/tmp/release.jks" ]; then
+            echo "ERROR: Could not prepare canonical /tmp/release.jks!"
+            exit 1
+          fi
+
+          ACTUAL_SHA256=$(keytool -list -v -keystore "/tmp/release.jks" -storepass android -alias upload | grep -oP 'SHA256:\s*\K[0-9A-Fa-f:]+' | tr '[:lower:]' '[:upper:]')
+          echo "Verified Release Signing Cert SHA-256: $ACTUAL_SHA256"
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "ERROR: Keystore SHA-256 mismatch! Expected $EXPECTED_SHA256, got $ACTUAL_SHA256"
+            exit 1
+          fi
 
       - name: Build Signed Release APK
         run: |
@@ -87,6 +124,16 @@ jobs:
           mkdir -p dist
           APK_FILENAME="Sheildlenz-v${{ env.NEW_NAME }}.apk"
           cp "$RELEASE_APK" "dist/${APK_FILENAME}"
+
+          APKSIGNER=$(find "${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/build-tools" -name "apksigner" 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ]; then
+            CERT_INFO=$("$APKSIGNER" verify --print-certs "dist/${APK_FILENAME}")
+            echo "$CERT_INFO"
+            if ! echo "$CERT_INFO" | grep -qi "99e4cbc4f6043190f166d6c78b71adce6f7ecb2fb32feb3e957c25203aa9beaf"; then
+              echo "ERROR: Built APK certificate does not match canonical signing cert!"
+              exit 1
+            fi
+          fi
 
           APK_SHA256=$(sha256sum "dist/${APK_FILENAME}" | awk '{print $1}')
           echo "APK_FILENAME=$APK_FILENAME" >> "$GITHUB_ENV"
@@ -103,9 +150,14 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add app/build.gradle.kts
-          git commit -m "Bump version to v${{ env.NEW_NAME }} (Code ${{ env.NEW_CODE }}) [skip ci]"
-          git pull --rebase origin "${{ github.ref_name }}" || true
-          git push origin HEAD:"${{ github.ref_name }}" || true
+          if [ -f "my-upload-key.jks" ]; then
+            git add my-upload-key.jks
+          fi
+          if ! git diff --cached --quiet; then
+            git commit -m "Bump version to v${{ env.NEW_NAME }} (Code ${{ env.NEW_CODE }}) [skip ci]"
+            git pull --rebase origin "${{ github.ref_name }}" || git rebase --abort || true
+            git push origin HEAD:"${{ github.ref_name }}" || true
+          fi
           echo "BUMPED_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Publish GitHub Release

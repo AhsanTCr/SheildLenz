@@ -997,7 +997,9 @@ object UpdateChecker {
         archiveCertSha256s: Set<String>
     ): Boolean {
         if (installedCertSha256s.isEmpty() || archiveCertSha256s.isEmpty()) return true
-        return installedCertSha256s.any { it in archiveCertSha256s }
+        val cleanInstalled = installedCertSha256s.map { it.replace(":", "").lowercase(java.util.Locale.ROOT).trim() }
+        val cleanArchive = archiveCertSha256s.map { it.replace(":", "").lowercase(java.util.Locale.ROOT).trim() }
+        return cleanInstalled.any { it in cleanArchive }
     }
 
     private fun extractPackageSigningSha256s(pkgInfo: PackageInfo): Set<String> {

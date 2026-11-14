@@ -1173,9 +1173,11 @@ class ExampleRobolectricTest {
     @Test
     fun `signing cert comparison detects conflicts and home banner hides cleanly on tap`() {
         val certA = setOf("99e4cbc4f6043190f166d6c78b71adce6f7ecb2fb32feb3e957c25203aa9beaf")
+        val certAColonUpper = setOf("99:E4:CB:C4:F6:04:31:90:F1:66:D6:C7:8B:71:AD:CE:6F:7E:CB:2F:B3:2F:EB:3E:95:7C:25:20:3A:A9:BE:AF")
         val certB = setOf("11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff")
 
         assertTrue(UpdateChecker.haveCompatibleSigningCerts(certA, certA))
+        assertTrue(UpdateChecker.haveCompatibleSigningCerts(certA, certAColonUpper))
         assertFalse(UpdateChecker.haveCompatibleSigningCerts(certA, certB))
 
         UpdateChecker.hideHomeUpdateBanner()
