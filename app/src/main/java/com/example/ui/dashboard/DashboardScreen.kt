@@ -102,6 +102,7 @@ import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
+import com.example.ui.components.HomeModelDownloadCard
 import com.example.ui.components.ModelManagerCard
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.components.rememberMasterKeyGate
@@ -982,17 +983,12 @@ fun DashboardScreen(
                         enter = fadeIn() + expandVertically(),
                         exit = fadeOut() + shrinkVertically()
                     ) {
-                        ModelManagerCard(
+                        HomeModelDownloadCard(
                             telemetry = telemetry,
                             modelManager = modelManager,
                             onModelUpdated = onModelUpdated,
-                            cardTone = CyberCardTone.GOLD,
-                            showCloudDownloader = true,
                             onBeforeOpenPicker = { preferences.beginAuthorizedExternalFlow() },
-                            onRequireAuth = { label, action ->
-                                masterKeyGate.request(label) { action() }
-                            },
-                            modifier = Modifier.widthIn(max = 560.dp)
+                            modifier = Modifier.widthIn(max = 540.dp)
                         )
                     }
                 }

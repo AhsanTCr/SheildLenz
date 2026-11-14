@@ -204,7 +204,17 @@ object UpdateChecker {
                 }
             }.onFailure { err ->
                 if (showUpToDatePopup) {
-                    _checkError.value = err.message ?: "Failed to check for updates"
+                    val isOffline = err is java.net.UnknownHostException ||
+                        err is java.net.SocketException ||
+                        err is java.net.SocketTimeoutException ||
+                        err is java.net.ConnectException ||
+                        err.message?.contains("Unable to resolve host", ignoreCase = true) == true ||
+                        err.message?.contains("api.github.com", ignoreCase = true) == true
+                    _checkError.value = if (isOffline) {
+                        "You are offline. Please check your internet connection."
+                    } else {
+                        err.message ?: "Failed to check for updates"
+                    }
                 }
             }
         }

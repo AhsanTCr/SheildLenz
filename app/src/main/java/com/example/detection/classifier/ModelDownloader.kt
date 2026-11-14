@@ -154,12 +154,30 @@ object ModelDownloader {
         }
     }
 
+    fun isNetworkAvailable(context: Context): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                ?: return false
+            val activeNet = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(activeNet) ?: return false
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun downloadAndInstallZipModel(
         context: Context,
         modelManager: ModelManager,
         linkIndex: Int = 1,
         onStateChanged: (ModelDownloadState) -> Unit
     ): ModelImportResult = withContext(Dispatchers.IO) {
+        if (!isNetworkAvailable(context)) {
+            val msg = "You are offline. Please check your internet connection."
+            onStateChanged(ModelDownloadState.Failed(linkIndex, msg))
+            return@withContext ModelImportResult.Failure(msg)
+        }
+
         val targetUrl = if (linkIndex == 1) PRIMARY_MODEL_ZIP_URL else FALLBACK_MODEL_ZIP_URL
         val cacheDir = File(context.cacheDir, "model_downloads").apply {
             if (!exists()) mkdirs()
@@ -266,7 +284,18 @@ object ModelDownloader {
             throw ce
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading model from link $linkIndex", e)
-            val msg = "Link $linkIndex failed: ${e.message ?: "Network error"}"
+            val isOffline = !isNetworkAvailable(context) ||
+                e is java.net.UnknownHostException ||
+                e is java.net.SocketException ||
+                e is java.net.SocketTimeoutException ||
+                e is java.net.ConnectException ||
+                e.message?.contains("Unable to resolve host", ignoreCase = true) == true ||
+                e.message?.contains("api.github.com", ignoreCase = true) == true
+            val msg = if (isOffline) {
+                "You are offline. Please check your internet connection."
+            } else {
+                "Download error: ${e.message ?: "Network error"}"
+            }
             onStateChanged(ModelDownloadState.Failed(linkIndex, msg))
             return@withContext ModelImportResult.Failure(msg)
         } finally {
