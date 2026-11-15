@@ -33,7 +33,9 @@ Scan verified safe via VirusTotal
 * **⏳ Strict Temporary Device Lock:** Automatically locks the device for a set cooldown period if restricted content is triggered.
 * **🛡️ Post-Lock Password Security:** Even after the lock timer ends, the phone remains inaccessible until the master password is entered.
 * **🔐 100% Private:** All AI processing happens locally on your phone. No screen data or personal info is ever sent to any server.
+* **🔒 Guardian Control:** Parents Also connect the Child App and control everything monitorly. With also live see. The child cant be able to uninstall the app but the parents can.
 
+  
 ---
 
 ## 📱 Screenshots
