@@ -89,6 +89,8 @@ class ThreatDecisionEngine {
         )
     }
 
+    fun isAwaitingConfirmation(): Boolean = consecutiveSuspiciousCount > 0
+
     fun reset() {
         consecutiveSuspiciousCount = 0
         lastSuspectCategory = ThreatCategory.BENIGN_SAFE

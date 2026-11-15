@@ -10,6 +10,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -49,6 +51,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 class AegisProtectionService : Service() {
 
@@ -57,6 +60,7 @@ class AegisProtectionService : Service() {
     private val overlayController get() = container.overlayController
 
     private var mediaProjection: MediaProjection? = null
+    private var activeProjectionCallback: MediaProjection.Callback? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var backgroundThread: HandlerThread? = null
@@ -78,7 +82,13 @@ class AegisProtectionService : Service() {
     private var lastPublishedEffectiveIntervalMs: Int = 350
 
     @Volatile
+    private var deferredBitmap: Bitmap? = null
+
+    @Volatile
     private var isStopped = false
+
+    @Volatile
+    private var userRequestedStop = false
 
     @Volatile
     private var isScreenInteractive: Boolean = true
@@ -98,11 +108,45 @@ class AegisProtectionService : Service() {
     private var isPowerReceiverRegistered = false
     private val powerManager by lazy { getSystemService(Context.POWER_SERVICE) as? PowerManager }
 
+    private val trailingScanRunnable = Runnable {
+        if (isStopped) return@Runnable
+        val bitmap = deferredBitmap ?: return@Runnable
+        deferredBitmap = null
+        if (bitmap.isRecycled) return@Runnable
+
+        val prefs = container.preferences
+        if (prefs.pauseWhenScreenOff.value && (!isScreenInteractive || powerManager?.isInteractive == false)) {
+            return@Runnable
+        }
+        if (prefs.isLockdownActive() && overlayController.isOverlayVisible) {
+            return@Runnable
+        }
+        if (!contentClassifier.isModelReady) {
+            return@Runnable
+        }
+
+        val activePkg = resolveTrackedForegroundPackage()
+        if ((!activePkg.isNullOrBlank() && prefs.isPackageWhitelisted(activePkg)) ||
+            isZeroCostSkipPackage(activePkg, packageName)
+        ) {
+            return@Runnable
+        }
+
+        val now = SystemClock.uptimeMillis()
+        lastInspectionTimeMs = now
+        inspectBitmap(
+            bitmap = bitmap,
+            nowUptime = now,
+            forceEvaluate = decisionEngine.isAwaitingConfirmation()
+        )
+    }
+
     private val powerAndScreenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenInteractive = false
+                    cancelTrailingScan()
                     if (container.preferences.pauseWhenScreenOff.value) {
                         container.protectionRepository.recordInspectionMetrics(
                             frameCount = frameCounter,
@@ -143,7 +187,7 @@ class AegisProtectionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.i(TAG, "AegisProtectionService created (Eco Engine active).")
+        Log.i(TAG, "AegisProtectionService created (Eco Engine + Multi-Region Chrome Protection).")
         createNotificationChannel()
 
         contentClassifier = TFLiteContentClassifier(this, container.modelManager)
@@ -154,7 +198,6 @@ class AegisProtectionService : Service() {
         )
         decisionEngine = ThreatDecisionEngine()
 
-        // Run frame scanning at background efficiency priority to favor LITTLE CPU cores
         val thread = HandlerThread("AegisFrameProcessor", Process.THREAD_PRIORITY_BACKGROUND).apply {
             start()
         }
@@ -177,7 +220,6 @@ class AegisProtectionService : Service() {
         container.refreshModelTelemetry()
         container.protectionRepository.setServiceRunning(true)
 
-        // Automatically reload classifier if user imports or clears a .tflite file while running
         serviceScope.launch {
             container.modelManager.modelVersion.drop(1).collect {
                 backgroundHandler?.post {
@@ -191,11 +233,12 @@ class AegisProtectionService : Service() {
                     }
                     decisionEngine.reset()
                     consecutiveIdleOrSafeTicks = 0
+                    cancelTrailingScan()
                     container.refreshModelTelemetry()
                     val statusLabel = if (reloaded) {
-                        "Sheildlenz Active • AI Guardian Armed"
+                        "Sheildlenz Active • Chrome & All Apps Armed"
                     } else {
-                        "Sheildlenz Capture Active • Load .tflite Model"
+                        "Chrome Web Guard Active • Load .tflite for Vision"
                     }
                     val nm = getSystemService(NotificationManager::class.java)
                     nm?.notify(NOTIFICATION_ID, buildForegroundNotification(statusLabel))
@@ -204,7 +247,6 @@ class AegisProtectionService : Service() {
             }
         }
 
-        // Dynamically resize VirtualDisplay when user toggles compact capture width in Edits
         serviceScope.launch {
             container.preferences.captureWidthPx.drop(1).collect { newWidth ->
                 backgroundHandler?.post {
@@ -212,6 +254,16 @@ class AegisProtectionService : Service() {
                         resizeVirtualDisplayCapture(newWidth.coerceIn(224, 1080))
                     }
                 }
+            }
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        backgroundHandler?.post {
+            if (!isStopped && mediaProjection != null) {
+                cancelTrailingScan()
+                resizeVirtualDisplayCapture(container.preferences.captureWidthPx.value.coerceIn(224, 1080))
             }
         }
     }
@@ -265,11 +317,15 @@ class AegisProtectionService : Service() {
                 }
 
                 if (resultCode != 0 && resultData != null) {
+                    userRequestedStop = false
+                    isStopped = false
                     container.preferences.setShieldDesiredActive(true)
+                    getSystemService(NotificationManager::class.java)?.cancel(PAUSED_NOTIFICATION_ID)
+
                     val statusLabel = if (contentClassifier.isModelReady) {
-                        "Sheildlenz Active • AI Guardian Armed"
+                        "Sheildlenz Active • Chrome & All Apps Armed"
                     } else {
-                        "Sheildlenz Capture Active • Load .tflite Model"
+                        "Chrome Web Guard Active • Load .tflite for Vision"
                     }
                     val notification = buildForegroundNotification(statusLabel)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -285,6 +341,7 @@ class AegisProtectionService : Service() {
             }
 
             ACTION_STOP_PROTECTION -> {
+                userRequestedStop = true
                 stopProtection()
             }
         }
@@ -292,18 +349,32 @@ class AegisProtectionService : Service() {
         return START_STICKY
     }
 
-    private fun computeCaptureDimensions(targetWidthPx: Int): Triple<Int, Int, Int> {
+    private fun computeCaptureDimensions(targetShortSidePx: Int): Triple<Int, Int, Int> {
         val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getRealMetrics(metrics)
+        val screenWidth: Int
+        val screenHeight: Int
+        val densityDpi: Int
 
-        val screenWidth = metrics.widthPixels.coerceAtLeast(1)
-        val screenHeight = metrics.heightPixels.coerceAtLeast(1)
-        val captureWidth = targetWidthPx.coerceIn(224, 1080)
-        val scale = captureWidth.toFloat() / screenWidth
-        val captureHeight = (screenHeight * scale).toInt().coerceAtLeast(224)
-        return Triple(captureWidth, captureHeight, metrics.densityDpi)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.maximumWindowMetrics.bounds
+            screenWidth = bounds.width().coerceAtLeast(1)
+            screenHeight = bounds.height().coerceAtLeast(1)
+            densityDpi = resources.configuration.densityDpi.takeIf { it > 0 } ?: DisplayMetrics.DENSITY_DEFAULT
+        } else {
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            screenWidth = metrics.widthPixels.coerceAtLeast(1)
+            screenHeight = metrics.heightPixels.coerceAtLeast(1)
+            densityDpi = metrics.densityDpi.takeIf { it > 0 } ?: DisplayMetrics.DENSITY_DEFAULT
+        }
+
+        return computeCaptureDimensionsForBounds(
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            densityDpi = densityDpi,
+            targetShortSidePx = targetShortSidePx
+        )
     }
 
     private fun attachImageReaderListener(reader: ImageReader) {
@@ -322,6 +393,8 @@ class AegisProtectionService : Service() {
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
             ?: return
 
+        releaseCaptureHardware()
+
         val projection = projectionManager.getMediaProjection(resultCode, resultData)
         if (projection == null) {
             Log.e(TAG, "MediaProjection token retrieval failed.")
@@ -330,12 +403,26 @@ class AegisProtectionService : Service() {
         }
         mediaProjection = projection
 
-        projection.registerCallback(object : MediaProjection.Callback() {
+        val callback = object : MediaProjection.Callback() {
+            override fun onCapturedContentResize(width: Int, height: Int) {
+                if (width > 0 && height > 0 && !isStopped) {
+                    resizeVirtualDisplayCaptureForAspect(width, height)
+                }
+            }
+
             override fun onStop() {
-                Log.w(TAG, "MediaProjection revoked by system or user.")
+                Log.w(TAG, "MediaProjection stopped by system or user.")
+                if (!userRequestedStop &&
+                    container.preferences.isShieldDesiredActive.value &&
+                    !container.preferences.isLockdownActive()
+                ) {
+                    postPausedRearmNotification()
+                }
                 stopProtection()
             }
-        }, backgroundHandler)
+        }
+        activeProjectionCallback = callback
+        projection.registerCallback(callback, backgroundHandler)
 
         val (captureWidth, captureHeight, densityDpi) =
             computeCaptureDimensions(container.preferences.captureWidthPx.value)
@@ -355,15 +442,33 @@ class AegisProtectionService : Service() {
             backgroundHandler
         )
 
+        lastInspectionTimeMs = 0L
+        consecutiveIdleOrSafeTicks = 0
         Log.i(TAG, "VirtualDisplay engaged: ${captureWidth}x${captureHeight} @ ${densityDpi}dpi")
+        container.protectionRepository.setServiceRunning(true)
         container.protectionRepository.updateMediaProjectionState(true)
     }
 
-    private fun resizeVirtualDisplayCapture(newWidthPx: Int) {
+    private fun resizeVirtualDisplayCapture(newShortSidePx: Int) {
+        val (captureWidth, captureHeight, densityDpi) = computeCaptureDimensions(newShortSidePx)
+        applyVirtualDisplayResize(captureWidth, captureHeight, densityDpi)
+    }
+
+    private fun resizeVirtualDisplayCaptureForAspect(contentWidth: Int, contentHeight: Int) {
+        val densityDpi = resources.configuration.densityDpi.takeIf { it > 0 } ?: DisplayMetrics.DENSITY_DEFAULT
+        val (captureWidth, captureHeight, dpi) = computeCaptureDimensionsForBounds(
+            screenWidth = contentWidth,
+            screenHeight = contentHeight,
+            densityDpi = densityDpi,
+            targetShortSidePx = container.preferences.captureWidthPx.value
+        )
+        applyVirtualDisplayResize(captureWidth, captureHeight, dpi)
+    }
+
+    private fun applyVirtualDisplayResize(captureWidth: Int, captureHeight: Int, densityDpi: Int) {
         val vd = virtualDisplay ?: return
         val oldReader = imageReader
         try {
-            val (captureWidth, captureHeight, densityDpi) = computeCaptureDimensions(newWidthPx)
             if (oldReader != null && oldReader.width == captureWidth && oldReader.height == captureHeight) {
                 return
             }
@@ -376,35 +481,45 @@ class AegisProtectionService : Service() {
                 oldReader?.close()
             } catch (_: Exception) {
             }
+            framePreprocessor.reset()
             Log.i(TAG, "Resized VirtualDisplay capture cleanly to ${captureWidth}x${captureHeight}")
         } catch (e: Exception) {
             Log.w(TAG, "VirtualDisplay resize skipped: ${e.message}")
         }
     }
 
+    private fun resolveTrackedForegroundPackage(): String? {
+        if (!AegisAccessibilityService.isServiceRunning()) {
+            return null
+        }
+        return container.protectionRepository.telemetry.value.activeMonitoredPackage
+    }
+
     private fun handleIncomingImage(image: Image) {
         val prefs = container.preferences
 
-        // Stage 1: Zero-Copy Gate 1 — Screen-Off true sleep
+        // Gate 1: Screen-Off true sleep
         if (prefs.pauseWhenScreenOff.value && (!isScreenInteractive || powerManager?.isInteractive == false)) {
             image.close()
+            cancelTrailingScan()
             return
         }
 
-        // Stage 1: Zero-Copy Gate 2 — Lockdown overlay active
+        // Gate 2: Lockdown overlay active
         if (prefs.isLockdownActive() && overlayController.isOverlayVisible) {
             image.close()
+            cancelTrailingScan()
             return
         }
 
-        // Stage 1: Zero-Copy Gate 3 — Wake cadence immediately when Accessibility sees app/window change
+        // Gate 3: Wake cadence immediately when Accessibility sees app/window switch
         val latestContextChange = container.protectionRepository.lastContextChangeUptimeMs
         if (latestContextChange != seenContextChangeUptimeMs) {
             seenContextChangeUptimeMs = latestContextChange
             consecutiveIdleOrSafeTicks = 0
+            deferredBitmap = null
         }
 
-        // Compute adaptive + <20% low-battery throttled interval
         val (effectiveIntervalMs, lowBatt) = AegisPreferences.computeEffectiveScanIntervalMs(
             baseIntervalMs = prefs.scanIntervalMs.value,
             adaptiveEnabled = prefs.adaptiveCadenceEnabled.value,
@@ -427,50 +542,94 @@ class AegisProtectionService : Service() {
         }
         lastPublishedEffectiveIntervalMs = effectiveIntervalMs
 
-        val currentTime = SystemClock.uptimeMillis()
-        if (currentTime - lastInspectionTimeMs < effectiveIntervalMs.toLong()) {
-            image.close()
-            return
-        }
-        lastInspectionTimeMs = currentTime
-
-        // Stage 1: Zero-Copy Gate 4 — Skip pixel copy & AI completely if model isn't ready
+        // Gate 4: Skip pixel copy & AI inference if .tflite model isn't loaded
         if (!contentClassifier.isModelReady) {
             image.close()
+            cancelTrailingScan()
             return
         }
 
-        // Stage 1: Zero-Copy Gate 5 — Whitelisted apps or safe system/home screens skip BEFORE bitmap extraction
-        val activePkg = container.protectionRepository.telemetry.value.activeMonitoredPackage
+        // Gate 5: Whitelisted apps or launcher/self skip BEFORE pixel copy
+        val activePkg = resolveTrackedForegroundPackage()
         if ((!activePkg.isNullOrBlank() && prefs.isPackageWhitelisted(activePkg)) ||
             isZeroCostSkipPackage(activePkg, packageName)
         ) {
             image.close()
+            cancelTrailingScan()
             skippedCounter++
             consecutiveIdleOrSafeTicks = (consecutiveIdleOrSafeTicks + 1).coerceAtMost(30)
-            emitThrottledTelemetry(currentTime, currentFpsOverride = 0.0f)
+            emitThrottledTelemetry(SystemClock.uptimeMillis(), currentFpsOverride = 0.0f)
             return
         }
 
-        processFrame(image, currentTime)
+        val currentTime = SystemClock.uptimeMillis()
+        val elapsed = currentTime - lastInspectionTimeMs
+        if (elapsed < effectiveIntervalMs.toLong()) {
+            // Retain latest settled frame (e.g. Chrome finishing page render during throttle window)
+            // so a trailing-edge scan catches static browser pages reliably.
+            val extracted = try {
+                framePreprocessor.extractBitmapFromImage(image)
+            } catch (_: Exception) {
+                null
+            } finally {
+                image.close()
+            }
+            if (extracted != null) {
+                val delayMs = (effectiveIntervalMs.toLong() - elapsed).coerceIn(35L, 2000L)
+                scheduleTrailingScan(extracted, delayMs)
+            }
+            return
+        }
+
+        cancelTrailingScan()
+        lastInspectionTimeMs = currentTime
+
+        val bitmap = try {
+            framePreprocessor.extractBitmapFromImage(image)
+        } catch (e: Exception) {
+            Log.e(TAG, "Frame extraction error", e)
+            null
+        } finally {
+            image.close()
+        }
+
+        if (bitmap != null) {
+            inspectBitmap(bitmap = bitmap, nowUptime = currentTime, forceEvaluate = false)
+        }
     }
 
-    private fun processFrame(image: Image, nowUptime: Long) {
+    private fun scheduleTrailingScan(sourceBitmap: Bitmap, delayMs: Long) {
+        val handler = backgroundHandler ?: return
         try {
-            val bitmap = framePreprocessor.extractBitmapFromImage(image)
-            image.close()
+            val retained = framePreprocessor.retainDeferredBitmap(sourceBitmap)
+            deferredBitmap = retained
+            handler.removeCallbacks(trailingScanRunnable)
+            handler.postDelayed(trailingScanRunnable, delayMs.coerceAtLeast(35L))
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to retain deferred frame: ${e.message}")
+        }
+    }
 
-            if (bitmap == null) return
+    private fun cancelTrailingScan() {
+        deferredBitmap = null
+        backgroundHandler?.removeCallbacks(trailingScanRunnable)
+    }
 
-            // Stage 2: Perceptual block-luma duplicate skip (avoids inference on static/near-static frames)
-            if (container.preferences.skipDuplicateFrames.value && framePreprocessor.isFrameDuplicate(bitmap)) {
+    private fun inspectBitmap(bitmap: Bitmap, nowUptime: Long, forceEvaluate: Boolean) {
+        try {
+            val prefs = container.preferences
+            val awaitingConfirmation = decisionEngine.isAwaitingConfirmation()
+
+            // Duplicate frame skip — bypassed when awaiting confirmation or running trailing confirmation check
+            if (!forceEvaluate && !awaitingConfirmation && prefs.skipDuplicateFrames.value &&
+                framePreprocessor.isFrameDuplicate(bitmap)
+            ) {
                 skippedCounter++
                 consecutiveIdleOrSafeTicks = (consecutiveIdleOrSafeTicks + 1).coerceAtMost(30)
                 emitThrottledTelemetry(nowUptime)
                 return
             }
 
-            // Visual change detected -> snap adaptive cadence back to responsive speed
             consecutiveIdleOrSafeTicks = 0
             frameCounter++
             fpsCounter++
@@ -482,11 +641,6 @@ class AegisProtectionService : Service() {
                 quantizedUInt8 = contentClassifier.isQuantizedInput
             )
 
-            val tensorBuffer = framePreprocessor.preprocessBitmapToTensorBuffer(bitmap)
-            val classification = contentClassifier.classifyTensorBuffer(tensorBuffer)
-            if (!classification.isModelLoaded) return
-
-            val prefs = container.preferences
             val sensitivity = prefs.sensitivity.value
             val isStrictEverything = prefs.strictEverything.value
             val isMaintenance = prefs.maintenanceMode.value
@@ -495,9 +649,45 @@ class AegisProtectionService : Service() {
             val suggestiveOverride = if (useCustomThresholds) prefs.customSuggestiveThreshold.value else null
             val consecutiveRequired = prefs.consecutiveFramesRequired.value
 
+            val explicitThreshold = explicitOverride ?: sensitivity.threshold
+            val suggestiveThreshold = suggestiveOverride ?: sensitivity.threshold
+
+            val regions = FramePreprocessor.computeInspectionRegions(bitmap.width, bitmap.height)
+            var worstClassification: ClassificationResult? = null
+
+            if (regions.isEmpty()) {
+                val tb = framePreprocessor.preprocessBitmapToTensorBuffer(bitmap, null)
+                val res = contentClassifier.classifyTensorBuffer(tb)
+                if (res.isModelLoaded) worstClassification = res
+            } else {
+                for (region in regions) {
+                    val tb = framePreprocessor.preprocessBitmapToTensorBuffer(bitmap, region)
+                    val res = contentClassifier.classifyTensorBuffer(tb)
+                    if (!res.isModelLoaded) return
+
+                    worstClassification = selectHigherRiskClassification(worstClassification, res)
+
+                    // Short-circuit immediately if this crop already triggers an immediate block
+                    if (!isMaintenance) {
+                        val immediateExplicit = res.explicitScore >= explicitThreshold ||
+                            (isStrictEverything && res.explicitScore >= 0.50f)
+                        val suggestiveHit = res.suggestiveScore >= suggestiveThreshold ||
+                            (isStrictEverything && res.suggestiveScore >= 0.55f)
+                        val immediateSuggestive = suggestiveHit &&
+                            (isStrictEverything || res.suggestiveScore >= 0.85f || consecutiveRequired <= 1)
+                        if (immediateExplicit || immediateSuggestive) {
+                            break
+                        }
+                    }
+                }
+            }
+
+            val finalClassification = worstClassification ?: return
+            if (!finalClassification.isModelLoaded) return
+
             if (!isMaintenance) {
                 val decision = decisionEngine.evaluate(
-                    result = classification,
+                    result = finalClassification,
                     sensitivity = sensitivity,
                     isStrictEverything = isStrictEverything,
                     explicitThresholdOverride = explicitOverride,
@@ -505,12 +695,27 @@ class AegisProtectionService : Service() {
                     consecutiveFramesRequired = consecutiveRequired
                 )
                 if (decision.shouldBlock) {
-                    handleThreatDetected(classification, decision)
+                    cancelTrailingScan()
+                    handleThreatDetected(finalClassification, decision)
+                } else if (decisionEngine.isAwaitingConfirmation()) {
+                    // Schedule confirmation check so static suggestive webpages confirm cleanly without stalling
+                    val confirmDelay = prefs.scanIntervalMs.value.toLong().coerceIn(150L, 1200L)
+                    scheduleTrailingScan(bitmap, confirmDelay)
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Frame processing error", e)
         }
+    }
+
+    private fun selectHigherRiskClassification(
+        current: ClassificationResult?,
+        candidate: ClassificationResult
+    ): ClassificationResult {
+        if (current == null) return candidate
+        val currentRisk = maxOf(current.explicitScore * 1.25f, current.suggestiveScore)
+        val candidateRisk = maxOf(candidate.explicitScore * 1.25f, candidate.suggestiveScore)
+        return if (candidateRisk > currentRisk) candidate else current
     }
 
     private fun emitThrottledTelemetry(nowUptime: Long, currentFpsOverride: Float? = null) {
@@ -534,8 +739,14 @@ class AegisProtectionService : Service() {
     }
 
     private fun handleThreatDetected(classification: ClassificationResult, decision: DecisionOutcome) {
-        val targetPkg = container.protectionRepository.telemetry.value.activeMonitoredPackage ?: "Active Application"
-        val targetAppName = container.protectionRepository.activeAppLabel.value
+        val rawPkg = resolveTrackedForegroundPackage()
+            ?.takeIf { it.isNotBlank() && !isZeroCostSkipPackage(it, packageName) }
+        val targetPkg = rawPkg ?: ""
+        val targetAppName = if (rawPkg != null) {
+            container.protectionRepository.activeAppLabel.value
+        } else {
+            "Foreground App"
+        }
         val rawScores = if (classification.rawClassScores.isNotEmpty()) {
             classification.rawClassScores.entries.joinToString(", ") { (k, v) -> "$k: ${(v * 100).toInt()}%" }
         } else {
@@ -545,12 +756,19 @@ class AegisProtectionService : Service() {
 
         Log.w(TAG, "THREAT CONFIRMED: ${decision.category.name} in $targetAppName ($targetPkg). Executing eviction & full-device lockdown.")
 
-        if (container.preferences.evictAppOnThreat.value) {
+        val wentHome = if (container.preferences.evictAppOnThreat.value) {
             AegisAccessibilityService.closeAndEvictPackage(this, targetPkg)
         } else {
             AegisAccessibilityService.performEmergencyHomeAction()
         }
-        val suspended = AegisDeviceAdminReceiver.suspendPackageIfDeviceOwner(this, targetPkg)
+        if (!wentHome) {
+            launchHomeFallback()
+        }
+        val suspended = if (targetPkg.isNotBlank()) {
+            AegisDeviceAdminReceiver.suspendPackageIfDeviceOwner(this, targetPkg)
+        } else {
+            false
+        }
 
         container.preferences.engageFullDeviceLockdown(
             appName = targetAppName,
@@ -558,8 +776,8 @@ class AegisProtectionService : Service() {
             categoryName = decision.category.displayName,
             details = fullDetails
         )
-        AegisLockdownService.start(this)
         overlayController.showLockdownOverlay(container.preferences.lockdownIncidentInfo.value)
+        AegisLockdownService.start(this)
 
         val totalMinutes = container.preferences.lockdownDurationMinutes.value
         val durationLabel = AegisPreferences.formatMinutesLabel(totalMinutes)
@@ -572,7 +790,7 @@ class AegisProtectionService : Service() {
         serviceScope.launch {
             val incident = SecurityIncident(
                 timestampMillis = System.currentTimeMillis(),
-                packageName = targetPkg,
+                packageName = targetPkg.ifBlank { "foreground.screen" },
                 appDisplayName = targetAppName,
                 category = decision.category,
                 severity = decision.severity,
@@ -583,6 +801,50 @@ class AegisProtectionService : Service() {
             )
             container.securityHistoryRepository.logIncident(incident)
             container.protectionRepository.recordDetection(decision.category)
+        }
+    }
+
+    private fun launchHomeFallback() {
+        try {
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+            }
+            startActivity(homeIntent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Fallback HOME intent failed", e)
+        }
+    }
+
+    private fun releaseCaptureHardware() {
+        cancelTrailingScan()
+        try {
+            virtualDisplay?.release()
+        } catch (_: Exception) {
+        }
+        virtualDisplay = null
+
+        try {
+            imageReader?.close()
+        } catch (_: Exception) {
+        }
+        imageReader = null
+
+        val projection = mediaProjection
+        val cb = activeProjectionCallback
+        activeProjectionCallback = null
+        mediaProjection = null
+        if (projection != null) {
+            if (cb != null) {
+                try {
+                    projection.unregisterCallback(cb)
+                } catch (_: Exception) {
+                }
+            }
+            try {
+                projection.stop()
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -599,23 +861,7 @@ class AegisProtectionService : Service() {
             isPowerReceiverRegistered = false
         }
 
-        try {
-            virtualDisplay?.release()
-        } catch (_: Exception) {
-        }
-        virtualDisplay = null
-
-        try {
-            imageReader?.close()
-        } catch (_: Exception) {
-        }
-        imageReader = null
-
-        try {
-            mediaProjection?.stop()
-        } catch (_: Exception) {
-        }
-        mediaProjection = null
+        releaseCaptureHardware()
 
         if (!container.preferences.isLockdownActive()) {
             overlayController.dismissBlockOverlay()
@@ -648,6 +894,7 @@ class AegisProtectionService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(NotificationManager::class.java)
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Sheildlenz Protection Monitor",
@@ -656,8 +903,43 @@ class AegisProtectionService : Service() {
                 description = "Monitors screen frames for inappropriate content and provides protection status"
                 setShowBadge(false)
             }
-            val nm = getSystemService(NotificationManager::class.java)
             nm?.createNotificationChannel(channel)
+
+            val alertChannel = NotificationChannel(
+                ALERT_CHANNEL_ID,
+                "Sheildlenz Resume Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Alerts if Android pauses screen capture so visual protection can be resumed in one tap"
+            }
+            nm?.createNotificationChannel(alertChannel)
+        }
+    }
+
+    private fun postPausedRearmNotification() {
+        try {
+            val rearmIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(MainActivity.EXTRA_REARM_SHIELD, true)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                PAUSED_NOTIFICATION_ID,
+                rearmIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            )
+            val note = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("Visual Screen Capture Paused")
+                .setContentText("Tap to resume AI screen scanning across Chrome & apps. Web URL Guard stays active.")
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+            getSystemService(NotificationManager::class.java)?.notify(PAUSED_NOTIFICATION_ID, note)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed posting paused notification", e)
         }
     }
 
@@ -685,7 +967,9 @@ class AegisProtectionService : Service() {
     companion object {
         private const val TAG = "AegisProtectionService"
         const val CHANNEL_ID = "aegis_protection_channel"
+        const val ALERT_CHANNEL_ID = "aegis_protection_alerts"
         const val NOTIFICATION_ID = 1001
+        const val PAUSED_NOTIFICATION_ID = 1004
 
         const val ACTION_START_PROTECTION = "com.example.action.START_PROTECTION"
         const val ACTION_STOP_PROTECTION = "com.example.action.STOP_PROTECTION"
@@ -717,6 +1001,25 @@ class AegisProtectionService : Service() {
             if (activePackage.isNullOrBlank()) return false
             val pkg = activePackage.lowercase()
             return pkg == ownPackage.lowercase() || pkg in SAFE_SYSTEM_PACKAGES
+        }
+
+        internal fun computeCaptureDimensionsForBounds(
+            screenWidth: Int,
+            screenHeight: Int,
+            densityDpi: Int,
+            targetShortSidePx: Int
+        ): Triple<Int, Int, Int> {
+            val w = screenWidth.coerceAtLeast(1)
+            val h = screenHeight.coerceAtLeast(1)
+            val shortTarget = targetShortSidePx.coerceIn(224, 1080)
+            val (captureWidth, captureHeight) = if (w <= h) {
+                val scaledH = (h * (shortTarget.toFloat() / w)).roundToInt().coerceAtLeast(224)
+                shortTarget to scaledH
+            } else {
+                val scaledW = (w * (shortTarget.toFloat() / h)).roundToInt().coerceAtLeast(224)
+                scaledW to shortTarget
+            }
+            return Triple(captureWidth, captureHeight, densityDpi.coerceAtLeast(1))
         }
 
         fun start(context: Context, resultCode: Int, resultData: Intent) {

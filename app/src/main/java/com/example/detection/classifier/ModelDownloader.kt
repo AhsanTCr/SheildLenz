@@ -284,17 +284,26 @@ object ModelDownloader {
             throw ce
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading model from link $linkIndex", e)
-            val isOffline = !isNetworkAvailable(context) ||
-                e is java.net.UnknownHostException ||
-                e is java.net.SocketException ||
-                e is java.net.SocketTimeoutException ||
-                e is java.net.ConnectException ||
-                e.message?.contains("Unable to resolve host", ignoreCase = true) == true ||
-                e.message?.contains("api.github.com", ignoreCase = true) == true
+            val causes = generateSequence<Throwable>(e) { it.cause }.take(8).toList()
+            val isOffline = !isNetworkAvailable(context) || causes.any { t ->
+                val raw = t.message.orEmpty()
+                t is java.net.UnknownHostException ||
+                    t is java.net.SocketException ||
+                    t is java.net.SocketTimeoutException ||
+                    t is java.net.ConnectException ||
+                    t is java.net.UnknownServiceException ||
+                    t is javax.net.ssl.SSLException ||
+                    raw.contains("Unable to resolve host", ignoreCase = true) ||
+                    raw.contains("No address associated", ignoreCase = true) ||
+                    raw.contains("github", ignoreCase = true) ||
+                    raw.contains("failed to connect", ignoreCase = true) ||
+                    raw.contains("unreachable", ignoreCase = true) ||
+                    raw.contains("timed out", ignoreCase = true)
+            }
             val msg = if (isOffline) {
                 "You are offline. Please check your internet connection."
             } else {
-                "Download error: ${e.message ?: "Network error"}"
+                "Download failed. Please check your connection and try again."
             }
             onStateChanged(ModelDownloadState.Failed(linkIndex, msg))
             return@withContext ModelImportResult.Failure(msg)

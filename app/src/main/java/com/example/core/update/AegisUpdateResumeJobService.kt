@@ -16,15 +16,30 @@ class AegisUpdateResumeJobService : JobService() {
 
     override fun onStartJob(params: JobParameters?): Boolean {
         Log.i(TAG, "Resuming persisted update pre-download job.")
-        UpdateChecker.resumePersistedPreloadFromJob(applicationContext) {
-            jobFinished(params, false)
+        try {
+            UpdateChecker.resumePersistedPreloadFromJob(applicationContext) {
+                try {
+                    jobFinished(params, false)
+                } catch (_: Throwable) {
+                }
+            }
+            return true
+        } catch (t: Throwable) {
+            Log.w(TAG, "Update resume job aborted safely: ${t.message}")
+            try {
+                jobFinished(params, false)
+            } catch (_: Throwable) {
+            }
+            return false
         }
-        return true
     }
 
     override fun onStopJob(params: JobParameters?): Boolean {
-        // Reschedule automatically if OS pauses due to battery/network change
-        return UpdateChecker.hasIncompletePersistedDownload(applicationContext)
+        return try {
+            UpdateChecker.hasIncompletePersistedDownload(applicationContext)
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     companion object {

@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -54,16 +55,36 @@ class AegisLockdownService : Service() {
             }
             else -> {
                 if (!container.preferences.isLockdownActive()) {
+                    try {
+                        startForegroundCompat(buildNotification())
+                        @Suppress("DEPRECATION")
+                        stopForeground(true)
+                    } catch (_: Throwable) {
+                    }
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                startForeground(NOTIFICATION_ID, buildNotification())
+                val fgsStarted = try {
+                    startForegroundCompat(buildNotification())
+                    true
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Lockdown startForeground degraded cleanly: ${t.message}")
+                    false
+                }
                 overlayController.showLockdownOverlay(container.preferences.lockdownIncidentInfo.value)
                 watchdogHandler.removeCallbacks(watchdogRunnable)
                 watchdogHandler.postDelayed(watchdogRunnable, 2000L)
-                Log.i(TAG, "AegisLockdownService foreground watchdog engaged.")
+                Log.i(TAG, "AegisLockdownService watchdog engaged (foreground=$fgsStarted).")
                 return START_STICKY
             }
+        }
+    }
+
+    private fun startForegroundCompat(notification: Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
         }
     }
 
@@ -124,10 +145,21 @@ class AegisLockdownService : Service() {
             val intent = Intent(context, AegisLockdownService::class.java).apply {
                 action = ACTION_START_LOCKDOWN
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Unable to start foreground lockdown service directly; trying overlay fallback: ${t.message}")
+                try {
+                    val container = AegisContainer.getInstance(context)
+                    if (container.preferences.isLockdownActive()) {
+                        container.overlayController.showLockdownOverlay(container.preferences.lockdownIncidentInfo.value)
+                    }
+                } catch (_: Throwable) {
+                }
             }
         }
 
@@ -135,7 +167,10 @@ class AegisLockdownService : Service() {
             val intent = Intent(context, AegisLockdownService::class.java).apply {
                 action = ACTION_STOP_LOCKDOWN
             }
-            context.startService(intent)
+            try {
+                context.startService(intent)
+            } catch (_: Throwable) {
+            }
         }
     }
 }

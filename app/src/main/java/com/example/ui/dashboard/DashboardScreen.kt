@@ -96,6 +96,7 @@ import com.example.core.update.ApkDownloadState
 import com.example.core.update.UpdateChecker
 import com.example.data.preferences.AegisPreferences
 import com.example.data.repository.ProtectionRepository
+import com.example.detection.classifier.ModelDownloader
 import com.example.detection.classifier.ModelImportResult
 import com.example.detection.classifier.ModelManager
 import com.example.ui.components.AegisShieldGraphic
@@ -1043,37 +1044,72 @@ fun DashboardScreen(
                     containerColor = AegisChampagneSoft,
                     titleContentColor = AegisTextPrimary,
                     textContentColor = AegisTextSecondary,
-                    title = { Text("No AI Model Loaded", fontFamily = ClassicalDisplayFont, fontWeight = FontWeight.Bold) },
+                    title = { Text("Download AI Vision Model", fontFamily = ClassicalDisplayFont, fontWeight = FontWeight.Bold) },
                     text = {
-                        Text(
-                            "No .tflite classifier is attached yet. Load a compatible .tflite file from phone storage first.",
-                            fontFamily = ClassicalBodyFont
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = "Download the lightweight AI Vision Model (~4 MB) for full visual detection inside Chrome and all apps. You can also load a local .tflite file or start Browser URL Guard now.",
+                                fontFamily = ClassicalBodyFont
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        showMissingModelDialog = false
+                                        preferences.beginAuthorizedExternalFlow()
+                                        quickModelPickerLauncher.launch(arrayOf("*/*"))
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = AegisCardBackground,
+                                        contentColor = AegisTextPrimary
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("PICK .TFLITE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        showMissingModelDialog = false
+                                        onRequestStartProtection()
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = AegisLavenderSoft,
+                                        contentColor = AegisPurple
+                                    ),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("WEB GUARD", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                     },
                     confirmButton = {
                         Button(
                             onClick = {
                                 showMissingModelDialog = false
-                                preferences.beginAuthorizedExternalFlow()
-                                quickModelPickerLauncher.launch(arrayOf("*/*"))
+                                ModelDownloader.startDownload(
+                                    context = context,
+                                    modelManager = modelManager,
+                                    linkIndex = 1,
+                                    onCompleted = { onModelUpdated() }
+                                )
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = AegisPrimaryCyan, contentColor = AegisOnPrimaryWhite)
                         ) {
-                            Text("LOAD .TFLITE", fontWeight = FontWeight.Bold)
+                            Text("DOWNLOAD AI MODEL", fontWeight = FontWeight.Bold)
                         }
                     },
                     dismissButton = {
                         OutlinedButton(
-                            onClick = {
-                                showMissingModelDialog = false
-                                onRequestStartProtection()
-                            },
+                            onClick = { showMissingModelDialog = false },
                             colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = AegisLavenderSoft,
-                                contentColor = AegisPurple
+                                containerColor = AegisCardBackground,
+                                contentColor = AegisTextSecondary
                             )
                         ) {
-                            Text("CAPTURE ONLY", fontWeight = FontWeight.Bold)
+                            Text("CANCEL", fontWeight = FontWeight.SemiBold)
                         }
                     }
                 )

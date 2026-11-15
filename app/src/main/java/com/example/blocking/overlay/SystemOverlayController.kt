@@ -40,7 +40,11 @@ class SystemOverlayController(private val context: Context) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private val displayTypeface: Typeface by lazy {
-        ResourcesCompat.getFont(context, R.font.space_grotesk) ?: Typeface.SANS_SERIF
+        try {
+            ResourcesCompat.getFont(context, R.font.space_grotesk) ?: Typeface.SANS_SERIF
+        } catch (_: Exception) {
+            Typeface.SANS_SERIF
+        }
     }
     private var overlayView: View? = null
 
@@ -193,6 +197,10 @@ class SystemOverlayController(private val context: Context) {
             width = WindowManager.LayoutParams.MATCH_PARENT
             height = WindowManager.LayoutParams.MATCH_PARENT
             gravity = Gravity.CENTER
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
     }
 

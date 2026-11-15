@@ -53,16 +53,7 @@ class TFLiteContentClassifier(
         }
 
     init {
-        val loaded = reloadModel()
-        if (!loaded) {
-            isModelReady = true
-            inputWidth = 224
-            inputHeight = 224
-            isQuantizedInput = true
-            outputClassCount = 3
-            lastErrorMessage = "Built-in Smart Heuristic Visual Guard Active (Protecting Chrome & All Apps)"
-            Log.i(TAG, "Initialized Built-in Smart Heuristic Visual Guard fallback for all apps.")
-        }
+        reloadModel()
     }
 
     @Synchronized
@@ -94,13 +85,10 @@ class TFLiteContentClassifier(
             }
 
             if (createdInterpreter == null) {
-                isModelReady = true
-                inputWidth = 224
-                inputHeight = 224
-                isQuantizedInput = true
-                outputClassCount = 3
-                lastErrorMessage = "Built-in Smart Heuristic Visual Guard Active (Protecting Chrome & All Apps)"
-                Log.w(TAG, lastErrorMessage!!)
+                isModelReady = false
+                outputClassCount = 0
+                lastErrorMessage = "No .tflite visual model loaded yet."
+                Log.i(TAG, lastErrorMessage!!)
                 return false
             }
 
@@ -110,12 +98,9 @@ class TFLiteContentClassifier(
 
             if (inShape.size != 4 || inShape[0] != 1 || inShape[3] != 3) {
                 createdInterpreter.close()
-                isModelReady = true
-                inputWidth = 224
-                inputHeight = 224
-                isQuantizedInput = true
-                outputClassCount = 3
-                lastErrorMessage = "Incompatible input tensor — using Smart Heuristic Guard."
+                isModelReady = false
+                outputClassCount = 0
+                lastErrorMessage = "Unsupported input tensor shape ${inShape.contentToString()}."
                 return false
             }
 
@@ -124,12 +109,9 @@ class TFLiteContentClassifier(
             val classes = outShape.lastOrNull() ?: 0
             if (classes !in setOf(2, 3, 5)) {
                 createdInterpreter.close()
-                isModelReady = true
-                inputWidth = 224
-                inputHeight = 224
-                isQuantizedInput = true
-                outputClassCount = 3
-                lastErrorMessage = "Unsupported output classes — using Smart Heuristic Guard."
+                isModelReady = false
+                outputClassCount = 0
+                lastErrorMessage = "Unsupported output class count ($classes)."
                 return false
             }
 
@@ -146,12 +128,9 @@ class TFLiteContentClassifier(
             Log.i(TAG, "TFLite ready: ${inputWidth}x${inputHeight} (${if (isQuantizedInput) "UInt8" else "Float32"}), $outputClassCount output classes.")
             return true
         } catch (e: Exception) {
-            isModelReady = true
-            inputWidth = 224
-            inputHeight = 224
-            isQuantizedInput = true
-            outputClassCount = 3
-            lastErrorMessage = "Failed to load TFLite model — using Smart Heuristic Guard: ${e.message}"
+            isModelReady = false
+            outputClassCount = 0
+            lastErrorMessage = "Failed to load TFLite model: ${e.message}"
             Log.e(TAG, lastErrorMessage!!, e)
             return false
         }
@@ -163,37 +142,15 @@ class TFLiteContentClassifier(
         val startTime = SystemClock.uptimeMillis()
 
         if (tflite == null || !isModelReady) {
-            tensorBuffer.rewind()
-            var totalVal = 0.0f
-            var varianceSum = 0.0f
-            val count = tensorBuffer.remaining().coerceAtMost(2048)
-            val sampleValues = FloatArray(count)
-            for (i in 0 until count) {
-                val v = (tensorBuffer.get().toInt() and 0xFF) / 255.0f
-                sampleValues[i] = v
-                totalVal += v
-            }
-            val mean = if (count > 0) totalVal / count else 0.5f
-            for (i in 0 until count) {
-                val diff = sampleValues[i] - mean
-                varianceSum += diff * diff
-            }
-            val variance = if (count > 0) varianceSum / count else 0.0f
-
-            val explicitScore = if (variance > 0.09f) 0.18f else 0.02f
-            val suggestiveScore = if (variance > 0.06f) 0.12f else 0.03f
-            val safeScore = (1.0f - explicitScore - suggestiveScore).coerceIn(0.1f, 1.0f)
-
-            val latency = SystemClock.uptimeMillis() - startTime
             return ClassificationResult(
-                safeScore = safeScore,
-                suggestiveScore = suggestiveScore,
-                explicitScore = explicitScore,
-                topCategory = if (explicitScore > 0.15f) ThreatCategory.EXPLICIT_ADULT else ThreatCategory.BENIGN_SAFE,
-                confidence = 0.88f,
-                isModelLoaded = true,
-                latencyMs = latency,
-                diagnosticInfo = "Smart Heuristic Guard Active (Chrome & Apps Protected)"
+                safeScore = 1.0f,
+                suggestiveScore = 0.0f,
+                explicitScore = 0.0f,
+                topCategory = ThreatCategory.BENIGN_SAFE,
+                confidence = 0.0f,
+                isModelLoaded = false,
+                latencyMs = SystemClock.uptimeMillis() - startTime,
+                diagnosticInfo = lastErrorMessage ?: "No .tflite visual model loaded"
             )
         }
 

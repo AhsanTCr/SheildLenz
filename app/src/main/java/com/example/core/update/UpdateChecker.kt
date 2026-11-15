@@ -21,6 +21,7 @@ import androidx.core.content.FileProvider
 import com.example.BuildConfig
 import com.example.di.AegisContainer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,6 +34,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -118,7 +121,11 @@ object UpdateChecker {
     private const val KEY_PREF_TOTAL_BYTES = "pref_total_bytes"
     private const val KEY_PREF_SHA256 = "pref_sha256"
 
-    private val updateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val updateExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(TAG, "Unhandled update coroutine error caught safely", throwable)
+    }
+
+    private val updateScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + updateExceptionHandler)
 
     private val _isChecking = MutableStateFlow(false)
     val isChecking: StateFlow<Boolean> = _isChecking.asStateFlow()
@@ -163,6 +170,70 @@ object UpdateChecker {
         _homeBannerHidden.value = true
     }
 
+    internal fun isNetworkAvailable(context: Context?): Boolean {
+        if (context == null) return true
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return false
+            val activeNet = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(activeNet) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    internal fun formatFriendlyUpdateError(
+        context: Context?,
+        err: Throwable?,
+        fallback: String = "Unable to check for updates right now. Please try again."
+    ): String {
+        val offlineMsg = "You are offline. Please check your internet connection."
+        if (context != null && !isNetworkAvailable(context)) {
+            return offlineMsg
+        }
+        val causes = err?.let { root ->
+            generateSequence(root) { it.cause }.take(8).toList()
+        }.orEmpty()
+
+        val looksOffline = causes.any { t ->
+            val msg = t.message.orEmpty()
+            t is java.net.UnknownHostException ||
+                t is java.net.ConnectException ||
+                t is java.net.SocketException ||
+                t is java.net.SocketTimeoutException ||
+                t is java.net.UnknownServiceException ||
+                t is javax.net.ssl.SSLException ||
+                msg.contains("unable to resolve host", ignoreCase = true) ||
+                msg.contains("no address associated", ignoreCase = true) ||
+                msg.contains("api.github.com", ignoreCase = true) ||
+                msg.contains("github.com", ignoreCase = true) ||
+                msg.contains("githubusercontent", ignoreCase = true) ||
+                msg.contains("failed to connect", ignoreCase = true) ||
+                msg.contains("network is unreachable", ignoreCase = true) ||
+                msg.contains("enetunreach", ignoreCase = true) ||
+                msg.contains("econnrefused", ignoreCase = true) ||
+                msg.contains("eai_nodata", ignoreCase = true) ||
+                msg.contains("timeout", ignoreCase = true) ||
+                msg.contains("timed out", ignoreCase = true) ||
+                msg.contains("connection reset", ignoreCase = true) ||
+                msg.contains("software caused connection abort", ignoreCase = true) ||
+                msg.contains("broken pipe", ignoreCase = true) ||
+                msg.contains("offline", ignoreCase = true)
+        }
+        if (looksOffline) return offlineMsg
+
+        val rawMsg = err?.message.orEmpty().trim()
+        val leaksInternalHost = rawMsg.isBlank() ||
+            rawMsg.contains("github", ignoreCase = true) ||
+            rawMsg.contains("http://", ignoreCase = true) ||
+            rawMsg.contains("https://", ignoreCase = true) ||
+            rawMsg.contains("api.", ignoreCase = true) ||
+            causes.any { it is java.io.IOException }
+
+        return if (leaksInternalHost) fallback else rawMsg
+    }
+
     fun startCheckForUpdates(
         context: Context? = null,
         showUpToDatePopup: Boolean = true
@@ -176,12 +247,21 @@ object UpdateChecker {
             return
         }
 
+        val appContext = context?.applicationContext
+        if (appContext != null && !isNetworkAvailable(appContext)) {
+            _isChecking.value = false
+            if (showUpToDatePopup) {
+                _showUpToDateDialog.value = false
+                _checkError.value = "You are offline. Please check your internet connection."
+            }
+            return
+        }
+
         if (showUpToDatePopup) {
             _homeBannerHidden.value = false
         }
 
         val previousTag = _updateInfo.value?.latestVersion
-        val appContext = context?.applicationContext
         activeCheckJob?.cancel()
         _isChecking.value = true
         _checkError.value = null
@@ -189,67 +269,77 @@ object UpdateChecker {
             _showUpToDateDialog.value = false
         }
         activeCheckJob = updateScope.launch {
-            val result = checkForUpdates()
-            _isChecking.value = false
-            result.onSuccess { info ->
-                _updateInfo.value = info
-                if (previousTag != null && previousTag != info.latestVersion) {
-                    _homeBannerHidden.value = false
-                }
-                if (!info.isUpdateAvailable) {
-                    appContext?.let { clearPersistedTransferState(it) }
-                    if (showUpToDatePopup) _showUpToDateDialog.value = true
-                } else if (appContext != null) {
-                    maybeRestoreOrStartSilentPreload(appContext, info)
-                }
-            }.onFailure { err ->
-                if (showUpToDatePopup) {
-                    val isOffline = err is java.net.UnknownHostException ||
-                        err is java.net.SocketException ||
-                        err is java.net.SocketTimeoutException ||
-                        err is java.net.ConnectException ||
-                        err.message?.contains("Unable to resolve host", ignoreCase = true) == true ||
-                        err.message?.contains("api.github.com", ignoreCase = true) == true
-                    _checkError.value = if (isOffline) {
-                        "You are offline. Please check your internet connection."
-                    } else {
-                        err.message ?: "Failed to check for updates"
+            try {
+                val result = checkForUpdates(appContext)
+                _isChecking.value = false
+                result.onSuccess { info ->
+                    _updateInfo.value = info
+                    if (previousTag != null && previousTag != info.latestVersion) {
+                        _homeBannerHidden.value = false
                     }
+                    if (!info.isUpdateAvailable) {
+                        appContext?.let { clearPersistedTransferState(it) }
+                        if (showUpToDatePopup) _showUpToDateDialog.value = true
+                    } else if (appContext != null) {
+                        maybeRestoreOrStartSilentPreload(appContext, info)
+                    }
+                }.onFailure { err ->
+                    if (showUpToDatePopup) {
+                        _checkError.value = formatFriendlyUpdateError(
+                            context = appContext,
+                            err = err,
+                            fallback = "Unable to check for updates right now. Please try again."
+                        )
+                    }
+                }
+            } catch (ce: CancellationException) {
+                _isChecking.value = false
+                throw ce
+            } catch (t: Throwable) {
+                _isChecking.value = false
+                Log.w(TAG, "Update check aborted safely: ${t.message}")
+                if (showUpToDatePopup) {
+                    _checkError.value = formatFriendlyUpdateError(
+                        context = appContext,
+                        err = t,
+                        fallback = "Unable to check for updates right now. Please try again."
+                    )
                 }
             }
         }
     }
 
     private fun maybeRestoreOrStartSilentPreload(appContext: Context, info: UpdateInfo) {
-        val apkUrl = info.apkDownloadUrl ?: return
-        val cleanVer = cleanVersionTag(info.latestVersion)
-        val finalApk = getFinalApkFile(appContext, cleanVer)
+        try {
+            val apkUrl = info.apkDownloadUrl ?: return
+            val cleanVer = cleanVersionTag(info.latestVersion)
+            val finalApk = getFinalApkFile(appContext, cleanVer)
 
-        // Already pre-downloaded & verified earlier -> hold ready for 0-second 1-tap install!
-        if (finalApk.exists()) {
-            val check = verifyApkArchiveAndHash(
-                context = appContext,
-                apkFile = finalApk,
-                expectedTotalBytes = info.apkSizeBytes,
-                expectedSha256 = info.expectedSha256
-            )
-            if (check.isValid) {
-                pendingInstallApk = finalApk
-                AegisUpdateResumeJobService.cancel(appContext)
-                _apkDownloadState.value = ApkDownloadState.ReadyToInstall(
+            // Already pre-downloaded & verified earlier -> hold ready for 0-second 1-tap install!
+            if (finalApk.exists()) {
+                val check = verifyApkArchiveAndHash(
+                    context = appContext,
                     apkFile = finalApk,
-                    needsInstallPermission = false,
-                    preloadedReady = true,
-                    verifiedSha256 = check.computedSha256
+                    expectedTotalBytes = info.apkSizeBytes,
+                    expectedSha256 = info.expectedSha256
                 )
-                return
-            } else {
-                finalApk.delete()
+                if (check.isValid) {
+                    pendingInstallApk = finalApk
+                    AegisUpdateResumeJobService.cancel(appContext)
+                    _apkDownloadState.value = ApkDownloadState.ReadyToInstall(
+                        apkFile = finalApk,
+                        needsInstallPermission = false,
+                        preloadedReady = true,
+                        verifiedSha256 = check.computedSha256
+                    )
+                    return
+                } else {
+                    finalApk.delete()
+                }
             }
-        }
 
-        // Persist release target so app close / JobScheduler can resume `.part` seamlessly
-        persistTransferMetadata(appContext, cleanVer, apkUrl, info.apkSizeBytes, info.expectedSha256)
+            // Persist release target so app close / JobScheduler can resume `.part` seamlessly
+            persistTransferMetadata(appContext, cleanVer, apkUrl, info.apkSizeBytes, info.expectedSha256)
 
         val currentState = _apkDownloadState.value
         if (currentState is ApkDownloadState.Preloading || currentState is ApkDownloadState.Downloading) {
@@ -267,14 +357,17 @@ object UpdateChecker {
             return
         }
 
-        startApkTransfer(
-            context = appContext,
-            apkUrl = apkUrl,
-            versionTag = cleanVer,
-            expectedTotalBytes = info.apkSizeBytes,
-            expectedSha256 = info.expectedSha256,
-            silentPreload = true
-        )
+            startApkTransfer(
+                context = appContext,
+                apkUrl = apkUrl,
+                versionTag = cleanVer,
+                expectedTotalBytes = info.apkSizeBytes,
+                expectedSha256 = info.expectedSha256,
+                silentPreload = true
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "Silent preload skipped safely: ${t.message}")
+        }
     }
 
     /**
@@ -381,73 +474,92 @@ object UpdateChecker {
 
         activeApkJob?.cancel()
         activeApkJob = updateScope.launch {
-            AegisBackgroundDownloadService.notifyProgress(
-                context = appContext,
-                title = if (silentPreload) "Preloading Update (100 KB/s)" else "Downloading Sheildlenz Update",
-                subtitle = if (silentPreload) "Background update prepare..." else "Connecting...",
-                progressPct = -1,
-                force = true
-            )
-
-            val result = downloadApkResumable(
-                context = appContext,
-                apkUrl = apkUrl,
-                versionTag = versionTag,
-                expectedTotalBytes = expectedTotalBytes,
-                expectedSha256 = expectedSha256
-            ) { state ->
-                _apkDownloadState.value = state
-                when (state) {
-                    is ApkDownloadState.Preloading -> {
-                        val pct = state.progress?.let { (it * 100).toInt().coerceIn(0, 100) } ?: -1
-                        val label = formatProgressLabel(state.bytesDownloaded, state.totalBytes)
-                        AegisBackgroundDownloadService.notifyProgress(
-                            context = appContext,
-                            title = "Preloading Update (100 KB/s)",
-                            subtitle = if (pct >= 0) "$pct% • $label" else label,
-                            progressPct = pct
-                        )
-                    }
-                    is ApkDownloadState.Downloading -> {
-                        val pct = state.progress?.let { (it * 100).toInt().coerceIn(0, 100) } ?: -1
-                        val label = formatProgressLabel(state.bytesDownloaded, state.totalBytes)
-                        AegisBackgroundDownloadService.notifyProgress(
-                            context = appContext,
-                            title = "Downloading Sheildlenz Update",
-                            subtitle = if (pct >= 0) "$pct% • $label" else label,
-                            progressPct = pct
-                        )
-                    }
-                    ApkDownloadState.Verifying -> {
-                        AegisBackgroundDownloadService.notifyProgress(
-                            context = appContext,
-                            title = "Verifying Sheildlenz Update",
-                            subtitle = "Checking SHA-256 & APK integrity...",
-                            progressPct = -1,
-                            force = true
-                        )
-                    }
-                    else -> Unit
-                }
-            }
-
-            result.onSuccess { verifiedApk ->
-                AegisUpdateResumeJobService.cancel(appContext)
-                if (autoInstallOnComplete.get()) {
+            try {
+                if (!silentPreload) {
                     AegisBackgroundDownloadService.notifyProgress(
                         context = appContext,
-                        title = "Installing Sheildlenz Update",
-                        subtitle = "Auto-installing verified APK...",
+                        title = "Downloading Sheildlenz Update",
+                        subtitle = "Connecting...",
                         progressPct = -1,
-                        force = true
+                        force = true,
+                        useForegroundService = true
                     )
-                    autoInstallApk(appContext, verifiedApk)
-                } else {
-                    // Hold ready quietly with badge for instant 1-tap install
+                }
+
+                val result = downloadApkResumable(
+                    context = appContext,
+                    apkUrl = apkUrl,
+                    versionTag = versionTag,
+                    expectedTotalBytes = expectedTotalBytes,
+                    expectedSha256 = expectedSha256
+                ) { state ->
+                    if (silentPreload && state is ApkDownloadState.Failed) {
+                        _apkDownloadState.value = ApkDownloadState.Idle
+                    } else {
+                        _apkDownloadState.value = state
+                    }
+                    when (state) {
+                        is ApkDownloadState.Preloading -> Unit
+                        is ApkDownloadState.Downloading -> {
+                            val pct = state.progress?.let { (it * 100).toInt().coerceIn(0, 100) } ?: -1
+                            val label = formatProgressLabel(state.bytesDownloaded, state.totalBytes)
+                            AegisBackgroundDownloadService.notifyProgress(
+                                context = appContext,
+                                title = "Downloading Sheildlenz Update",
+                                subtitle = if (pct >= 0) "$pct% • $label" else label,
+                                progressPct = pct,
+                                useForegroundService = true
+                            )
+                        }
+                        ApkDownloadState.Verifying -> {
+                            if (!silentPreload || autoInstallOnComplete.get()) {
+                                AegisBackgroundDownloadService.notifyProgress(
+                                    context = appContext,
+                                    title = "Verifying Sheildlenz Update",
+                                    subtitle = "Checking SHA-256 & APK integrity...",
+                                    progressPct = -1,
+                                    force = true,
+                                    useForegroundService = true
+                                )
+                            }
+                        }
+                        else -> Unit
+                    }
+                }
+
+                result.onSuccess { verifiedApk ->
+                    AegisUpdateResumeJobService.cancel(appContext)
+                    if (autoInstallOnComplete.get()) {
+                        AegisBackgroundDownloadService.notifyProgress(
+                            context = appContext,
+                            title = "Installing Sheildlenz Update",
+                            subtitle = "Auto-installing verified APK...",
+                            progressPct = -1,
+                            force = true,
+                            useForegroundService = true
+                        )
+                        autoInstallApk(appContext, verifiedApk)
+                    } else {
+                        // Hold ready quietly with badge for instant 1-tap install
+                        AegisBackgroundDownloadService.stop(appContext)
+                    }
+                }.onFailure {
                     AegisBackgroundDownloadService.stop(appContext)
                 }
-            }.onFailure {
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                Log.w(TAG, "APK transfer coroutine stopped safely: ${t.message}")
                 AegisBackgroundDownloadService.stop(appContext)
+                if (!silentPreload) {
+                    _apkDownloadState.value = ApkDownloadState.Failed(
+                        formatFriendlyUpdateError(
+                            context = appContext,
+                            err = t,
+                            fallback = "Update download interrupted. Tap to retry."
+                        )
+                    )
+                }
             }
         }
     }
@@ -552,8 +664,13 @@ object UpdateChecker {
         }
     }
 
-    suspend fun checkForUpdates(): Result<UpdateInfo> = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdates(context: Context? = null): Result<UpdateInfo> = withContext(Dispatchers.IO) {
         try {
+            if (context != null && !isNetworkAvailable(context)) {
+                return@withContext Result.failure(
+                    Exception("You are offline. Please check your internet connection.")
+                )
+            }
             val candidates = mutableListOf<JSONObject>()
 
             val allResult = fetchReleaseJson(GITHUB_ALL_RELEASES_URL)
@@ -575,9 +692,12 @@ object UpdateChecker {
                         candidates.add(obj)
                     }
                 } else if (allResult.code != 200) {
-                    return@withContext Result.failure(
-                        Exception("No releases found on GitHub ($GITHUB_OWNER/$GITHUB_REPO) • HTTP ${latestResult.code}")
-                    )
+                    val msg = if (context != null && !isNetworkAvailable(context)) {
+                        "You are offline. Please check your internet connection."
+                    } else {
+                        "Unable to check for updates right now. Please try again later."
+                    }
+                    return@withContext Result.failure(Exception(msg))
                 }
             }
 
@@ -605,7 +725,12 @@ object UpdateChecker {
             Result.success(parseReleaseJson(bestRelease, BuildConfig.VERSION_NAME))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to check for updates", e)
-            Result.failure(e)
+            val friendly = formatFriendlyUpdateError(
+                context = context,
+                err = e,
+                fallback = "Unable to check for updates right now. Please try again."
+            )
+            Result.failure(Exception(friendly, e))
         }
     }
 
@@ -692,6 +817,11 @@ object UpdateChecker {
         cleanupOldVersionArtifacts(context, cleanVer)
 
         try {
+            if (!isNetworkAvailable(context) && !finalApk.exists()) {
+                val msg = "You are offline. Please check your internet connection."
+                onStateChanged(ApkDownloadState.Failed(msg))
+                return@withContext Result.failure(Exception(msg))
+            }
             if (finalApk.exists()) {
                 onStateChanged(ApkDownloadState.Verifying)
                 val existingVerify = verifyApkArchiveAndHash(context, finalApk, expectedTotalBytes, expectedSha256)
@@ -861,9 +991,13 @@ object UpdateChecker {
             throw ce
         } catch (e: Exception) {
             Log.e(TAG, "Failed to download APK (`.part` kept for resume)", e)
-            val msg = e.message ?: "APK download interrupted — tap to resume"
+            val msg = formatFriendlyUpdateError(
+                context = context,
+                err = e,
+                fallback = "Update download interrupted — tap to resume."
+            )
             onStateChanged(ApkDownloadState.Failed(msg))
-            Result.failure(e)
+            Result.failure(Exception(msg, e))
         }
     }
 
@@ -1003,20 +1137,18 @@ object UpdateChecker {
     }
 
     private fun extractPackageSigningSha256s(pkgInfo: PackageInfo): Set<String> {
-        val rawSignatures: Array<Signature>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val collector = mutableListOf<Signature>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val signingInfo = pkgInfo.signingInfo
             if (signingInfo != null) {
-                if (signingInfo.hasMultipleSigners()) signingInfo.apkContentsSigners else signingInfo.signingCertificateHistory
-            } else {
-                @Suppress("DEPRECATION")
-                pkgInfo.signatures
+                signingInfo.apkContentsSigners?.let { collector.addAll(it) }
+                signingInfo.signingCertificateHistory?.let { collector.addAll(it) }
             }
-        } else {
-            @Suppress("DEPRECATION")
-            pkgInfo.signatures
         }
-        if (rawSignatures.isNullOrEmpty()) return emptySet()
-        return rawSignatures.mapNotNull { sig ->
+        @Suppress("DEPRECATION")
+        pkgInfo.signatures?.let { collector.addAll(it) }
+        if (collector.isEmpty()) return emptySet()
+        return collector.mapNotNull { sig ->
             try {
                 val digest = MessageDigest.getInstance("SHA-256").digest(sig.toByteArray())
                 digest.joinToString("") { "%02x".format(it) }

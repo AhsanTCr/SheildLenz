@@ -1183,5 +1183,130 @@ class ExampleRobolectricTest {
         UpdateChecker.hideHomeUpdateBanner()
         assertTrue(UpdateChecker.homeBannerHidden.value)
     }
+
+    @Test
+    fun `update checker formats offline and github host errors cleanly without exposing api urls`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+
+        val dnsErr = java.net.UnknownHostException("Unable to resolve host \"api.github.com\": No address associated with hostname")
+        val msg1 = UpdateChecker.formatFriendlyUpdateError(context, dnsErr)
+        assertEquals("You are offline. Please check your internet connection.", msg1)
+        assertFalse(msg1.contains("github", ignoreCase = true))
+
+        val wrappedErr = RuntimeException("Request failed", java.net.ConnectException("Failed to connect to api.github.com/140.82.112.6:443"))
+        val msg2 = UpdateChecker.formatFriendlyUpdateError(context, wrappedErr)
+        assertEquals("You are offline. Please check your internet connection.", msg2)
+        assertFalse(msg2.contains("api.", ignoreCase = true))
+
+        val ioErr = java.io.IOException("unexpected end of stream on https://github.com/...")
+        val msg3 = UpdateChecker.formatFriendlyUpdateError(context, ioErr)
+        assertFalse(msg3.contains("github", ignoreCase = true))
+        assertFalse(msg3.contains("https://", ignoreCase = true))
+    }
+
+    @Test
+    fun `capture dimensions preserve portrait and landscape aspect ratios for chrome and media`() {
+        // Portrait phone 1080x2400 -> compact short side 256 -> 256x569
+        val (pWidth, pHeight, _) = AegisProtectionService.computeCaptureDimensionsForBounds(
+            screenWidth = 1080,
+            screenHeight = 2400,
+            densityDpi = 420,
+            targetShortSidePx = 256
+        )
+        assertEquals(256, pWidth)
+        assertTrue(pHeight in 568..570)
+
+        // Landscape tablet/video 2400x1080 -> compact short side 256 -> 569x256 (never squashed to 256x224)
+        val (lWidth, lHeight, _) = AegisProtectionService.computeCaptureDimensionsForBounds(
+            screenWidth = 2400,
+            screenHeight = 1080,
+            densityDpi = 420,
+            targetShortSidePx = 256
+        )
+        assertEquals(256, lHeight)
+        assertTrue(lWidth in 568..570)
+    }
+
+    @Test
+    fun `frame preprocessor computes non-distorted chrome viewport regions and crops accurately`() {
+        val portraitRegions = FramePreprocessor.computeInspectionRegions(width = 256, height = 569)
+        assertTrue(portraitRegions.size >= 2)
+        // Upper viewport skips Chrome top status + omnibox toolbar (~11% = 62px)
+        assertTrue(portraitRegions[0].top >= 55)
+        assertEquals(0, portraitRegions[0].left)
+        assertEquals(256, portraitRegions[0].right)
+
+        val landscapeRegions = FramePreprocessor.computeInspectionRegions(width = 569, height = 256)
+        assertEquals(2, landscapeRegions.size)
+        // First crop is centered 1:1 square
+        assertEquals(256, landscapeRegions[0].width())
+        assertEquals(256, landscapeRegions[0].height())
+
+        val preprocessor = FramePreprocessor(224, 224, isQuantizedUInt8 = false)
+        val bitmap = Bitmap.createBitmap(256, 569, Bitmap.Config.ARGB_8888)
+        val croppedTensor = preprocessor.preprocessBitmapToTensorBuffer(bitmap, portraitRegions[0])
+        assertEquals(224 * 224 * 3 * 4, croppedTensor.capacity())
+        preprocessor.recyclePools()
+    }
+
+    @Test
+    fun `decision engine reports awaiting confirmation only while holding borderline frame`() {
+        val engine = ThreatDecisionEngine()
+        assertFalse(engine.isAwaitingConfirmation())
+
+        val borderline = ClassificationResult(
+            safeScore = 0.18f,
+            suggestiveScore = 0.81f,
+            explicitScore = 0.01f,
+            topCategory = ThreatCategory.SUGGESTIVE_CONTENT,
+            confidence = 0.81f,
+            isModelLoaded = true,
+            latencyMs = 10L,
+            diagnosticInfo = "Test Confirmation"
+        )
+        val first = engine.evaluate(borderline, SensitivityLevel.BALANCED, isStrictEverything = false)
+        assertFalse(first.shouldBlock)
+        assertTrue(engine.isAwaitingConfirmation())
+
+        val second = engine.evaluate(borderline, SensitivityLevel.BALANCED, isStrictEverything = false)
+        assertTrue(second.shouldBlock)
+        assertFalse(engine.isAwaitingConfirmation())
+    }
+
+    @Test
+    fun `browser safety guard detects chrome and explicit urls without false positives`() {
+        assertTrue(AegisAccessibilityService.isBrowserPackage("com.android.chrome"))
+        assertTrue(AegisAccessibilityService.isBrowserPackage("com.microsoft.emmx"))
+        assertTrue(AegisAccessibilityService.isBrowserPackage("org.mozilla.firefox"))
+        assertTrue(AegisAccessibilityService.isBrowserPackage("com.sec.android.app.sbrowser"))
+        assertFalse(AegisAccessibilityService.isBrowserPackage("com.ahsan.tcr.sheildlenz"))
+
+        assertNotNull(AegisAccessibilityService.detectExplicitBrowserUrl("https://www.pornhub.com/video"))
+        assertNotNull(AegisAccessibilityService.detectExplicitBrowserUrl("https://www.google.com/search?q=porn_videos"))
+        assertNotNull(AegisAccessibilityService.detectExplicitBrowserUrl("example.xxx"))
+        assertNotNull(AegisAccessibilityService.detectExplicitBrowserUrl("onlyfans.com"))
+
+        assertEquals(null, AegisAccessibilityService.detectExplicitBrowserUrl("https://en.wikipedia.org/wiki/Portal:History"))
+        assertEquals(null, AegisAccessibilityService.detectExplicitBrowserUrl("portrait photography lighting setup"))
+        assertEquals(null, AegisAccessibilityService.detectExplicitBrowserUrl("https://ahsantcr.lovable.app"))
+        assertEquals(null, AegisAccessibilityService.detectExplicitBrowserUrl("scunthorpe united fc"))
+    }
+
+    @Test
+    fun `manifest declares specialUse foreground service type for lockdown service on android 14+`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val component = android.content.ComponentName(
+            context,
+            com.example.services.protection.AegisLockdownService::class.java
+        )
+        val serviceInfo = context.packageManager.getServiceInfo(
+            component,
+            android.content.pm.PackageManager.GET_META_DATA
+        )
+        assertEquals(
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+            serviceInfo.foregroundServiceType
+        )
+    }
 }
 

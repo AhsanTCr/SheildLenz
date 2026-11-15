@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -71,7 +73,14 @@ class MainActivity : ComponentActivity() {
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
         if (projectionManager != null) {
             container.preferences.beginAuthorizedExternalFlow()
-            mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+            val captureIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                projectionManager.createScreenCaptureIntent(
+                    MediaProjectionConfig.createConfigForDefaultDisplay()
+                )
+            } else {
+                projectionManager.createScreenCaptureIntent()
+            }
+            mediaProjectionLauncher.launch(captureIntent)
         } else {
             Toast.makeText(this, "MediaProjection service unavailable on this device.", Toast.LENGTH_SHORT).show()
         }

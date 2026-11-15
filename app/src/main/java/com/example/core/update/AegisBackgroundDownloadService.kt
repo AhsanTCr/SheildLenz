@@ -25,70 +25,89 @@ class AegisBackgroundDownloadService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         ensureNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopForegroundCompat()
-                stopSelf()
-                return START_NOT_STICKY
-            }
-            ACTION_UPDATE_PROGRESS, null -> {
-                val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Sheildlenz Download"
-                val subtitle = intent?.getStringExtra(EXTRA_SUBTITLE) ?: "Downloading in background..."
-                val progressPct = intent?.getIntExtra(EXTRA_PROGRESS, -1) ?: -1
-                val notification = buildNotification(title, subtitle, progressPct)
-                promoteToForeground(notification)
-                return START_REDELIVER_INTENT
-            }
+        isRunning = true
+        val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Sheildlenz Update"
+        val subtitle = intent?.getStringExtra(EXTRA_SUBTITLE) ?: "Downloading update..."
+        val progressPct = intent?.getIntExtra(EXTRA_PROGRESS, -1) ?: -1
+
+        val promoted = promoteToForeground(buildNotification(title, subtitle, progressPct))
+        if (intent?.action == ACTION_STOP || !promoted) {
+            stopForegroundCompat()
+            stopSelf()
+            return START_NOT_STICKY
         }
         return START_NOT_STICKY
     }
 
+    override fun onDestroy() {
+        isRunning = false
+        lastNotifyTimeMs = 0L
+        stopForegroundCompat()
+        super.onDestroy()
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        if (UpdateChecker.hasIncompletePersistedDownload(applicationContext)) {
-            AegisUpdateResumeJobService.schedule(applicationContext)
+        try {
+            if (UpdateChecker.hasIncompletePersistedDownload(applicationContext)) {
+                AegisUpdateResumeJobService.schedule(applicationContext)
+            }
+        } catch (_: Throwable) {
         }
     }
 
-    private fun promoteToForeground(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+    private fun promoteToForeground(notification: Notification): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            true
+        } catch (t: Throwable) {
+            android.util.Log.w("AegisDownloadSvc", "Unable to promote to foreground: ${t.message}")
+            false
         }
     }
 
     private fun stopForegroundCompat() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
+        } catch (_: Throwable) {
         }
     }
 
     private fun ensureNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(NotificationManager::class.java) ?: return
-            if (nm.getNotificationChannel(CHANNEL_ID) == null) {
-                val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    "Downloads & Updates",
-                    NotificationManager.IMPORTANCE_LOW
-                ).apply {
-                    description = "Shows progress for Sheildlenz app updates and AI model downloads."
-                    setShowBadge(false)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val nm = getSystemService(NotificationManager::class.java) ?: return
+                if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+                    val channel = NotificationChannel(
+                        CHANNEL_ID,
+                        "Downloads & Updates",
+                        NotificationManager.IMPORTANCE_LOW
+                    ).apply {
+                        description = "Shows progress for Sheildlenz app updates and AI model downloads."
+                        setShowBadge(false)
+                    }
+                    nm.createNotificationChannel(channel)
                 }
-                nm.createNotificationChannel(channel)
             }
+        } catch (_: Throwable) {
         }
     }
 
@@ -104,7 +123,7 @@ class AegisBackgroundDownloadService : Service() {
         )
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher_round)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(subtitle)
             .setOngoing(true)
@@ -132,13 +151,18 @@ class AegisBackgroundDownloadService : Service() {
         @Volatile
         private var lastNotifyTimeMs: Long = 0L
 
+        @Volatile
+        private var isRunning: Boolean = false
+
         fun notifyProgress(
             context: Context,
             title: String,
             subtitle: String,
             progressPct: Int,
-            force: Boolean = false
+            force: Boolean = false,
+            useForegroundService: Boolean = true
         ) {
+            if (!useForegroundService) return
             val now = System.currentTimeMillis()
             if (!force && now - lastNotifyTimeMs < 450L) return
             lastNotifyTimeMs = now
@@ -151,20 +175,18 @@ class AegisBackgroundDownloadService : Service() {
                     putExtra(EXTRA_PROGRESS, progressPct)
                 }
                 ContextCompat.startForegroundService(appCtx, intent)
-            } catch (_: Exception) {
-                // Safe no-op in unit tests or OEM background-start edge cases
+            } catch (_: Throwable) {
+                // Safe no-op in unit tests or Android 14+ background-start restriction cases
             }
         }
 
         fun stop(context: Context) {
             lastNotifyTimeMs = 0L
+            if (!isRunning) return
             try {
                 val appCtx = context.applicationContext
-                val intent = Intent(appCtx, AegisBackgroundDownloadService::class.java).apply {
-                    action = ACTION_STOP
-                }
-                appCtx.startService(intent)
-            } catch (_: Exception) {
+                appCtx.stopService(Intent(appCtx, AegisBackgroundDownloadService::class.java))
+            } catch (_: Throwable) {
             }
         }
     }
