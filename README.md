@@ -7,11 +7,11 @@ With instant Blocking app.
 
 ## 📥 Download 
 👉 **[Download Latest APK from Releases](https://github.com/ahsanpcin/Sheild-Lenz/releases)**
-## 📥 Download Ai
+## 📥 Download Ai 
 👉 **[Download Ai from Releases](https://github.com/ahsanpcin/Sheild-Lenz/releases)**
 
-
-
+## 📥 Gift For Users
+      Don't need to download ai the app download it built in
 
 
 
