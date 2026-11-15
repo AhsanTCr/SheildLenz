@@ -72,6 +72,7 @@ class AegisProtectionService : Service() {
 
     private var lastInspectionTimeMs: Long = 0L
     private var lastTelemetryEmitMs: Long = 0L
+    private var lastThumbnailUploadMs: Long = 0L
 
     private var frameCounter: Long = 0L
     private var skippedCounter: Long = 0L
@@ -219,6 +220,7 @@ class AegisProtectionService : Service() {
 
         container.refreshModelTelemetry()
         container.protectionRepository.setServiceRunning(true)
+        container.parentChildSyncController.ensureStarted()
 
         serviceScope.launch {
             container.modelManager.modelVersion.drop(1).collect {
@@ -634,6 +636,7 @@ class AegisProtectionService : Service() {
             frameCounter++
             fpsCounter++
             emitThrottledTelemetry(nowUptime)
+            maybeUploadLiveSeeThumbnail(bitmap, nowUptime)
 
             framePreprocessor.configure(
                 width = contentClassifier.inputWidth,
@@ -801,6 +804,46 @@ class AegisProtectionService : Service() {
             )
             container.securityHistoryRepository.logIncident(incident)
             container.protectionRepository.recordDetection(decision.category)
+            if (container.preferences.parentalRole.value == "child" &&
+                !container.preferences.pairedParentUid.value.isNullOrBlank()
+            ) {
+                container.parentChildRepository.logThreatToCloud(incident)
+            }
+        }
+    }
+
+    private fun maybeUploadLiveSeeThumbnail(sourceBitmap: Bitmap, nowUptime: Long) {
+        val prefs = container.preferences
+        if (prefs.parentalRole.value != "child" ||
+            prefs.pairedParentUid.value.isNullOrBlank() ||
+            !prefs.liveSeeEnabled.value
+        ) {
+            return
+        }
+        if (nowUptime - lastThumbnailUploadMs < 3500L) return
+        if (sourceBitmap.isRecycled) return
+        lastThumbnailUploadMs = nowUptime
+        val snapshotCopy = try {
+            sourceBitmap.copy(Bitmap.Config.ARGB_8888, false)
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        val appName = container.protectionRepository.activeAppLabel.value
+        val armed = container.protectionRepository.telemetry.value.isProtectionEnabled
+        val locked = prefs.isLockdownActive()
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                container.parentChildRepository.uploadLiveThumbnail(
+                    bitmap = snapshotCopy,
+                    activeAppName = appName,
+                    protectionArmed = armed,
+                    lockdownActive = locked
+                )
+            } finally {
+                if (!snapshotCopy.isRecycled) {
+                    snapshotCopy.recycle()
+                }
+            }
         }
     }
 

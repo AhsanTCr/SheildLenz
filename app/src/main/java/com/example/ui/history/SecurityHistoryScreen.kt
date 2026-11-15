@@ -1,9 +1,14 @@
 package com.example.ui.history
 
 import android.content.Intent
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +19,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -21,14 +27,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AppBlocking
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.AlertDialog
@@ -69,11 +75,9 @@ import com.example.data.repository.ThreatAnalyticsSummary
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
-import com.example.ui.components.LuxurySectionHeader
 import com.example.ui.components.SeverityTag
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.components.ThreatCategoryBadge
-import com.example.ui.components.ThreatCategoryDistributionCard
 import com.example.ui.components.rememberMasterKeyGate
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
@@ -112,7 +116,8 @@ private data class BlockedAppSummary(
 @Composable
 fun SecurityHistoryScreen(
     historyRepo: SecurityHistoryRepository,
-    preferences: AegisPreferences
+    preferences: AegisPreferences,
+    onNavigateBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val incidents by historyRepo.getIncidents().collectAsState(initial = emptyList())
@@ -120,6 +125,7 @@ fun SecurityHistoryScreen(
     val blockedAppCount by historyRepo.getBlockedAppCount().collectAsState(initial = 0)
     val scope = rememberCoroutineScope()
     var showClearDialog by remember { mutableStateOf(false) }
+    var isHistoryExpanded by remember { mutableStateOf(false) }
     val masterKeyGate = rememberMasterKeyGate(preferences)
 
     val blockedAppsBreakdown = remember(incidents) {
@@ -147,6 +153,7 @@ fun SecurityHistoryScreen(
             topBar = {
                 CyberTopBar(
                     title = "Progress",
+                    onNavigateBack = onNavigateBack,
                     actions = {
                         IconButton(
                             onClick = {
@@ -202,48 +209,7 @@ fun SecurityHistoryScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 22.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // 1. Threat Category Distribution Overview
-                item {
-                    LuxurySectionHeader(title = "Threat Overview", accentColor = AegisPurple)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    ThreatCategoryDistributionCard(analytics = analytics)
-                }
-
-                // 2. Sculpted Chamfered-Diamond Protection Ledger Pods
-                item {
-                    LuxurySectionHeader(title = "Protection Ledger", accentColor = AegisChampagneGold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        SculptedLedgerStatPod(
-                            title = "Detections",
-                            value = totalDetections.toString(),
-                            caption = "Blocked events",
-                            icon = Icons.Default.Security,
-                            accentColor = AegisChampagneGold,
-                            gradientColors = listOf(AegisChampagneSoft, AegisGoldDeepTint),
-                            borderColor = AegisGoldBorder,
-                            isLeftChamfer = true,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        SculptedLedgerStatPod(
-                            title = "Blocked Apps",
-                            value = blockedAppCount.toString(),
-                            caption = "Unique apps",
-                            icon = Icons.Default.AppBlocking,
-                            accentColor = AegisPurple,
-                            gradientColors = listOf(AegisLavenderSoft, AegisLavenderSurface),
-                            borderColor = AegisLavenderBorder,
-                            isLeftChamfer = false,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                // 3. Sculpted Arch-Capsule Blocked Applications Card
+                // 1. Sculpted Arch-Capsule Blocked Applications Card
                 item {
                     val ledgerCardShape = RoundedCornerShape(
                         topStart = 28.dp,
@@ -378,71 +344,181 @@ fun SecurityHistoryScreen(
                     }
                 }
 
-                // 4. Security History Log
+                // 2. Security History Horizontal 1-Tap Open/Close Control
                 item {
-                    LuxurySectionHeader(title = "Security History (${incidents.size})")
-                }
-
-                if (incidents.isEmpty()) {
-                    item {
-                        CyberCard(
-                            borderColor = AegisGoldBorder,
-                            tone = CyberCardTone.HERO
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 14.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(58.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            brush = Brush.linearGradient(
-                                                colors = listOf(AegisPrimaryCyan, AegisPurple, AegisChampagneGold)
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Shield,
-                                        contentDescription = null,
-                                        tint = AegisOnPrimaryWhite,
-                                        modifier = Modifier.size(28.dp)
+                    val toggleShape = RoundedCornerShape(22.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 60.dp)
+                            .shadow(
+                                elevation = 6.dp,
+                                shape = toggleShape,
+                                ambientColor = AegisPrimaryCyan.copy(alpha = 0.16f),
+                                spotColor = AegisPurple.copy(alpha = 0.16f)
+                            )
+                            .clip(toggleShape)
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color(0xFFF9FCFF),
+                                        AegisLavenderSoft,
+                                        AegisChampagneSoft.copy(alpha = 0.72f)
                                     )
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
+                                )
+                            )
+                            .border(
+                                width = 1.2.dp,
+                                color = if (isHistoryExpanded) AegisPrimaryCyan.copy(alpha = 0.55f) else AegisLavenderBorder,
+                                shape = toggleShape
+                            )
+                            .clickable { isHistoryExpanded = !isHistoryExpanded }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .testTag("toggle_security_history_button"),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f).padding(end = 10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(AegisPrimaryCyan, AegisPurple)
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = AegisOnPrimaryWhite,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
                                 Text(
-                                    text = "No Threats Detected",
+                                    text = "Security History",
                                     color = AegisTextPrimary,
-                                    fontSize = 16.sp,
+                                    fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = ClassicalDisplayFont
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "No incidents recorded yet.",
-                                    color = AegisTextMuted,
-                                    fontSize = 12.sp,
-                                    fontFamily = ClassicalBodyFont,
-                                    textAlign = TextAlign.Center
+                                    text = if (incidents.isEmpty()) {
+                                        "No incidents logged"
+                                    } else {
+                                        "${incidents.size} recorded ${if (incidents.size == 1) "event" else "events"}"
+                                    },
+                                    color = AegisTextSecondary,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    fontFamily = ClassicalBodyFont
                                 )
                             }
                         }
+
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (isHistoryExpanded) AegisPurple else AegisPrimaryCyan
+                                )
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = if (isHistoryExpanded) "HIDE" else "OPEN",
+                                color = AegisOnPrimaryWhite,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.6.sp,
+                                fontFamily = ClassicalBodyFont
+                            )
+                            Icon(
+                                imageVector = if (isHistoryExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (isHistoryExpanded) "Hide Security History" else "Open Security History",
+                                tint = AegisOnPrimaryWhite,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
-                } else {
-                    items(incidents, key = { it.id }) { incident ->
-                        IncidentItemCard(
-                            incident = incident,
-                            onToggleFalsePositive = {
-                                scope.launch {
-                                    historyRepo.markFalsePositive(incident.id, !incident.isReviewedFalsePositive)
+                }
+
+                if (isHistoryExpanded) {
+                    if (incidents.isEmpty()) {
+                        item {
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically()
+                            ) {
+                                CyberCard(
+                                    borderColor = AegisGoldBorder,
+                                    tone = CyberCardTone.HERO
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 14.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(54.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    brush = Brush.linearGradient(
+                                                        colors = listOf(AegisPrimaryCyan, AegisPurple, AegisChampagneGold)
+                                                    )
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Shield,
+                                                contentDescription = null,
+                                                tint = AegisOnPrimaryWhite,
+                                                modifier = Modifier.size(26.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = "No Threats Detected",
+                                            color = AegisTextPrimary,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = ClassicalDisplayFont
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "No incidents recorded yet.",
+                                            color = AegisTextMuted,
+                                            fontSize = 12.sp,
+                                            fontFamily = ClassicalBodyFont,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
-                        )
+                        }
+                    } else {
+                        items(incidents, key = { it.id }) { incident ->
+                            IncidentItemCard(
+                                incident = incident,
+                                onToggleFalsePositive = {
+                                    scope.launch {
+                                        historyRepo.markFalsePositive(incident.id, !incident.isReviewedFalsePositive)
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -489,105 +565,6 @@ fun SecurityHistoryScreen(
                     }
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun SculptedLedgerStatPod(
-    title: String,
-    value: String,
-    caption: String,
-    icon: ImageVector,
-    accentColor: Color,
-    gradientColors: List<Color>,
-    borderColor: Color,
-    isLeftChamfer: Boolean,
-    modifier: Modifier = Modifier
-) {
-    // Distinct chamfered diamond-shield shape for Protection Ledger metrics
-    val podShape = if (isLeftChamfer) {
-        CutCornerShape(topStart = 22.dp, topEnd = 6.dp, bottomStart = 6.dp, bottomEnd = 22.dp)
-    } else {
-        CutCornerShape(topStart = 6.dp, topEnd = 22.dp, bottomStart = 22.dp, bottomEnd = 6.dp)
-    }
-
-    Box(
-        modifier = modifier
-            .shadow(
-                elevation = 8.dp,
-                shape = podShape,
-                ambientColor = accentColor.copy(alpha = 0.20f),
-                spotColor = accentColor.copy(alpha = 0.20f)
-            )
-            .clip(podShape)
-            .background(brush = Brush.verticalGradient(colors = gradientColors))
-            .border(1.3.dp, borderColor, podShape)
-    ) {
-        Canvas(modifier = Modifier.matchParentSize()) {
-            val c = if (isLeftChamfer) Offset(size.width * 0.84f, size.height * 0.78f) else Offset(size.width * 0.16f, size.height * 0.78f)
-            drawCircle(
-                color = accentColor.copy(alpha = 0.10f),
-                radius = size.minDimension * 0.42f,
-                center = c
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title.uppercase(),
-                    color = AegisTextSecondary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.9.sp,
-                    fontFamily = ClassicalBodyFont,
-                    modifier = Modifier.weight(1f)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(
-                            brush = Brush.linearGradient(
-                                colors = listOf(accentColor, AegisLavenderLight)
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = AegisOnPrimaryWhite,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = value,
-                color = AegisTextPrimary,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = ClassicalDisplayFont
-            )
-
-            Text(
-                text = caption,
-                color = AegisTextMuted,
-                fontSize = 11.sp,
-                fontFamily = ClassicalBodyFont
-            )
         }
     }
 }

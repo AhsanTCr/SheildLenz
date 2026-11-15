@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.example.core.permissions.PermissionHelper
 import com.example.core.update.UpdateChecker
+import com.example.data.repository.ParentChildRepository
 import com.example.di.AegisContainer
 import com.example.services.protection.AegisLockdownService
 import com.example.services.protection.AegisProtectionService
@@ -47,6 +48,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handlePairingDeepLink(intent)
+        container.parentChildSyncController.ensureStarted()
         // Silently check latest GitHub release vs current app version on startup & pre-download at 100 KB/s
         UpdateChecker.startCheckForUpdates(this, showUpToDatePopup = false)
         enableEdgeToEdge(
@@ -96,14 +99,27 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handlePairingDeepLink(intent)
         if (intent.getBooleanExtra(EXTRA_REARM_SHIELD, false)) {
             promptedShieldRearmInSession = false
+        }
+    }
+
+    private fun handlePairingDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "sheildlenz" && data.host == "pair") {
+            val code = data.getQueryParameter("code")
+                ?: ParentChildRepository.extractPairingCode(data.toString())
+            if (!code.isNullOrBlank()) {
+                container.setPendingPairingCode(code)
+            }
         }
     }
 
     override fun onResume() {
         super.onResume()
         container.protectionRepository.refreshPermissionHealth()
+        container.parentChildSyncController.ensureStarted()
         UpdateChecker.retryPendingInstallIfAuthorized(this)
         if (container.preferences.isLockdownActive()) {
             AegisLockdownService.start(this)

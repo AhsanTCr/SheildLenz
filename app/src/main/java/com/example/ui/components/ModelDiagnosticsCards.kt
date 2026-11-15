@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.models.EngineTelemetry
@@ -383,6 +384,7 @@ fun ModelManagerCard(
     modifier: Modifier = Modifier,
     cardTone: CyberCardTone? = null,
     showCloudDownloader: Boolean = true,
+    activeAppName: String? = null,
     onBeforeOpenPicker: () -> Unit = {},
     onRequireAuth: (actionLabel: String, onAuthorized: () -> Unit) -> Unit = { _, action -> action() }
 ) {
@@ -477,18 +479,20 @@ fun ModelManagerCard(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "AI Model Engine (.tflite)",
+                        text = "AI Classification",
                         color = AegisTextPrimary,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalDisplayFont
                     )
                     Text(
-                        text = telemetry.loadedModelName ?: "No model file attached",
+                        text = telemetry.loadedModelName ?: "No .tflite model attached",
                         color = if (telemetry.isModelLoaded) AegisPrimaryCyan else AegisWarningAmber,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = ClassicalBodyFont
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -496,6 +500,7 @@ fun ModelManagerCard(
             StatusPill(
                 label = when {
                     errorToShow != null -> "ERROR"
+                    telemetry.isProtectionEnabled && telemetry.isModelLoaded -> "ENGAGED"
                     telemetry.isModelLoaded -> "READY"
                     else -> "MISSING"
                 },
@@ -505,7 +510,26 @@ fun ModelManagerCard(
             )
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        if (activeAppName != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ClassificationTelemetryChip(
+                    label = "Active App",
+                    value = activeAppName,
+                    modifier = Modifier.weight(1f)
+                )
+                ClassificationTelemetryChip(
+                    label = "Last Stream",
+                    value = telemetry.lastDetectedCategory?.displayName ?: "Clean",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         if (telemetry.isModelLoaded) {
             Column(
@@ -1093,6 +1117,39 @@ fun SampleImageTesterCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ClassificationTelemetryChip(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.72f))
+            .border(1.dp, AegisLavenderBorder.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp)
+    ) {
+        Text(
+            text = label.uppercase(),
+            color = AegisTextMuted,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.7.sp,
+            fontFamily = ClassicalBodyFont
+        )
+        Text(
+            text = value,
+            color = AegisTextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

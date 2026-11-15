@@ -1,16 +1,8 @@
 package com.example.ui.components
 
-import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -23,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,8 +26,8 @@ import androidx.compose.material.icons.filled.AccessibilityNew
 import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
@@ -45,7 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,8 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.models.EngineTelemetry
+import com.example.core.permissions.PermissionHelper
 import com.example.data.preferences.AegisPreferences
-import com.example.monitoring.accessibility.AegisAccessibilityService
 import com.example.security.deviceowner.AegisDeviceAdminReceiver
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
@@ -179,122 +171,134 @@ fun SecurityHealthGaugeCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Circular Arc Gauge
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(170.dp).padding(8.dp)
+            // Compact Header + Score Gauge Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Canvas(modifier = Modifier.size(150.dp)) {
-                    val strokeWidth = 14.dp.toPx()
-                    val startAngle = 140f
-                    val sweepAngle = 260f
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(108.dp)
+                ) {
+                    Canvas(modifier = Modifier.size(96.dp)) {
+                        val strokeWidth = 10.dp.toPx()
+                        val startAngle = 140f
+                        val sweepAngle = 260f
 
-                    // Background Track
-                    drawArc(
-                        color = AegisCardBorder.copy(alpha = 0.35f),
-                        startAngle = startAngle,
-                        sweepAngle = sweepAngle,
-                        useCenter = false,
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                    )
-
-                    // Active Score Arc
-                    val progressSweep = (animatedScore / 100f) * sweepAngle
-                    if (progressSweep > 0f) {
                         drawArc(
-                            brush = Brush.sweepGradient(
-                                listOf(
-                                    AegisPurple,
-                                    AegisPrimaryCyan,
-                                    AegisChampagneGold,
-                                    AegisPurple
-                                )
-                            ),
+                            color = AegisCardBorder.copy(alpha = 0.35f),
                             startAngle = startAngle,
-                            sweepAngle = progressSweep,
+                            sweepAngle = sweepAngle,
                             useCenter = false,
                             style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                        )
+
+                        val progressSweep = (animatedScore / 100f) * sweepAngle
+                        if (progressSweep > 0f) {
+                            drawArc(
+                                brush = Brush.sweepGradient(
+                                    listOf(
+                                        AegisPurple,
+                                        AegisPrimaryCyan,
+                                        AegisChampagneGold,
+                                        AegisPurple
+                                    )
+                                ),
+                                startAngle = startAngle,
+                                sweepAngle = progressSweep,
+                                useCenter = false,
+                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                            )
+                        }
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "${animatedScore.toInt()}%",
+                            color = AegisTextPrimary,
+                            fontSize = 23.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                        Text(
+                            text = "PERMISSIONS",
+                            color = AegisTextMuted,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp,
+                            fontFamily = ClassicalBodyFont
                         )
                     }
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                when {
+                                    report.score >= 90 -> AegisPurple.copy(alpha = 0.12f)
+                                    report.score >= 70 -> AegisPrimaryCyan.copy(alpha = 0.12f)
+                                    else -> AegisChampagneGold.copy(alpha = 0.15f)
+                                }
+                            )
+                            .border(
+                                1.dp,
+                                when {
+                                    report.score >= 90 -> AegisPurple.copy(alpha = 0.45f)
+                                    report.score >= 70 -> AegisPrimaryCyan.copy(alpha = 0.45f)
+                                    else -> AegisChampagneGold.copy(alpha = 0.45f)
+                                },
+                                RoundedCornerShape(50)
+                            )
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = report.statusTitle,
+                            color = AegisTextPrimary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "${animatedScore.toInt()}%",
-                        color = AegisTextPrimary,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontFamily = ClassicalDisplayFont
-                    )
-                    Text(
-                        text = "HEALTH SCORE",
-                        color = AegisTextMuted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp,
+                        text = report.statusDescription,
+                        color = AegisTextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
                         fontFamily = ClassicalBodyFont
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Score Status Banner
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(
-                        when {
-                            report.score >= 90 -> AegisPurple.copy(alpha = 0.12f)
-                            report.score >= 70 -> AegisPrimaryCyan.copy(alpha = 0.12f)
-                            else -> AegisChampagneGold.copy(alpha = 0.15f)
-                        }
-                    )
-                    .border(
-                        1.dp,
-                        when {
-                            report.score >= 90 -> AegisPurple.copy(alpha = 0.45f)
-                            report.score >= 70 -> AegisPrimaryCyan.copy(alpha = 0.45f)
-                            else -> AegisChampagneGold.copy(alpha = 0.45f)
-                        },
-                        RoundedCornerShape(50)
-                    )
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = report.statusTitle,
-                    color = AegisTextPrimary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalDisplayFont
-                )
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = report.statusDescription,
-                color = AegisTextSecondary,
-                fontSize = 11.sp,
-                fontFamily = ClassicalBodyFont,
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 6-Layer Security Health Matrix
+            // 6-Item Permission & Guard Status Matrix (tap missing items to fix)
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     DefenseLayerChip(
-                        title = "Screen Shield",
-                        active = report.isShieldRunning,
-                        icon = Icons.Default.Shield,
-                        onClick = onRequestArmShield,
+                        title = "Overlay",
+                        active = report.hasOverlay,
+                        icon = Icons.Default.Layers,
+                        onClick = {
+                            if (!report.hasOverlay) {
+                                preferences.grantTemporarySettingsAuthorization()
+                                try {
+                                    context.startActivity(PermissionHelper.getOverlaySettingsIntent(context))
+                                } catch (_: Exception) {
+                                    context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context))
+                                }
+                            }
+                        },
                         modifier = Modifier.weight(1f)
                     )
                     DefenseLayerChip(
@@ -302,10 +306,14 @@ fun SecurityHealthGaugeCard(
                         active = report.hasAccessibility,
                         icon = Icons.Default.AccessibilityNew,
                         onClick = {
-                            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            if (!report.hasAccessibility) {
+                                preferences.grantTemporarySettingsAuthorization()
+                                try {
+                                    context.startActivity(PermissionHelper.getAccessibilitySettingsIntent())
+                                } catch (_: Exception) {
+                                    context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context))
+                                }
                             }
-                            context.startActivity(intent)
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -321,23 +329,32 @@ fun SecurityHealthGaugeCard(
                         icon = Icons.Default.Security,
                         onClick = {
                             if (!report.isDeviceAdmin) {
+                                preferences.grantTemporarySettingsAuthorization()
                                 try {
                                     val intent = AegisDeviceAdminReceiver.createActivateAdminIntent(context).apply {
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     }
                                     context.startActivity(intent)
                                 } catch (_: Exception) {
+                                    context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context))
                                 }
                             }
                         },
                         modifier = Modifier.weight(1f)
                     )
                     DefenseLayerChip(
-                        title = "Guardian PIN",
-                        active = report.hasGuardianPin,
-                        icon = Icons.Default.Lock,
+                        title = "Battery Exempt",
+                        active = report.hasBatteryExemption,
+                        icon = Icons.Default.BatterySaver,
                         onClick = {
-                            // Handled in settings
+                            if (!report.hasBatteryExemption) {
+                                preferences.grantTemporarySettingsAuthorization()
+                                try {
+                                    context.startActivity(PermissionHelper.getBatteryOptimizationSettingsIntent(context))
+                                } catch (_: Exception) {
+                                    context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context))
+                                }
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -348,30 +365,17 @@ fun SecurityHealthGaugeCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     DefenseLayerChip(
-                        title = "Battery Exemption",
-                        active = report.hasBatteryExemption,
-                        icon = Icons.Default.BatterySaver,
-                        onClick = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                try {
-                                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                        data = Uri.parse("package:${context.packageName}")
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {
-                                }
-                            }
-                        },
+                        title = "Screen Shield",
+                        active = report.isShieldRunning,
+                        icon = Icons.Default.Shield,
+                        onClick = onRequestArmShield,
                         modifier = Modifier.weight(1f)
                     )
                     DefenseLayerChip(
-                        title = "AI Model",
-                        active = report.isModelLoaded,
-                        icon = Icons.Default.Memory,
-                        onClick = {
-                            // Handled in edits
-                        },
+                        title = "Guardian PIN",
+                        active = report.hasGuardianPin,
+                        icon = Icons.Default.Lock,
+                        onClick = {},
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -393,11 +397,12 @@ private fun DefenseLayerChip(
 
     Row(
         modifier = modifier
+            .heightIn(min = 42.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .border(1.dp, if (active) AegisCardBorder else AegisGoldBorder, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -406,7 +411,7 @@ private fun DefenseLayerChip(
                 imageVector = icon,
                 contentDescription = null,
                 tint = accent,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(15.dp)
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
@@ -418,12 +423,33 @@ private fun DefenseLayerChip(
                 maxLines = 1
             )
         }
-        Icon(
-            imageVector = if (active) Icons.Default.CheckCircle else Icons.Default.Warning,
-            contentDescription = if (active) "Active" else "Warning",
-            tint = accent,
-            modifier = Modifier.size(14.dp)
-        )
+        if (active) {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = "Active",
+                tint = accent,
+                modifier = Modifier.size(14.dp)
+            )
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = "FIX",
+                    color = accent,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = ClassicalBodyFont
+                )
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Action required",
+                    tint = accent,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+        }
     }
 }
 

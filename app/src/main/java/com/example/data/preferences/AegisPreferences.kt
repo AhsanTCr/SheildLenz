@@ -256,6 +256,38 @@ class AegisPreferences(context: Context) {
     private val _isGuardianSessionUnlocked = MutableStateFlow(false)
     val isGuardianSessionUnlocked: StateFlow<Boolean> = _isGuardianSessionUnlocked.asStateFlow()
 
+    // Parent-Child Cloud Sync & Guardian Control State
+    private val _parentalRole = MutableStateFlow(prefs.getString(KEY_PARENTAL_ROLE, null))
+    val parentalRole: StateFlow<String?> = _parentalRole.asStateFlow()
+
+    private val _pairedParentUid = MutableStateFlow(prefs.getString(KEY_PAIRED_PARENT_UID, null))
+    val pairedParentUid: StateFlow<String?> = _pairedParentUid.asStateFlow()
+
+    private val _pairedParentName = MutableStateFlow(prefs.getString(KEY_PAIRED_PARENT_NAME, null))
+    val pairedParentName: StateFlow<String?> = _pairedParentName.asStateFlow()
+
+    private val _pairedChildUid = MutableStateFlow(prefs.getString(KEY_PAIRED_CHILD_UID, null))
+    val pairedChildUid: StateFlow<String?> = _pairedChildUid.asStateFlow()
+
+    private val _childPairingCode = MutableStateFlow(prefs.getString(KEY_CHILD_PAIRING_CODE, null))
+    val childPairingCode: StateFlow<String?> = _childPairingCode.asStateFlow()
+
+    private val _childUninstallLocked = MutableStateFlow(prefs.getBoolean(KEY_CHILD_UNINSTALL_LOCKED, true))
+    val childUninstallLocked: StateFlow<Boolean> = _childUninstallLocked.asStateFlow()
+
+    private val _parentApprovedUninstallUntilMillis = MutableStateFlow(
+        prefs.getLong(KEY_PARENT_APPROVED_UNINSTALL_UNTIL, 0L)
+    )
+    val parentApprovedUninstallUntilMillis: StateFlow<Long> = _parentApprovedUninstallUntilMillis.asStateFlow()
+
+    private val _liveSeeEnabled = MutableStateFlow(prefs.getBoolean(KEY_LIVE_SEE_ENABLED, true))
+    val liveSeeEnabled: StateFlow<Boolean> = _liveSeeEnabled.asStateFlow()
+
+    private val _lastHandledRemoteCommandTs = MutableStateFlow(
+        prefs.getLong(KEY_LAST_REMOTE_CMD_TS, 0L)
+    )
+    val lastHandledRemoteCommandTs: StateFlow<Long> = _lastHandledRemoteCommandTs.asStateFlow()
+
     @Volatile
     private var guardianSettingsBypassUntilRealtime: Long = 0L
 
@@ -490,6 +522,88 @@ class AegisPreferences(context: Context) {
     fun setShieldDesiredActive(active: Boolean) {
         prefs.edit().putBoolean(KEY_SHIELD_DESIRED_ACTIVE, active).apply()
         _isShieldDesiredActive.value = active
+    }
+
+    fun setParentalRole(role: String?) {
+        if (role.isNullOrBlank()) {
+            prefs.edit().remove(KEY_PARENTAL_ROLE).apply()
+            _parentalRole.value = null
+        } else {
+            prefs.edit().putString(KEY_PARENTAL_ROLE, role).apply()
+            _parentalRole.value = role
+        }
+    }
+
+    fun setPairedParentInfo(parentUid: String?, parentName: String?) {
+        prefs.edit().apply {
+            if (parentUid.isNullOrBlank()) remove(KEY_PAIRED_PARENT_UID) else putString(KEY_PAIRED_PARENT_UID, parentUid)
+            if (parentName.isNullOrBlank()) remove(KEY_PAIRED_PARENT_NAME) else putString(KEY_PAIRED_PARENT_NAME, parentName)
+        }.apply()
+        _pairedParentUid.value = parentUid?.takeIf { it.isNotBlank() }
+        _pairedParentName.value = parentName?.takeIf { it.isNotBlank() }
+    }
+
+    fun setPairedChildUid(childUid: String?) {
+        if (childUid.isNullOrBlank()) {
+            prefs.edit().remove(KEY_PAIRED_CHILD_UID).apply()
+            _pairedChildUid.value = null
+        } else {
+            prefs.edit().putString(KEY_PAIRED_CHILD_UID, childUid).apply()
+            _pairedChildUid.value = childUid
+        }
+    }
+
+    fun setChildPairingCode(code: String?) {
+        if (code.isNullOrBlank()) {
+            prefs.edit().remove(KEY_CHILD_PAIRING_CODE).apply()
+            _childPairingCode.value = null
+        } else {
+            prefs.edit().putString(KEY_CHILD_PAIRING_CODE, code).apply()
+            _childPairingCode.value = code
+        }
+    }
+
+    fun setChildUninstallLocked(locked: Boolean) {
+        prefs.edit().putBoolean(KEY_CHILD_UNINSTALL_LOCKED, locked).apply()
+        _childUninstallLocked.value = locked
+    }
+
+    fun setParentApprovedUninstallUntil(untilMillis: Long) {
+        prefs.edit().putLong(KEY_PARENT_APPROVED_UNINSTALL_UNTIL, untilMillis).apply()
+        _parentApprovedUninstallUntilMillis.value = untilMillis
+    }
+
+    fun isParentApprovedUninstallActive(): Boolean =
+        _parentApprovedUninstallUntilMillis.value > System.currentTimeMillis()
+
+    fun isChildUninstallBlocked(): Boolean =
+        _parentalRole.value == "child" && _childUninstallLocked.value && !isParentApprovedUninstallActive()
+
+    fun setLiveSeeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_LIVE_SEE_ENABLED, enabled).apply()
+        _liveSeeEnabled.value = enabled
+    }
+
+    fun setLastHandledRemoteCommandTs(timestamp: Long) {
+        prefs.edit().putLong(KEY_LAST_REMOTE_CMD_TS, timestamp).apply()
+        _lastHandledRemoteCommandTs.value = timestamp
+    }
+
+    fun clearParentalConnectionState() {
+        prefs.edit()
+            .remove(KEY_PARENTAL_ROLE)
+            .remove(KEY_PAIRED_PARENT_UID)
+            .remove(KEY_PAIRED_PARENT_NAME)
+            .remove(KEY_PAIRED_CHILD_UID)
+            .remove(KEY_CHILD_PAIRING_CODE)
+            .putLong(KEY_PARENT_APPROVED_UNINSTALL_UNTIL, 0L)
+            .apply()
+        _parentalRole.value = null
+        _pairedParentUid.value = null
+        _pairedParentName.value = null
+        _pairedChildUid.value = null
+        _childPairingCode.value = null
+        _parentApprovedUninstallUntilMillis.value = 0L
     }
 
     fun getDoubleTimeDurationMinutes(): Int =
@@ -820,5 +934,14 @@ class AegisPreferences(context: Context) {
         private const val KEY_SCHEDULE_ENABLED = "key_schedule_enabled"
         private const val KEY_SCHEDULE_START_MINUTES = "key_schedule_start_minutes"
         private const val KEY_SCHEDULE_END_MINUTES = "key_schedule_end_minutes"
+        private const val KEY_PARENTAL_ROLE = "key_parental_role"
+        private const val KEY_PAIRED_PARENT_UID = "key_paired_parent_uid"
+        private const val KEY_PAIRED_PARENT_NAME = "key_paired_parent_name"
+        private const val KEY_PAIRED_CHILD_UID = "key_paired_child_uid"
+        private const val KEY_CHILD_PAIRING_CODE = "key_child_pairing_code"
+        private const val KEY_CHILD_UNINSTALL_LOCKED = "key_child_uninstall_locked"
+        private const val KEY_PARENT_APPROVED_UNINSTALL_UNTIL = "key_parent_approved_uninstall_until"
+        private const val KEY_LIVE_SEE_ENABLED = "key_live_see_enabled"
+        private const val KEY_LAST_REMOTE_CMD_TS = "key_last_remote_cmd_ts"
     }
 }

@@ -13,15 +13,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.MonitorHeart
+import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -36,6 +34,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -57,6 +56,7 @@ import com.example.ui.blocking.BlockOverlayScreen
 import com.example.ui.dashboard.DashboardScreen
 import com.example.ui.history.SecurityHistoryScreen
 import com.example.ui.onboarding.OnboardingScreen
+import com.example.ui.parents.ParentsScreen
 import com.example.ui.protection.LiveProtectionScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.splash.SplashScreen
@@ -89,16 +89,10 @@ private val MainTabItems = listOf(
         unselectedIcon = Icons.Outlined.Tune
     ),
     MainTabItem(
-        route = AegisDestinations.STATUS,
-        label = "Status",
-        selectedIcon = Icons.Filled.MonitorHeart,
-        unselectedIcon = Icons.Outlined.MonitorHeart
-    ),
-    MainTabItem(
-        route = AegisDestinations.PROGRESS,
-        label = "Progress",
-        selectedIcon = Icons.Filled.Assessment,
-        unselectedIcon = Icons.Outlined.Assessment
+        route = AegisDestinations.PARENTS,
+        label = "Parents",
+        selectedIcon = Icons.Filled.SupervisorAccount,
+        unselectedIcon = Icons.Outlined.SupervisorAccount
     ),
     MainTabItem(
         route = AegisDestinations.ABOUT,
@@ -129,10 +123,19 @@ fun AegisNavHost(
         hasGuardianPin = hasGuardianPin,
         isSessionUnlocked = isGuardianUnlocked
     )
+    val pendingPairingCode by container.pendingPairingCode.collectAsState()
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val showMainNavigation = isGuardianAuthorized && MainTabItems.any { it.route == currentRoute }
+
+    LaunchedEffect(pendingPairingCode, isGuardianAuthorized) {
+        if (!pendingPairingCode.isNullOrBlank() && isGuardianAuthorized) {
+            navController.navigate(AegisDestinations.PARENTS) {
+                launchSingleTop = true
+            }
+        }
+    }
 
     val navigateToTab: (String) -> Unit = { targetRoute ->
         if (currentRoute != targetRoute) {
@@ -307,7 +310,17 @@ fun AegisNavHost(
                                 preferences = container.preferences,
                                 onModelUpdated = { container.refreshModelTelemetry() },
                                 onRequestStartProtection = onRequestStartProtection,
-                                onRequestStopProtection = onRequestStopProtection
+                                onRequestStopProtection = onRequestStopProtection,
+                                onNavigateToStatus = {
+                                    navController.navigate(AegisDestinations.STATUS) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onNavigateToProgress = {
+                                    navController.navigate(AegisDestinations.PROGRESS) {
+                                        launchSingleTop = true
+                                    }
+                                }
                             )
                         }
                     }
@@ -340,7 +353,8 @@ fun AegisNavHost(
                             LiveProtectionScreen(
                                 protectionRepo = container.protectionRepository,
                                 preferences = container.preferences,
-                                onRequestArmShield = onRequestStartProtection
+                                onRequestArmShield = onRequestStartProtection,
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
                     }
@@ -355,7 +369,26 @@ fun AegisNavHost(
                         } else {
                             SecurityHistoryScreen(
                                 historyRepo = container.securityHistoryRepository,
-                                preferences = container.preferences
+                                preferences = container.preferences,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                    }
+
+                    composable(AegisDestinations.PARENTS) {
+                        if (!isGuardianAuthorized) {
+                            GuardianGateScreen(
+                                preferences = container.preferences,
+                                protectionRepo = container.protectionRepository,
+                                onUnlocked = { }
+                            )
+                        } else {
+                            ParentsScreen(
+                                repository = container.parentChildRepository,
+                                preferences = container.preferences,
+                                syncController = container.parentChildSyncController,
+                                pendingPairingCode = pendingPairingCode,
+                                onConsumePendingPairingCode = { container.setPendingPairingCode(null) }
                             )
                         }
                     }
@@ -372,6 +405,15 @@ fun AegisNavHost(
                                 preferences = container.preferences
                             )
                         }
+                    }
+
+                    composable(AegisDestinations.PARENT_CHILD_LINK) {
+                        com.example.ui.auth.ParentChildLinkScreen(
+                            repository = container.parentChildRepository,
+                            preferences = container.preferences,
+                            syncController = container.parentChildSyncController,
+                            onBack = { navController.popBackStack() }
+                        )
                     }
 
                     composable(AegisDestinations.BLOCK_SCREEN) {

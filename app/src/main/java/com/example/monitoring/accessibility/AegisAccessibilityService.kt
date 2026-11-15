@@ -71,20 +71,25 @@ class AegisAccessibilityService : AccessibilityService() {
         }
 
         // 2. Anti-Tamper Settings Guard — ONLY when tampering with Sheildlenz itself
-        if (prefs.antiTamperEnabled.value &&
+        val childUninstallBlocked = prefs.isChildUninstallBlocked()
+        val guardLocalTamper = prefs.antiTamperEnabled.value &&
             prefs.hasGuardianPin.value &&
-            !prefs.isGuardianAuthorizedForSystemSettings() &&
+            !prefs.isGuardianAuthorizedForSystemSettings()
+        if ((childUninstallBlocked || guardLocalTamper) &&
             isSettingsOrInstallerPackage(resolvedPkg) &&
             (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
         ) {
             if (isSheildlenzTamperScreen(resolvedPkg, event)) {
                 if (now - lastTamperInterceptTimeMs > 800L) {
                     lastTamperInterceptTimeMs = now
-                    Log.w(TAG, "Blocked unauthorized tamper access targeting Sheildlenz inside $resolvedPkg")
+                    Log.w(TAG, "Blocked unauthorized tamper/uninstall access targeting Sheildlenz inside $resolvedPkg (childLocked=$childUninstallBlocked)")
                     performGlobalAction(GLOBAL_ACTION_HOME)
-                    overlayController.showTamperLockOverlay(
-                        reason = "Modifying or uninstalling Sheildlenz (App Info, Device Admin, Accessibility, or Overlay) requires Guardian Password verification."
-                    )
+                    val reason = if (childUninstallBlocked) {
+                        "Uninstall & Tamper Locked by Parent Guardian. Only your paired Parent can authorize uninstalling or disabling Sheildlenz."
+                    } else {
+                        "Modifying or uninstalling Sheildlenz (App Info, Device Admin, Accessibility, or Overlay) requires Guardian Password verification."
+                    }
+                    overlayController.showTamperLockOverlay(reason = reason)
                 }
                 return
             }

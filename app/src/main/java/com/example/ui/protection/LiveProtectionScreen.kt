@@ -22,14 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Camera
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,9 +46,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -65,32 +57,22 @@ import com.example.data.preferences.AegisPreferences
 import com.example.data.repository.ProtectionRepository
 import com.example.monitoring.accessibility.AegisAccessibilityService
 import com.example.security.deviceowner.AegisDeviceAdminReceiver
-import com.example.ui.components.CyberCard
-import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
 import com.example.ui.components.LuxurySectionHeader
 import com.example.ui.components.SecurityHealthGaugeCard
 import com.example.ui.components.SecurityHealthReport
 import com.example.ui.components.SheildlenzBackdrop
-import com.example.ui.components.StatusPill
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
-import com.example.ui.theme.AegisElectricBlue
 import com.example.ui.theme.AegisGoldBorder
 import com.example.ui.theme.AegisGoldDeepTint
-import com.example.ui.theme.AegisLavenderBorder
-import com.example.ui.theme.AegisLavenderLight
-import com.example.ui.theme.AegisLavenderSoft
 import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
 import com.example.ui.theme.AegisSkySoft
-import com.example.ui.theme.AegisSuccessGreen
-import com.example.ui.theme.AegisTextMuted
 import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.AegisTextSecondary
-import com.example.ui.theme.AegisWarningAmber
 import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
 
@@ -98,12 +80,12 @@ import com.example.ui.theme.ClassicalDisplayFont
 fun LiveProtectionScreen(
     protectionRepo: ProtectionRepository,
     preferences: AegisPreferences,
-    onRequestArmShield: () -> Unit = {}
+    onRequestArmShield: () -> Unit = {},
+    onNavigateBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val telemetry by protectionRepo.telemetry.collectAsState()
-    val activeAppName by protectionRepo.activeAppLabel.collectAsState()
     val hasGuardianPin by preferences.hasGuardianPin.collectAsState()
 
     var hasOverlay by remember { mutableStateOf(PermissionHelper.hasOverlayPermission(context)) }
@@ -154,7 +136,10 @@ fun LiveProtectionScreen(
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars,
             topBar = {
-                CyberTopBar(title = "Status")
+                CyberTopBar(
+                    title = "Status",
+                    onNavigateBack = onNavigateBack
+                )
             },
             containerColor = Color.Transparent
         ) { innerPadding ->
@@ -166,9 +151,9 @@ fun LiveProtectionScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 22.dp),
                 verticalArrangement = Arrangement.spacedBy(13.dp)
             ) {
-                // 1. Device Security Health Score
+                // 1. Unified Compact Permissions & Shield Health
                 item {
-                    LuxurySectionHeader(title = "Device Health Score", accentColor = AegisPurple)
+                    LuxurySectionHeader(title = "Permissions", accentColor = AegisPurple)
                     Spacer(modifier = Modifier.height(6.dp))
                     SecurityHealthGaugeCard(
                         report = healthReport,
@@ -177,88 +162,7 @@ fun LiveProtectionScreen(
                     )
                 }
 
-                // 2. Compact AI Classification Pipeline
-                item {
-                    LuxurySectionHeader(title = "AI Classification", accentColor = AegisPurple)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    CyberCard(
-                        borderColor = AegisLavenderBorder,
-                        tone = CyberCardTone.LAVENDER
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            brush = Brush.linearGradient(
-                                                colors = listOf(AegisPurple, AegisLavenderLight)
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(imageVector = Icons.Default.Memory, contentDescription = null, tint = AegisOnPrimaryWhite, modifier = Modifier.size(16.dp))
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = telemetry.loadedModelName ?: "No .tflite Model",
-                                        color = AegisTextPrimary,
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = ClassicalDisplayFont,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = if (telemetry.modelOutputClasses > 0) {
-                                            "${telemetry.modelInputSpec} • ${telemetry.modelOutputClasses}-Class"
-                                        } else {
-                                            telemetry.modelStatusMessage
-                                        },
-                                        color = AegisTextSecondary,
-                                        fontSize = 11.sp,
-                                        fontFamily = ClassicalBodyFont,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            StatusPill(
-                                label = if (telemetry.isProtectionEnabled) "ENGAGED" else "OFFLINE",
-                                isActive = telemetry.isProtectionEnabled,
-                                activeColor = AegisPrimaryCyan,
-                                inactiveColor = AegisChampagneGold
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CompactClassificationPill(
-                                label = "Active App",
-                                value = activeAppName,
-                                modifier = Modifier.weight(1f)
-                            )
-                            CompactClassificationPill(
-                                label = "Last Stream",
-                                value = telemetry.lastDetectedCategory?.displayName ?: "Clean",
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                }
-
-                // 3. Sculpted Organic Leaf-Orb Pods for Live Rates & Frames
+                // 2. Sculpted Organic Leaf-Orb Pods for Live Rates & Frames
                 item {
                     LuxurySectionHeader(title = "Live Rates & Frames", accentColor = AegisPrimaryCyan)
                     Spacer(modifier = Modifier.height(6.dp))
@@ -294,111 +198,8 @@ fun LiveProtectionScreen(
                     }
                 }
 
-                // 4. Permission Health Audit
-                item {
-                    LuxurySectionHeader(title = "Permissions", accentColor = AegisChampagneGold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    CyberCard(
-                        borderColor = AegisCardBorder,
-                        tone = CyberCardTone.SKY
-                    ) {
-                        Text(
-                            text = "Permission Health Audit",
-                            color = AegisTextPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = ClassicalDisplayFont
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        PermissionHealthRow(
-                            label = "System Overlay Permission",
-                            isHealthy = hasOverlay,
-                            onFix = {
-                                preferences.grantTemporarySettingsAuthorization()
-                                try {
-                                    context.startActivity(PermissionHelper.getOverlaySettingsIntent(context))
-                                } catch (_: Exception) {
-                                    context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context))
-                                }
-                            }
-                        )
-                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.45f))
-                        PermissionHealthRow(
-                            label = "Accessibility Window Sensor",
-                            isHealthy = hasAccessibility,
-                            onFix = {
-                                preferences.grantTemporarySettingsAuthorization()
-                                try {
-                                    context.startActivity(PermissionHelper.getAccessibilitySettingsIntent())
-                                } catch (_: Exception) {
-                                    context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context))
-                                }
-                            }
-                        )
-                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.45f))
-                        PermissionHealthRow(
-                            label = "Device Administrator Protection",
-                            isHealthy = isDeviceAdmin,
-                            onFix = {
-                                preferences.grantTemporarySettingsAuthorization()
-                                try {
-                                    context.startActivity(AegisDeviceAdminReceiver.createActivateAdminIntent(context))
-                                } catch (_: Exception) {
-                                    context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context))
-                                }
-                            }
-                        )
-                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.45f))
-                        PermissionHealthRow(
-                            label = "Battery Optimization Exemption",
-                            isHealthy = hasBattery,
-                            onFix = {
-                                preferences.grantTemporarySettingsAuthorization()
-                                try {
-                                    context.startActivity(PermissionHelper.getBatteryOptimizationSettingsIntent(context))
-                                } catch (_: Exception) {
-                                    context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context))
-                                }
-                            }
-                        )
-                    }
-                }
             }
         }
-    }
-}
-
-@Composable
-private fun CompactClassificationPill(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.62f))
-            .border(1.dp, AegisLavenderBorder.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
-            .padding(horizontal = 10.dp, vertical = 7.dp)
-    ) {
-        Text(
-            text = label.uppercase(),
-            color = AegisTextMuted,
-            fontSize = 9.5.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.7.sp,
-            fontFamily = ClassicalBodyFont
-        )
-        Text(
-            text = value,
-            color = AegisTextPrimary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 
@@ -519,52 +320,6 @@ private fun SculptedLiveTelemetryPod(
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PermissionHealthRow(
-    label: String,
-    isHealthy: Boolean,
-    onFix: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 7.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-            Icon(
-                imageVector = if (isHealthy) Icons.Default.CheckCircle else Icons.Default.ErrorOutline,
-                contentDescription = null,
-                tint = if (isHealthy) AegisSuccessGreen else AegisWarningAmber,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = label,
-                color = if (isHealthy) AegisTextPrimary else AegisWarningAmber,
-                fontSize = 13.sp,
-                fontFamily = ClassicalBodyFont,
-                fontWeight = FontWeight.Medium
-            )
-        }
-
-        if (!isHealthy) {
-            OutlinedButton(
-                onClick = onFix,
-                shape = RoundedCornerShape(50),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = AegisChampagneSoft,
-                    contentColor = AegisWarningAmber
-                ),
-                modifier = Modifier.height(36.dp)
-            ) {
-                Text(text = "FIX", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = ClassicalBodyFont)
             }
         }
     }

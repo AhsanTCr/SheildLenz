@@ -49,7 +49,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
@@ -136,7 +139,9 @@ fun DashboardScreen(
     preferences: AegisPreferences,
     onModelUpdated: () -> Unit = {},
     onRequestStartProtection: () -> Unit = {},
-    onRequestStopProtection: () -> Unit = {}
+    onRequestStopProtection: () -> Unit = {},
+    onNavigateToStatus: () -> Unit = {},
+    onNavigateToProgress: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -342,12 +347,8 @@ fun DashboardScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .padding(horizontal = 18.dp),
-                contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
-                verticalArrangement = if (hasAnyExtraCard) {
-                    Arrangement.spacedBy(14.dp, Alignment.Top)
-                } else {
-                    Arrangement.Center
-                },
+                contentPadding = PaddingValues(top = 14.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.Top),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 0. Update Banner
@@ -993,6 +994,41 @@ fun DashboardScreen(
                         )
                     }
                 }
+
+                // 4. Charming Spacious Navigation Buttons for Status & Progress
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 540.dp)
+                            .padding(top = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        HomeDestinationGatewayCard(
+                            title = "Live Status",
+                            subtitle = "Permissions health & live frame scanner",
+                            icon = Icons.Default.MonitorHeart,
+                            gradientColors = listOf(AegisPrimaryCyan, AegisElectricBlue),
+                            surfaceTint = listOf(Color(0xFFF9FCFF), Color(0xFFEDF6FF)),
+                            borderColor = AegisCardBorder,
+                            accentColor = AegisPrimaryCyan,
+                            onClick = onNavigateToStatus,
+                            testTag = "home_open_status_button"
+                        )
+
+                        HomeDestinationGatewayCard(
+                            title = "Security Progress",
+                            subtitle = "Blocked applications & security history",
+                            icon = Icons.Default.Assessment,
+                            gradientColors = listOf(AegisPurple, AegisChampagneGold),
+                            surfaceTint = listOf(Color(0xFFFAF8FF), AegisLavenderSoft),
+                            borderColor = AegisLavenderBorder,
+                            accentColor = AegisPurple,
+                            onClick = onNavigateToProgress,
+                            testTag = "home_open_progress_button"
+                        )
+                    }
+                }
             }
 
             if (showOverlayWarningDialog) {
@@ -1112,6 +1148,102 @@ fun DashboardScreen(
                             Text("CANCEL", fontWeight = FontWeight.SemiBold)
                         }
                     }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeDestinationGatewayCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    gradientColors: List<Color>,
+    surfaceTint: List<Color>,
+    borderColor: Color,
+    accentColor: Color,
+    onClick: () -> Unit,
+    testTag: String
+) {
+    val cardShape = RoundedCornerShape(22.dp)
+    Surface(
+        onClick = onClick,
+        shape = cardShape,
+        color = Color.Transparent,
+        border = BorderStroke(1.2.dp, borderColor.copy(alpha = 0.85f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 76.dp)
+            .shadow(
+                elevation = 8.dp,
+                shape = cardShape,
+                ambientColor = accentColor.copy(alpha = 0.16f),
+                spotColor = accentColor.copy(alpha = 0.16f)
+            )
+            .testTag(testTag)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(brush = Brush.horizontalGradient(colors = surfaceTint))
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(brush = Brush.linearGradient(colors = gradientColors)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = AegisOnPrimaryWhite,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = title,
+                        color = AegisTextPrimary,
+                        fontSize = 15.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Text(
+                        text = subtitle,
+                        color = AegisTextSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.12f))
+                    .border(1.dp, accentColor.copy(alpha = 0.25f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = "Open $title",
+                    tint = accentColor,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

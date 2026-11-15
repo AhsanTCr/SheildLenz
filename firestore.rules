@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isSafeId(val) {
+      return val is string && val.size() >= 1 && val.size() <= 128 && val.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSixDigitCode(val) {
+      return val is string && val.matches('^[0-9]{6}$');
+    }
+
+    function isPairedParent(childUid) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/pairings/$(childUid)) &&
+        get(/databases/$(database)/documents/pairings/$(childUid)).data.parentId == request.auth.uid &&
+        get(/databases/$(database)/documents/pairings/$(childUid)).data.active == true;
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.userId == userId &&
+        data.role in ['parent', 'child'] &&
+        data.email is string && data.email.size() <= 160 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 80)) &&
+        (!('protectionArmed' in data) || data.protectionArmed is bool) &&
+        (!('lockdownActive' in data) || data.lockdownActive is bool) &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidPairing(data, childUid) {
+      return isSafeId(data.pairingId) &&
+        data.childUid == childUid &&
+        isSafeId(childUid) &&
+        data.parentId is string && data.parentId.size() <= 128 &&
+        isSixDigitCode(data.pairingCode) &&
+        (!('childDisplayName' in data) || (data.childDisplayName is string && data.childDisplayName.size() <= 80)) &&
+        (!('parentDisplayName' in data) || (data.parentDisplayName is string && data.parentDisplayName.size() <= 80)) &&
+        data.active is bool &&
+        data.createdAt is timestamp && data.createdAt <= request.time &&
+        (!('updatedAt' in data) || (data.updatedAt is timestamp && data.updatedAt <= request.time));
+    }
+
+    function isValidPairingCode(data, code) {
+      return isSixDigitCode(code) &&
+        data.pairingCode == code &&
+        isSafeId(data.childUid) &&
+        data.childUid == request.auth.uid &&
+        (!('childDisplayName' in data) || (data.childDisplayName is string && data.childDisplayName.size() <= 80)) &&
+        data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidThreatLog(data, childUid) {
+      return isSafeId(data.logId) &&
+        data.childUid == childUid &&
+        data.timestampMillis is int && data.timestampMillis > 0 &&
+        data.packageName is string && data.packageName.size() <= 160 &&
+        data.appDisplayName is string && data.appDisplayName.size() <= 80 &&
+        data.category is string && data.category.size() <= 60 &&
+        data.severity is string && data.severity.size() <= 30 &&
+        data.confidenceScore is number && data.confidenceScore >= 0.0 && data.confidenceScore <= 1.0 &&
+        data.actionTaken is string && data.actionTaken.size() <= 160;
+    }
+
+    function isValidRemoteSettings(data) {
+      return data.sensitivity in ['RELAXED', 'BALANCED', 'STRICT'] &&
+        data.strictEverything is bool &&
+        data.lockdownDurationMinutes is int && data.lockdownDurationMinutes >= 1 && data.lockdownDurationMinutes <= 1440 &&
+        data.antiTamperEnabled is bool &&
+        data.childUninstallLocked is bool &&
+        data.liveSeeEnabled is bool &&
+        (!('whitelistedPackages' in data) || (data.whitelistedPackages is list && data.whitelistedPackages.size() <= 40)) &&
+        data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidRemoteCommand(data) {
+      return data.action in ['NONE', 'LOCKDOWN', 'UNLOCK', 'ALLOW_UNINSTALL', 'LOCK_UNINSTALL', 'REQUEST_LIVE_FRAME'] &&
+        data.timestamp is int && data.timestamp >= 0 &&
+        data.acknowledged is bool &&
+        isSafeId(data.issuedByUid);
+    }
+
+    function isValidThumbnail(data) {
+      return data.thumbnailBase64 is string && data.thumbnailBase64.size() <= 350000 &&
+        data.activeAppName is string && data.activeAppName.size() <= 80 &&
+        data.timestamp is int && data.timestamp >= 0 &&
+        data.protectionArmed is bool &&
+        data.lockdownActive is bool;
+    }
+
+    function isValidRemoteControlDoc(docId, data) {
+      return (docId == 'settings' && isValidRemoteSettings(data)) ||
+        (docId == 'commands' && isValidRemoteCommand(data)) ||
+        (docId == 'thumbnails' && isValidThumbnail(data));
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isPairedParent(userId);
+      allow list: if false;
+      allow create, update: if isOwner(userId) && isValidUserProfile(request.resource.data, userId);
+      allow delete: if isOwner(userId);
+
+      match /threat_logs/{logId} {
+        allow read: if isOwner(userId) || isPairedParent(userId);
+        allow create, update: if isOwner(userId) && isValidThreatLog(request.resource.data, userId);
+        allow delete: if isOwner(userId) || isPairedParent(userId);
+      }
+
+      match /remote_control/{docId} {
+        allow read: if isOwner(userId) || isPairedParent(userId);
+        allow create, update: if (isOwner(userId) || isPairedParent(userId)) && isValidRemoteControlDoc(docId, request.resource.data);
+        allow delete: if isOwner(userId) || isPairedParent(userId);
+      }
+    }
+
+    match /pairings/{childUid} {
+      allow get: if isAuthenticated() && (
+        isOwner(childUid) ||
+        resource.data.parentId == request.auth.uid ||
+        resource.data.active == false
+      );
+      allow list: if isAuthenticated() && (
+        resource.data.childUid == request.auth.uid ||
+        resource.data.parentId == request.auth.uid
+      );
+      allow create: if isOwner(childUid) && isValidPairing(request.resource.data, childUid);
+      allow update: if isAuthenticated() && isValidPairing(request.resource.data, childUid) && (
+        isOwner(childUid) ||
+        resource.data.parentId == request.auth.uid ||
+        (
+          resource.data.active == false &&
+          resource.data.childUid == request.resource.data.childUid &&
+          resource.data.pairingCode == request.resource.data.pairingCode &&
+          request.resource.data.parentId == request.auth.uid &&
+          request.resource.data.active == true
+        )
+      );
+      allow delete: if isAuthenticated() && (isOwner(childUid) || resource.data.parentId == request.auth.uid);
+    }
+
+    match /pairing_codes/{code} {
+      allow get: if isAuthenticated() && isSixDigitCode(code);
+      allow list: if false;
+      allow create, update: if isAuthenticated() && isValidPairingCode(request.resource.data, code);
+      allow delete: if isAuthenticated() && (
+        resource.data.childUid == request.auth.uid ||
+        isPairedParent(resource.data.childUid)
+      );
+    }
+  }
+}

@@ -21,15 +21,24 @@ class AegisDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence {
         val prefs = AegisContainer.getInstance(context).preferences
-        val authorized = prefs.isGuardianAuthorizedForSystemSettings() && !prefs.isLockdownActive()
+        val childLocked = prefs.isChildUninstallBlocked()
+        val authorized = prefs.isGuardianAuthorizedForSystemSettings() && !prefs.isLockdownActive() && !childLocked
         if (!authorized) {
-            Log.w(TAG, "Unauthorized attempt to disable Aegis Device Administrator blocked.")
+            Log.w(TAG, "Unauthorized attempt to disable Aegis Device Administrator blocked (childLocked=$childLocked).")
             AegisAccessibilityService.performEmergencyHomeAction()
             AegisContainer.getInstance(context).overlayController.showTamperLockOverlay(
-                reason = "Unauthorized attempt to deactivate Device Administrator was intercepted. Guardian Password is required."
+                reason = if (childLocked) {
+                    "Child Protection Lock: Only your paired Parent can authorize deactivating Device Administrator or uninstalling Sheildlenz."
+                } else {
+                    "Unauthorized attempt to deactivate Device Administrator was intercepted. Guardian Password is required."
+                }
             )
         }
-        return "SHEILDLENZ ANTI-TAMPER PROTECTION: Guardian Password verification is required before Device Administrator can be deactivated."
+        return if (childLocked) {
+            "SHEILDLENZ CHILD GUARD: Only your paired Parent can authorize uninstalling or deactivating Sheildlenz."
+        } else {
+            "SHEILDLENZ ANTI-TAMPER PROTECTION: Guardian Password verification is required before Device Administrator can be deactivated."
+        }
     }
 
     override fun onDisabled(context: Context, intent: Intent) {
@@ -71,11 +80,24 @@ class AegisDeviceAdminReceiver : DeviceAdminReceiver() {
             if (!dpm.isDeviceOwnerApp(context.packageName)) return
             val admin = getComponentName(context)
             try {
-                dpm.setUninstallBlocked(admin, context.packageName, true)
+                val prefs = AegisContainer.getInstance(context).preferences
+                val shouldBlockUninstall = !prefs.isParentApprovedUninstallActive()
+                dpm.setUninstallBlocked(admin, context.packageName, shouldBlockUninstall)
                 dpm.addUserRestriction(admin, UserManager.DISALLOW_SAFE_BOOT)
-                Log.i(TAG, "Applied Device Owner uninstall lock and Safe Boot restriction.")
+                Log.i(TAG, "Applied Device Owner uninstall lock ($shouldBlockUninstall) and Safe Boot restriction.")
             } catch (e: Exception) {
                 Log.e(TAG, "Error applying Device Owner policies", e)
+            }
+        }
+
+        fun setChildUninstallBlockedIfDeviceOwner(context: Context, blocked: Boolean) {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager ?: return
+            if (!dpm.isDeviceOwnerApp(context.packageName)) return
+            try {
+                dpm.setUninstallBlocked(getComponentName(context), context.packageName, blocked)
+                Log.i(TAG, "Updated Device Owner uninstallBlocked=$blocked")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error toggling Device Owner uninstall lock", e)
             }
         }
 

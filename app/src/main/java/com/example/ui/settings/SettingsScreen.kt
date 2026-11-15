@@ -6,8 +6,14 @@ import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,6 +21,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,9 +47,12 @@ import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -68,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -164,6 +175,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val telemetry by protectionRepo.telemetry.collectAsState()
+    val activeAppName by protectionRepo.activeAppLabel.collectAsState()
     val sensitivity by preferences.sensitivity.collectAsState()
     val isStrictEverything by preferences.strictEverything.collectAsState()
     val isAutoStart by preferences.autoStart.collectAsState()
@@ -205,9 +217,9 @@ fun SettingsScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(11.dp)
             ) {
-                // 1. AI Model Engine
+                // 1. Unified AI Classification Engine (moved & refined from Status + Edits)
                 item {
-                    LuxurySectionHeader(title = "AI Model", accentColor = AegisPurple)
+                    LuxurySectionHeader(title = "AI Classification", accentColor = AegisPurple)
                     Spacer(modifier = Modifier.height(6.dp))
                     ModelManagerCard(
                         telemetry = telemetry,
@@ -215,6 +227,7 @@ fun SettingsScreen(
                         onModelUpdated = onModelUpdated,
                         cardTone = CyberCardTone.LAVENDER,
                         showCloudDownloader = true,
+                        activeAppName = activeAppName,
                         onBeforeOpenPicker = { preferences.beginAuthorizedExternalFlow() },
                         onRequireAuth = { label, action ->
                             masterKeyGate.request(label) { action() }
@@ -222,28 +235,104 @@ fun SettingsScreen(
                     )
                 }
 
-                // 2. Compact Power Mode & Battery Controls
+                // 2. Guardian PIN (Compact 1-tap setup/change row)
                 item {
-                    LuxurySectionHeader(title = "Power Mode", accentColor = AegisPrimaryCyan)
-                    Spacer(modifier = Modifier.height(6.dp))
                     CyberCard(
-                        borderColor = if (telemetry.isLowBatteryThrottled) AegisGoldBorder else AegisCardBorder,
-                        tone = if (telemetry.isLowBatteryThrottled) CyberCardTone.GOLD else CyberCardTone.SKY,
-                        modifier = Modifier.testTag("power_mode_widget")
+                        borderColor = AegisGoldBorder,
+                        tone = CyberCardTone.GOLD
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = powerMode.displayName,
-                                color = AegisTextPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = ClassicalDisplayFont
-                            )
-                            if (telemetry.isLowBatteryThrottled) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            brush = Brush.linearGradient(
+                                                colors = listOf(AegisChampagneGold, AegisGoldBright)
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = AegisOnPrimaryWhite, modifier = Modifier.size(18.dp))
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Guardian PIN",
+                                        color = AegisTextPrimary,
+                                        fontSize = 14.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalDisplayFont
+                                    )
+                                    Text(
+                                        text = if (hasPin) "Active • Protected" else "Not set • Recommended",
+                                        color = if (hasPin) AegisPrimaryCyan else AegisWarningAmber,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = ClassicalBodyFont
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    masterKeyGate.request(if (hasPin) "change Guardian PIN" else "set Guardian PIN") {
+                                        pinInput = ""
+                                        confirmPinInput = ""
+                                        pinError = null
+                                        showPinDialog = true
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (hasPin) AegisPurple else AegisPrimaryCyan,
+                                    contentColor = AegisOnPrimaryWhite
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("guardian_pin_change_button")
+                            ) {
+                                Text(
+                                    text = if (hasPin) "CHANGE" else "SETUP",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 3. One-Tap Expandable Settings Controls Header
+                item {
+                    LuxurySectionHeader(title = "Protection Controls", accentColor = AegisPrimaryCyan)
+                }
+
+                // 4. Power Mode & Battery Controls (1-Tap Accordion)
+                item {
+                    CollapsibleEditsCard(
+                        title = "Power Mode",
+                        summary = if (telemetry.isLowBatteryThrottled) {
+                            "${powerMode.displayName} • Throttled"
+                        } else {
+                            "${powerMode.displayName} • ${powerMode.scanIntervalMs}ms"
+                        },
+                        icon = Icons.Default.Bolt,
+                        accentColor = if (telemetry.isLowBatteryThrottled) AegisChampagneGold else AegisPrimaryCyan,
+                        tone = if (telemetry.isLowBatteryThrottled) CyberCardTone.GOLD else CyberCardTone.SKY,
+                        borderColor = if (telemetry.isLowBatteryThrottled) AegisGoldBorder else AegisCardBorder,
+                        testTag = "power_mode_widget"
+                    ) {
+                        if (telemetry.isLowBatteryThrottled) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.End
+                            ) {
                                 StatusPill(
                                     label = "THROTTLED",
                                     isActive = false,
@@ -345,12 +434,12 @@ fun SettingsScreen(
                     }
                 }
 
-                // 3. Excluded Apps (Tap to pick installed apps)
+                // 5. Excluded Apps (1-Tap Accordion)
                 item {
                     WhitelistedAppsSection(preferences = preferences)
                 }
 
-                // 4. Compact Scheduled Guard
+                // 6. Quiet Hours / Scheduled Guard (1-Tap Accordion)
                 item {
                     ScheduledProtectionSection(
                         preferences = preferences,
@@ -358,90 +447,21 @@ fun SettingsScreen(
                     )
                 }
 
-                // 5. Compact Guardian PIN
+                // 7. Thresholds & Sensitivity (1-Tap Accordion)
                 item {
-                    LuxurySectionHeader(title = "Guardian PIN", accentColor = AegisChampagneGold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    CyberCard(
-                        borderColor = AegisGoldBorder,
-                        tone = CyberCardTone.GOLD
+                    CollapsibleEditsCard(
+                        title = "Thresholds",
+                        summary = "${sensitivity.displayName}${if (isStrictEverything) " • Strict All" else ""}",
+                        icon = Icons.Default.Tune,
+                        accentColor = AegisPrimaryCyan,
+                        tone = CyberCardTone.SKY,
+                        borderColor = AegisCardBorder,
+                        testTag = "thresholds_accordion"
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(
-                                            brush = Brush.linearGradient(
-                                                colors = listOf(AegisChampagneGold, AegisGoldBright)
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = AegisOnPrimaryWhite, modifier = Modifier.size(17.dp))
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(
-                                        text = "Guardian PIN",
-                                        color = AegisTextPrimary,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = ClassicalDisplayFont
-                                    )
-                                    Text(
-                                        text = if (hasPin) "Active" else "Not set",
-                                        color = if (hasPin) AegisPrimaryCyan else AegisWarningAmber,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontFamily = ClassicalBodyFont
-                                    )
-                                }
-                            }
-
-                            Button(
-                                onClick = {
-                                    masterKeyGate.request(if (hasPin) "change Guardian PIN" else "set Guardian PIN") {
-                                        pinInput = ""
-                                        confirmPinInput = ""
-                                        pinError = null
-                                        showPinDialog = true
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (hasPin) AegisPurple else AegisPrimaryCyan,
-                                    contentColor = AegisOnPrimaryWhite
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .height(48.dp)
-                                    .testTag("guardian_pin_change_button")
-                            ) {
-                                Text(
-                                    text = if (hasPin) "CHANGE" else "SETUP",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = ClassicalBodyFont
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // 6. Compact Thresholds
-                item {
-                    LuxurySectionHeader(title = "Thresholds", accentColor = AegisPrimaryCyan)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    CyberCard(borderColor = AegisCardBorder, tone = CyberCardTone.SKY) {
                         Text(
                             text = "Sensitivity",
                             color = AegisTextPrimary,
-                            fontSize = 14.sp,
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = ClassicalDisplayFont
                         )
@@ -466,7 +486,7 @@ fun SettingsScreen(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(44.dp)
+                                        .height(48.dp)
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(if (isSelected) levelAccent else AegisCardBackground.copy(alpha = 0.8f))
                                         .border(
@@ -508,11 +528,17 @@ fun SettingsScreen(
                     }
                 }
 
-                // 7. Compact Resistance
+                // 8. Resistance & Lockdown Policy (1-Tap Accordion)
                 item {
-                    LuxurySectionHeader(title = "Resistance", accentColor = AegisChampagneGold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    CyberCard(borderColor = AegisGoldBorder, tone = CyberCardTone.GOLD) {
+                    CollapsibleEditsCard(
+                        title = "Resistance",
+                        summary = "$stage1DurationLabel Penalty • ${if (antiTamperEnabled) "Tamper Lock ON" else "Standard"}",
+                        icon = Icons.Default.Security,
+                        accentColor = AegisChampagneGold,
+                        tone = CyberCardTone.GOLD,
+                        borderColor = AegisGoldBorder,
+                        testTag = "resistance_accordion"
+                    ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -794,6 +820,113 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun CollapsibleEditsCard(
+    title: String,
+    summary: String,
+    icon: ImageVector,
+    accentColor: Color,
+    tone: CyberCardTone,
+    borderColor: Color,
+    testTag: String,
+    initiallyExpanded: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    var expanded by remember { mutableStateOf(initiallyExpanded) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 220),
+        label = "AccordionChevronRotation"
+    )
+
+    CyberCard(
+        borderColor = if (expanded) accentColor.copy(alpha = 0.6f) else borderColor,
+        tone = tone,
+        modifier = Modifier.testTag(testTag)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { expanded = !expanded }
+                .testTag("${testTag}_toggle"),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(accentColor.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = title,
+                        color = AegisTextPrimary,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Text(
+                        text = summary,
+                        color = if (expanded) accentColor else AegisTextSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+                    tint = accentColor,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .rotate(chevronRotation)
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(200)) + expandVertically(tween(220)),
+            exit = fadeOut(tween(150)) + shrinkVertically(tween(200))
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                HorizontalDivider(
+                    color = AegisCardBorder.copy(alpha = 0.45f),
+                    modifier = Modifier.padding(vertical = 10.dp)
+                )
+                content()
+            }
+        }
+    }
+}
+
+@Composable
 private fun PowerModeTile(
     mode: PowerMode,
     icon: ImageVector,
@@ -928,54 +1061,27 @@ fun WhitelistedAppsSection(preferences: AegisPreferences) {
         }
     }
 
-    LuxurySectionHeader(title = "Excluded Apps", accentColor = AegisPrimaryCyan)
-    Spacer(modifier = Modifier.height(6.dp))
-    CyberCard(
-        borderColor = AegisLavenderBorder,
+    CollapsibleEditsCard(
+        title = "Excluded Apps",
+        summary = if (whitelisted.isEmpty()) "None excluded • Tap to manage" else "${whitelisted.size} excluded ${if (whitelisted.size == 1) "app" else "apps"}",
+        icon = Icons.Default.Apps,
+        accentColor = AegisPrimaryCyan,
         tone = CyberCardTone.SKY,
-        onClick = {
-            searchQuery = ""
-            showAppsPicker = true
-        },
-        modifier = Modifier.testTag("whitelisted_apps_card")
+        borderColor = AegisLavenderBorder,
+        testTag = "whitelisted_apps_card"
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(AegisPrimaryCyan.copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Apps,
-                        contentDescription = "Select apps to exclude",
-                        tint = AegisPrimaryCyan,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "Excluded Apps (${whitelisted.size})",
-                        color = AegisTextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalDisplayFont
-                    )
-                    Text(
-                        text = "Tap to choose installed apps",
-                        color = AegisTextMuted,
-                        fontSize = 11.sp,
-                        fontFamily = ClassicalBodyFont
-                    )
-                }
-            }
+            Text(
+                text = "Tap to choose installed apps",
+                color = AegisTextSecondary,
+                fontSize = 12.sp,
+                fontFamily = ClassicalBodyFont,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            )
             Button(
                 onClick = {
                     searchQuery = ""
@@ -1248,57 +1354,36 @@ private fun ScheduledProtectionSection(
     val endMinutes by preferences.scheduleEndMinutes.collectAsState()
     val isActiveNow = scheduleEnabled && preferences.isWithinScheduledWindow()
 
-    LuxurySectionHeader(title = "Scheduled Guard", accentColor = AegisPurple)
-    Spacer(modifier = Modifier.height(6.dp))
-    CyberCard(
-        borderColor = if (isActiveNow) AegisPrimaryCyan.copy(alpha = 0.55f) else AegisLavenderBorder,
+    val windowLabel = "${AegisPreferences.formatClockTime(startMinutes)} → ${AegisPreferences.formatClockTime(endMinutes)}"
+    CollapsibleEditsCard(
+        title = "Quiet Hours",
+        summary = if (scheduleEnabled) "Active • $windowLabel" else "Off • $windowLabel",
+        icon = Icons.Default.Schedule,
+        accentColor = if (isActiveNow) AegisPrimaryCyan else AegisPurple,
         tone = CyberCardTone.LAVENDER,
-        modifier = Modifier.testTag("scheduled_protection_card")
+        borderColor = if (isActiveNow) AegisPrimaryCyan.copy(alpha = 0.55f) else AegisLavenderBorder,
+        testTag = "scheduled_protection_card"
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f).padding(end = 8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(
-                            brush = Brush.linearGradient(
-                                colors = listOf(AegisPurple, AegisPrimaryCyan)
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = "Scheduled protection hours",
-                        tint = AegisOnPrimaryWhite,
-                        modifier = Modifier.size(17.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "Quiet Hours",
-                        color = AegisTextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalDisplayFont
-                    )
-                    Text(
-                        text = "${AegisPreferences.formatClockTime(startMinutes)} → ${AegisPreferences.formatClockTime(endMinutes)}",
-                        color = if (scheduleEnabled) AegisPrimaryCyan else AegisTextMuted,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = ClassicalBodyFont
-                    )
-                }
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = "Enable Scheduled Guard",
+                    color = AegisTextPrimary,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont
+                )
+                Text(
+                    text = windowLabel,
+                    color = if (scheduleEnabled) AegisPrimaryCyan else AegisTextMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = ClassicalBodyFont
+                )
             }
 
             Switch(

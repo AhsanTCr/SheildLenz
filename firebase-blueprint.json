@@ -1,0 +1,137 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Parent or Child device profile.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["parent", "child"] },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "deviceName": { "type": "string" },
+        "protectionArmed": { "type": "boolean" },
+        "lockdownActive": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "role", "email", "displayName", "updatedAt"]
+    },
+    "Pairing": {
+      "title": "Pairing",
+      "description": "Device pairing link keyed by childUid binding a child device to a parent UID.",
+      "type": "object",
+      "properties": {
+        "pairingId": { "type": "string" },
+        "parentId": { "type": "string" },
+        "childUid": { "type": "string" },
+        "pairingCode": { "type": "string" },
+        "childDisplayName": { "type": "string" },
+        "parentDisplayName": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["pairingId", "parentId", "childUid", "pairingCode", "active", "createdAt"]
+    },
+    "PairingCodeLookup": {
+      "title": "PairingCodeLookup",
+      "description": "Short-lived 6-digit code index allowing a parent to resolve a child's UID by exact code.",
+      "type": "object",
+      "properties": {
+        "pairingCode": { "type": "string" },
+        "childUid": { "type": "string" },
+        "childDisplayName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["pairingCode", "childUid", "createdAt"]
+    },
+    "ThreatLog": {
+      "title": "ThreatLog",
+      "description": "Synced security incident detected on a child device.",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string" },
+        "childUid": { "type": "string" },
+        "timestampMillis": { "type": "number" },
+        "packageName": { "type": "string" },
+        "appDisplayName": { "type": "string" },
+        "category": { "type": "string" },
+        "severity": { "type": "string" },
+        "confidenceScore": { "type": "number" },
+        "actionTaken": { "type": "string" }
+      },
+      "required": ["logId", "childUid", "timestampMillis", "packageName", "appDisplayName", "category", "severity", "confidenceScore", "actionTaken"]
+    },
+    "RemoteSettings": {
+      "title": "RemoteSettings",
+      "description": "Parent-controlled safety settings synced to the child device.",
+      "type": "object",
+      "properties": {
+        "sensitivity": { "type": "string", "enum": ["RELAXED", "BALANCED", "STRICT"] },
+        "strictEverything": { "type": "boolean" },
+        "lockdownDurationMinutes": { "type": "integer" },
+        "antiTamperEnabled": { "type": "boolean" },
+        "childUninstallLocked": { "type": "boolean" },
+        "liveSeeEnabled": { "type": "boolean" },
+        "whitelistedPackages": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sensitivity", "strictEverything", "lockdownDurationMinutes", "antiTamperEnabled", "childUninstallLocked", "liveSeeEnabled", "updatedAt"]
+    },
+    "RemoteCommand": {
+      "title": "RemoteCommand",
+      "description": "Parent-issued remote action command (lockdown, unlock, allow/lock uninstall).",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["NONE", "LOCKDOWN", "UNLOCK", "ALLOW_UNINSTALL", "LOCK_UNINSTALL", "REQUEST_LIVE_FRAME"] },
+        "timestamp": { "type": "integer" },
+        "acknowledged": { "type": "boolean" },
+        "issuedByUid": { "type": "string" }
+      },
+      "required": ["action", "timestamp", "acknowledged", "issuedByUid"]
+    },
+    "Thumbnail": {
+      "title": "Thumbnail",
+      "description": "Periodic low-resolution JPEG Base64 screen preview from child device for Live See.",
+      "type": "object",
+      "properties": {
+        "thumbnailBase64": { "type": "string" },
+        "activeAppName": { "type": "string" },
+        "timestamp": { "type": "integer" },
+        "protectionArmed": { "type": "boolean" },
+        "lockdownActive": { "type": "boolean" }
+      },
+      "required": ["thumbnailBase64", "activeAppName", "timestamp", "protectionArmed", "lockdownActive"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Authenticated user profile document."
+    },
+    "/pairings/{childUid}": {
+      "schema": { "$ref": "#/entities/Pairing" },
+      "description": "Active or pending parent-child pairing keyed by childUid."
+    },
+    "/pairing_codes/{code}": {
+      "schema": { "$ref": "#/entities/PairingCodeLookup" },
+      "description": "Exact-match pairing code lookup index."
+    },
+    "/users/{childUid}/threat_logs/{logId}": {
+      "schema": { "$ref": "#/entities/ThreatLog" },
+      "description": "Child incident history logs readable by paired parent."
+    },
+    "/users/{childUid}/remote_control/settings": {
+      "schema": { "$ref": "#/entities/RemoteSettings" },
+      "description": "Remote configuration synced from parent to child."
+    },
+    "/users/{childUid}/remote_control/commands": {
+      "schema": { "$ref": "#/entities/RemoteCommand" },
+      "description": "Remote lockdown/uninstall command queue for child device."
+    },
+    "/users/{childUid}/remote_control/thumbnails": {
+      "schema": { "$ref": "#/entities/Thumbnail" },
+      "description": "Live See screen preview frame uploaded by child device."
+    }
+  }
+}
