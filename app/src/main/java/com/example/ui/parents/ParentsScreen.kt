@@ -49,7 +49,6 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
@@ -101,7 +100,6 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
-import com.example.R
 import com.example.core.models.SecurityIncident
 import com.example.core.models.SensitivityLevel
 import com.example.data.preferences.AegisPreferences
@@ -360,28 +358,41 @@ fun ParentsScreen(
                                     isSigningIn = true
                                     scope.launch {
                                         try {
-                                            val clientId = context.getString(R.string.default_web_client_id)
-                                            val signInOption = GetSignInWithGoogleOption.Builder(
-                                                serverClientId = clientId
-                                            ).build()
-                                            val request = GetCredentialRequest.Builder()
-                                                .addCredentialOption(signInOption)
-                                                .build()
-                                            val credentialManager = CredentialManager.create(context)
-                                            val activity = context as? Activity
-                                            if (activity == null) {
-                                                statusMessage = "Open Parents inside the app window to sign in."
+                                            val webClientResId = context.resources.getIdentifier(
+                                                "default_web_client_id",
+                                                "string",
+                                                context.packageName
+                                            )
+                                            val clientId = if (webClientResId != 0) {
+                                                context.getString(webClientResId)
                                             } else {
-                                                val result = credentialManager.getCredential(activity, request)
-                                                val credential = result.credential
-                                                if (credential is CustomCredential &&
-                                                    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-                                                ) {
-                                                    val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                                                    val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                                                    Firebase.auth.signInWithCredential(authCredential).await()
-                                                    syncController?.ensureStarted()
-                                                    Toast.makeText(context, "Signed in as Guardian!", Toast.LENGTH_SHORT).show()
+                                                ""
+                                            }
+                                            if (clientId.isBlank()) {
+                                                statusMessage = "Google Sign-In client ID not bundled. Add google-services.json before building."
+                                            } else {
+                                                val signInOption = GetSignInWithGoogleOption.Builder(
+                                                    serverClientId = clientId
+                                                ).build()
+                                                val request = GetCredentialRequest.Builder()
+                                                    .addCredentialOption(signInOption)
+                                                    .build()
+                                                val credentialManager = CredentialManager.create(context)
+                                                val activity = context as? Activity
+                                                if (activity == null) {
+                                                    statusMessage = "Open Parents inside the app window to sign in."
+                                                } else {
+                                                    val result = credentialManager.getCredential(activity, request)
+                                                    val credential = result.credential
+                                                    if (credential is CustomCredential &&
+                                                        credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                                                    ) {
+                                                        val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
+                                                        val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
+                                                        Firebase.auth.signInWithCredential(authCredential).await()
+                                                        syncController?.ensureStarted()
+                                                        Toast.makeText(context, "Signed in as Guardian!", Toast.LENGTH_SHORT).show()
+                                                    }
                                                 }
                                             }
                                         } catch (e: GetCredentialCancellationException) {

@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.util.Base64
 import android.util.Log
-import com.example.R
 import com.example.core.models.SecurityIncident
 import com.example.core.models.SensitivityLevel
 import com.example.core.models.ThreatCategory
@@ -93,7 +92,17 @@ class ParentChildRepository(
     private val firestoreOrNull: FirebaseFirestore? by lazy {
         dbOverride ?: runCatching {
             if (ensureFirebaseInitialized()) {
-                FirebaseFirestore.getInstance(appContext.getString(R.string.firestore_database_id))
+                val resId = appContext.resources.getIdentifier(
+                    "firestore_database_id",
+                    "string",
+                    appContext.packageName
+                )
+                val dbId = if (resId != 0) {
+                    appContext.getString(resId)
+                } else {
+                    "ai-studio-android-sheildle-445b68c5-4463-4bd1-939c-33931bb3fc12"
+                }
+                FirebaseFirestore.getInstance(dbId)
             } else {
                 null
             }
