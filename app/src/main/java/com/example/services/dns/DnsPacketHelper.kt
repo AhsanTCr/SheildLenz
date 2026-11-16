@@ -13,6 +13,12 @@ data class ParsedDnsQuery(
     val dnsPayload: ByteArray
 )
 
+data class BlockedDomainMatch(
+    val category: String,
+    val reason: String,
+    val matchedRule: String
+)
+
 object DnsPacketHelper {
 
     const val DNS_TYPE_A = 1
@@ -149,33 +155,75 @@ object DnsPacketHelper {
         customDomains: Set<String> = emptySet(),
         customKeywords: Set<String> = emptySet(),
         blockExplicitAdult: Boolean = true,
-        blockGambling: Boolean = true
+        blockGambling: Boolean = true,
+        whitelistedDomains: Set<String> = emptySet()
     ): String? {
+        return matchesBlockedDomainDetailed(
+            rawDomain = rawDomain,
+            customDomains = customDomains,
+            customKeywords = customKeywords,
+            blockExplicitAdult = blockExplicitAdult,
+            blockGambling = blockGambling,
+            whitelistedDomains = whitelistedDomains
+        )?.reason
+    }
+
+    fun matchesBlockedDomainDetailed(
+        rawDomain: String,
+        customDomains: Set<String> = emptySet(),
+        customKeywords: Set<String> = emptySet(),
+        blockExplicitAdult: Boolean = true,
+        blockGambling: Boolean = true,
+        whitelistedDomains: Set<String> = emptySet()
+    ): BlockedDomainMatch? {
         val domain = rawDomain.trim().trimEnd('.').lowercase(Locale.US)
         if (domain.isBlank()) return null
+
+        for (allowed in whitelistedDomains) {
+            val cleanAllowed = allowed.trim().trimEnd('.').lowercase(Locale.US)
+            if (cleanAllowed.isNotBlank() && isDomainOrSubdomain(domain, cleanAllowed)) {
+                return null
+            }
+        }
 
         for (custom in customDomains) {
             val clean = custom.trim().trimEnd('.').lowercase(Locale.US)
             if (clean.isNotBlank() && isDomainOrSubdomain(domain, clean)) {
-                return "Custom Blocked Domain ($clean)"
+                return BlockedDomainMatch(
+                    category = "CUSTOM_DOMAIN",
+                    reason = "Custom Blocked Domain ($clean)",
+                    matchedRule = clean
+                )
             }
         }
 
         for (kw in customKeywords) {
             val cleanKw = kw.trim().lowercase(Locale.US)
             if (cleanKw.length >= 2 && domain.contains(cleanKw)) {
-                return "Custom Keyword Block ($cleanKw)"
+                return BlockedDomainMatch(
+                    category = "CUSTOM_KEYWORD",
+                    reason = "Custom Keyword Block ($cleanKw)",
+                    matchedRule = cleanKw
+                )
             }
         }
 
         if (blockExplicitAdult) {
             val tld = domain.substringAfterLast('.', "")
             if (tld in ADULT_TLDS) {
-                return "Blocked Adult TLD (.$tld)"
+                return BlockedDomainMatch(
+                    category = "ADULT",
+                    reason = "Blocked Adult TLD (.$tld)",
+                    matchedRule = ".$tld"
+                )
             }
             for (adultHost in BUILTIN_ADULT_DOMAINS) {
                 if (isDomainOrSubdomain(domain, adultHost)) {
-                    return "Safe DNS Adult Block ($adultHost)"
+                    return BlockedDomainMatch(
+                        category = "ADULT",
+                        reason = "Safe DNS Adult Block ($adultHost)",
+                        matchedRule = adultHost
+                    )
                 }
             }
         }
@@ -183,7 +231,11 @@ object DnsPacketHelper {
         if (blockGambling) {
             for (gambleHost in BUILTIN_GAMBLING_DOMAINS) {
                 if (isDomainOrSubdomain(domain, gambleHost)) {
-                    return "Safe DNS Gambling Block ($gambleHost)"
+                    return BlockedDomainMatch(
+                        category = "GAMBLING",
+                        reason = "Safe DNS Gambling Block ($gambleHost)",
+                        matchedRule = gambleHost
+                    )
                 }
             }
         }

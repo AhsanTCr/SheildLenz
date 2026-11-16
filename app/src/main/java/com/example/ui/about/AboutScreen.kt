@@ -128,6 +128,38 @@ private val SheildlenzFaqs = listOf(
     FaqEntry(
         question = "How do I change the model or exact timers?",
         answer = "Tap CUSTOM under Edits to load any 2, 3, or 5-class .tflite file, or tap the Version card above 7 times to unlock Precision Lab."
+    ),
+    FaqEntry(
+        question = "How does Guardian Recovery work if I forget my PIN?",
+        answer = "Set a Guardian Recovery Email during setup or under Edits. On both the App Lock screen and Lockdown overlay, your active Challenge ID (SLZ-XXXXXX) is displayed prominently. Send that Challenge ID to AhsanTCr to receive an 8-character offline recovery code, enter it to unlock and set a new PIN, and the app automatically generates a fresh Challenge ID on every new block or recovery."
+    ),
+    FaqEntry(
+        question = "What are Warning Thresholds before lockdown?",
+        answer = "Under Edits or Wellbeing & Safe DNS → Warning Thresholds, you can choose 0 to 3 screen warnings before an offending app triggers full device lockdown."
+    ),
+    FaqEntry(
+        question = "How do System-Wide Safe DNS & Custom Blocklists work?",
+        answer = "Safe DNS runs a zero-battery local loopback VPN using Cloudflare Family (1.1.1.3) to block adult and malware domains system-wide, combined with your custom blocked websites and search keywords."
+    ),
+    FaqEntry(
+        question = "How do Bedtime Lock & Daily App Time Budgets work?",
+        answer = "Configure overnight Bedtime schedules and daily per-app minute caps. When a child's app budget runs out or bedtime starts, the app blocks cleanly until bedtime ends or a Guardian grants a +15m PIN extension."
+    ),
+    FaqEntry(
+        question = "How do QR Scanning & Multi-Child Family Dashboard work?",
+        answer = "On the Parents tab, tap Scan Child QR to pair using the in-app camera or enter a 6-digit code. Manage multiple child devices, view live screen status, threat logs, and sync all limits remotely."
+    ),
+    FaqEntry(
+        question = "What does Guided Device Owner Setup do?",
+        answer = "Follow the 3-step Device Owner wizard under Wellbeing & Safe DNS or Edits to enable tamper-resistant Device Owner status, blocking unauthorized uninstalls and Safe Mode bypasses."
+    ),
+    FaqEntry(
+        question = "Can I use NPU/GPU acceleration or toggle content categories?",
+        answer = "Yes. Under AI Hardware & Categories, select Auto, CPU XNNPACK, or NNAPI NPU/GPU acceleration, and independently toggle Explicit Adult, Suggestive Visuals, Sensitive/Graphic, and Gambling filters."
+    ),
+    FaqEntry(
+        question = "What languages and open-source license does Sheildlenz support?",
+        answer = "Sheildlenz supports instant runtime switching across English, Urdu, Arabic, Spanish, Hindi, and French, and is 100% open-source under GNU GPL v3.0."
     )
 )
 

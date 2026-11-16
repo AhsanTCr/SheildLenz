@@ -1,6 +1,10 @@
 package com.example.ui.auth
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -16,10 +20,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -32,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -41,6 +49,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -78,10 +87,15 @@ fun GuardianGateScreen(
     val telemetry by protectionRepo.telemetry.collectAsState()
     val hasGuardianPin by preferences.hasGuardianPin.collectAsState()
     val savedEmail by preferences.guardianEmail.collectAsState()
+    val challengeCode by preferences.recoveryChallengeCode.collectAsState()
     var pinInput by remember(hasGuardianPin) { mutableStateOf("") }
     var confirmPinInput by remember(hasGuardianPin) { mutableStateOf("") }
     var emailInput by remember(hasGuardianPin, savedEmail) { mutableStateOf(savedEmail) }
     var pinError by remember(hasGuardianPin) { mutableStateOf<String?>(null) }
+    var showRecoveryForm by remember(hasGuardianPin) { mutableStateOf(false) }
+    var recoveryTokenInput by remember(hasGuardianPin) { mutableStateOf("") }
+    var recoveryNewPinInput by remember(hasGuardianPin) { mutableStateOf("") }
+    var recoveryError by remember(hasGuardianPin) { mutableStateOf<String?>(null) }
     val confirmFocusRequester = remember { FocusRequester() }
 
     val submitGate: () -> Unit = {
@@ -325,7 +339,7 @@ fun GuardianGateScreen(
                                 .testTag("guardian_gate_email_input")
                         )
                         Text(
-                            text = "Challenge ID: ${preferences.getRecoveryChallengeCode()} • Contact AhsanTCr if PIN is forgotten during a lockdown.",
+                            text = "Challenge ID: $challengeCode • Contact AhsanTCr if PIN is forgotten during a lockdown.",
                             color = AegisTextSecondary,
                             fontSize = 11.sp,
                             fontFamily = ClassicalBodyFont,
@@ -365,6 +379,162 @@ fun GuardianGateScreen(
                             fontFamily = ClassicalBodyFont,
                             letterSpacing = 0.8.sp
                         )
+                    }
+
+                    if (hasGuardianPin) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.6f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(AegisChampagneGold.copy(alpha = 0.14f))
+                                .border(1.dp, AegisChampagneGold.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .testTag("guardian_gate_challenge_badge")
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "RECOVERY CHALLENGE ID",
+                                    color = AegisChampagneGold,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                                Text(
+                                    text = challengeCode,
+                                    color = AegisTextPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                if (savedEmail.isNotBlank()) {
+                                    Text(
+                                        text = "Guardian Email: $savedEmail",
+                                        color = AegisTextSecondary,
+                                        fontSize = 10.5.sp,
+                                        fontFamily = ClassicalBodyFont
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedButton(
+                            onClick = { showRecoveryForm = !showRecoveryForm },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("guardian_gate_forgot_pin_button")
+                        ) {
+                            Text(
+                                text = if (showRecoveryForm) "HIDE RECOVERY FORM" else "FORGOT PIN? EMERGENCY RECOVERY",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = ClassicalBodyFont
+                            )
+                        }
+
+                        AnimatedVisibility(visible = showRecoveryForm) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "Send Challenge ID ($challengeCode) to AhsanTCr to obtain an 8-char recovery unlock code.",
+                                    color = AegisTextSecondary,
+                                    fontSize = 11.sp,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                                OutlinedTextField(
+                                    value = recoveryTokenInput,
+                                    onValueChange = {
+                                        recoveryTokenInput = it.uppercase()
+                                        recoveryError = null
+                                    },
+                                    label = { Text("8-Char AhsanTCr Recovery Code", fontFamily = ClassicalBodyFont) },
+                                    leadingIcon = {
+                                        Icon(imageVector = Icons.Default.Key, contentDescription = null, tint = AegisChampagneGold)
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("guardian_gate_recovery_code_input")
+                                )
+                                OutlinedTextField(
+                                    value = recoveryNewPinInput,
+                                    onValueChange = {
+                                        if (it.length <= 8 && it.all { ch -> ch.isDigit() }) {
+                                            recoveryNewPinInput = it
+                                            recoveryError = null
+                                        }
+                                    },
+                                    label = { Text("New Master Key (4–8 digits, optional)", fontFamily = ClassicalBodyFont) },
+                                    leadingIcon = {
+                                        Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = AegisPrimaryCyan)
+                                    },
+                                    visualTransformation = PasswordVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("guardian_gate_recovery_new_pin_input")
+                                )
+                                if (recoveryError != null) {
+                                    Text(
+                                        text = recoveryError!!,
+                                        color = AegisWarningAmber,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        val cleanNewPin = recoveryNewPinInput.trim()
+                                        if (cleanNewPin.isNotEmpty() && cleanNewPin.length < 4) {
+                                            recoveryError = "New PIN must be 4–8 digits or left blank"
+                                            return@Button
+                                        }
+                                        if (preferences.resetPinWithRecoveryToken(recoveryTokenInput, cleanNewPin.ifBlank { null })) {
+                                            showRecoveryForm = false
+                                            recoveryTokenInput = ""
+                                            recoveryNewPinInput = ""
+                                            onUnlocked()
+                                        } else {
+                                            recoveryError = "Invalid recovery code for Challenge ID $challengeCode"
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AegisChampagneGold,
+                                        contentColor = AegisOnPrimaryWhite
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .testTag("guardian_gate_recovery_unlock_button")
+                                ) {
+                                    Text(
+                                        text = "VERIFY RECOVERY & UNLOCK",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalBodyFont
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

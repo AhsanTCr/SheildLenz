@@ -18,13 +18,17 @@ import com.example.detection.decision.ThreatDecisionEngine
 import com.example.di.AegisContainer
 import com.example.monitoring.accessibility.AegisAccessibilityService
 import com.example.services.dns.DnsPacketHelper
+import androidx.compose.ui.test.onNodeWithText
 import com.example.ui.about.AboutScreen
 import com.example.ui.auth.GuardianGateScreen
+import com.example.ui.dashboard.DashboardScreen
 import com.example.ui.parents.ParentsScreen
 import com.example.ui.settings.SettingsScreen
+import com.example.ui.settings.WellbeingHubScreen
 import com.example.ui.theme.AegisShieldTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -75,15 +79,26 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         assertEquals("guardian@family.example", prefs.guardianEmail.value)
         assertTrue(prefs.isLockdownActive())
 
-        val challenge = prefs.getRecoveryChallengeCode()
-        assertTrue(challenge.startsWith("SLZ-"))
+        val challenge1 = prefs.getRecoveryChallengeCode()
+        assertTrue(challenge1.startsWith("SLZ-"))
         assertFalse(prefs.verifyRecoveryToken("WRONGCODE"))
 
-        val validToken = AegisPreferences.computeRecoveryTokenForChallenge(challenge)
+        // Second lockdown / block creates a fresh Challenge ID automatically
+        prefs.engageFullDeviceLockdown("Video", "org.videolan.vlc", "Explicit", "second block")
+        val challenge2 = prefs.getRecoveryChallengeCode()
+        assertTrue(challenge2.startsWith("SLZ-"))
+        assertNotEquals(challenge1, challenge2)
+
+        val validToken = AegisPreferences.computeRecoveryTokenForChallenge(challenge2)
         assertTrue(prefs.verifyRecoveryToken(validToken))
         assertTrue(prefs.resetPinWithRecoveryToken(validToken, "4321"))
         assertFalse(prefs.isLockdownActive())
         assertTrue(prefs.verifyGuardianPin("4321"))
+
+        // Challenge ID rotates again after successful recovery so old code cannot be reused
+        val challenge3 = prefs.getRecoveryChallengeCode()
+        assertNotEquals(challenge2, challenge3)
+        assertFalse(prefs.verifyRecoveryToken(validToken))
     }
 
     @Test
@@ -266,7 +281,32 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
     }
 
     @Test
-    fun `about screen displays open source gpl v3 card`() {
+    fun `guardian gate shows dominant challenge id and forgot pin recovery when pin is set`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setGuardianPin("1234")
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                GuardianGateScreen(
+                    preferences = container.preferences,
+                    protectionRepo = container.protectionRepository,
+                    onUnlocked = {}
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("guardian_gate_challenge_badge").performScrollTo()
+        composeRule.onNodeWithTag("guardian_gate_challenge_badge").assertIsDisplayed()
+        composeRule.onNodeWithTag("guardian_gate_forgot_pin_button").performScrollTo()
+        composeRule.onNodeWithTag("guardian_gate_forgot_pin_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("guardian_gate_recovery_code_input").performScrollTo()
+        composeRule.onNodeWithTag("guardian_gate_recovery_code_input").assertIsDisplayed()
+    }
+
+    @Test
+    fun `about screen displays open source gpl v3 card and new feature qas`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
 
@@ -280,6 +320,11 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         composeRule.onNodeWithTag("about_gpl_license_card").performScrollTo()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("about_gpl_license_card").assertIsDisplayed()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(
+            androidx.compose.ui.test.hasText("How does Guardian Recovery work if I forget my PIN?")
+        )
+        composeRule.onNodeWithText("How does Guardian Recovery work if I forget my PIN?").assertIsDisplayed()
     }
 
     @Test
@@ -309,7 +354,7 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
     }
 
     @Test
-    fun `settings screen renders safe dns bedtime language and device owner wizard trigger`() {
+    fun `settings screen renders separate cards for all new features`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
 
@@ -323,22 +368,64 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
             }
         }
 
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("safe_dns_blocklist_card"))
-        composeRule.onNodeWithTag("safe_dns_blocklist_card").assertIsDisplayed()
+        listOf(
+            "warning_thresholds_card",
+            "ai_categories_card",
+            "guardian_recovery_card",
+            "safe_dns_blocklist_card",
+            "bedtime_budgets_card",
+            "device_owner_card",
+            "device_owner_wizard_button",
+            "language_selector_card"
+        ).forEach { tag ->
+            composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag(tag))
+            composeRule.onNodeWithTag(tag).performScrollTo()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag(tag).assertIsDisplayed()
+        }
+    }
 
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("bedtime_budgets_card"))
-        composeRule.onNodeWithTag("bedtime_budgets_card").assertIsDisplayed()
+    @Test
+    fun `home renders wellbeing gateway button and wellbeing hub renders quick buttons`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        var openedWellbeing = false
 
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("language_selector_card"))
-        composeRule.onNodeWithTag("language_selector_card").assertIsDisplayed()
-
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("resistance_accordion_toggle"))
-        composeRule.onNodeWithTag("resistance_accordion_toggle").performClick()
+        composeRule.setContent {
+            AegisShieldTheme {
+                DashboardScreen(
+                    protectionRepo = container.protectionRepository,
+                    modelManager = container.modelManager,
+                    preferences = container.preferences,
+                    onNavigateToWellbeing = { openedWellbeing = true }
+                )
+            }
+        }
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_open_wellbeing_button"))
+        composeRule.onNodeWithTag("home_open_wellbeing_button").performScrollTo()
+        composeRule.onNodeWithTag("home_open_wellbeing_button").performClick()
         composeRule.waitForIdle()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("device_owner_wizard_button"))
-        composeRule.onNodeWithTag("device_owner_wizard_button").performScrollTo()
+        assertTrue(openedWellbeing)
+    }
+
+    @Test
+    fun `wellbeing hub screen shows dedicated quick buttons`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                WellbeingHubScreen(
+                    preferences = container.preferences,
+                    onNavigateBack = {}
+                )
+            }
+        }
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("device_owner_wizard_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("hub_safe_dns_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("hub_bedtime_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("hub_warnings_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("hub_device_owner_button").assertIsDisplayed()
     }
 
     private fun buildSampleIpv4UdpDnsQueryPacket(domain: String): ByteArray {

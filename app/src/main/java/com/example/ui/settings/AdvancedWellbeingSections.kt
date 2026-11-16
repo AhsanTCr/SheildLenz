@@ -4,6 +4,9 @@ import android.app.Activity
 import android.content.Intent
 import android.net.VpnService
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -25,13 +28,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -62,12 +74,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.data.preferences.AegisPreferences
+import com.example.data.preferences.InferenceAccelerationMode
+import com.example.security.deviceowner.AegisDeviceAdminReceiver
 import com.example.services.dns.AegisSafeDnsVpnService
+import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
 import com.example.ui.components.MasterKeyGateState
 import com.example.ui.theme.AegisCardBackground
@@ -93,7 +109,8 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun SafeDnsAndBlocklistSection(
     preferences: AegisPreferences,
-    masterKeyGate: MasterKeyGateState
+    masterKeyGate: MasterKeyGateState,
+    initiallyExpanded: Boolean = false
 ) {
     val context = LocalContext.current
     val safeDnsEnabled by preferences.safeDnsEnabled.collectAsState()
@@ -130,7 +147,8 @@ internal fun SafeDnsAndBlocklistSection(
         accentColor = AegisPrimaryCyan,
         tone = CyberCardTone.SKY,
         borderColor = if (safeDnsEnabled) AegisPrimaryCyan.copy(alpha = 0.6f) else AegisCardBorder,
-        testTag = "safe_dns_blocklist_card"
+        testTag = "safe_dns_blocklist_card",
+        initiallyExpanded = initiallyExpanded
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -362,7 +380,8 @@ private data class SimpleAppEntry(
 @Composable
 internal fun BedtimeAndBudgetsSection(
     preferences: AegisPreferences,
-    masterKeyGate: MasterKeyGateState
+    masterKeyGate: MasterKeyGateState,
+    initiallyExpanded: Boolean = false
 ) {
     val context = LocalContext.current
     val bedtimeEnabled by preferences.bedtimeEnabled.collectAsState()
@@ -406,7 +425,8 @@ internal fun BedtimeAndBudgetsSection(
         accentColor = AegisChampagneGold,
         tone = CyberCardTone.GOLD,
         borderColor = AegisGoldBorder,
-        testTag = "bedtime_budgets_card"
+        testTag = "bedtime_budgets_card",
+        initiallyExpanded = initiallyExpanded
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -730,7 +750,8 @@ private val SupportedLanguages = listOf(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LanguageSelectorSection(
-    preferences: AegisPreferences
+    preferences: AegisPreferences,
+    initiallyExpanded: Boolean = false
 ) {
     val context = LocalContext.current
     val currentCode by preferences.appLanguageCode.collectAsState()
@@ -743,7 +764,8 @@ internal fun LanguageSelectorSection(
         accentColor = AegisPurple,
         tone = CyberCardTone.LAVENDER,
         borderColor = AegisLavenderBorder,
-        testTag = "language_selector_card"
+        testTag = "language_selector_card",
+        initiallyExpanded = initiallyExpanded
     ) {
         Text(
             text = "Choose interface language (applies immediately):",
@@ -781,6 +803,505 @@ internal fun LanguageSelectorSection(
                         .height(42.dp)
                         .testTag("lang_chip_$code")
                 )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun WarningThresholdsSection(
+    preferences: AegisPreferences,
+    masterKeyGate: MasterKeyGateState,
+    initiallyExpanded: Boolean = false
+) {
+    val warningThreshold by preferences.warningThresholdCount.collectAsState()
+    val summary = if (warningThreshold == 0) {
+        "0 Warnings • Immediate Lockout"
+    } else {
+        "$warningThreshold ${if (warningThreshold == 1) "Warning" else "Warnings"} Before Lockout"
+    }
+
+    CollapsibleEditsCard(
+        title = "Warning Thresholds",
+        summary = summary,
+        icon = Icons.Default.NotificationsActive,
+        accentColor = AegisChampagneGold,
+        tone = CyberCardTone.GOLD,
+        borderColor = AegisGoldBorder,
+        testTag = "warning_thresholds_card",
+        initiallyExpanded = initiallyExpanded
+    ) {
+        Text(
+            text = "Choose how many screen warnings appear before closing the app and engaging full device lockdown:",
+            color = AegisTextSecondary,
+            fontSize = 11.5.sp,
+            lineHeight = 16.sp,
+            fontFamily = ClassicalBodyFont
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(0 to "0 (Now)", 1 to "1 Warn", 2 to "2 Warn", 3 to "3 Warn").forEach { (count, label) ->
+                val selected = warningThreshold == count
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (selected) AegisChampagneGold else AegisCardBackground.copy(alpha = 0.85f))
+                        .border(1.dp, if (selected) AegisChampagneGold else AegisCardBorder, RoundedCornerShape(10.dp))
+                        .clickable {
+                            masterKeyGate.request("change warning threshold") {
+                                preferences.setWarningThresholdCount(count)
+                            }
+                        }
+                        .testTag("warning_threshold_$count"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (selected) AegisOnPrimaryWhite else AegisTextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AiAcceleratorAndCategoriesSection(
+    preferences: AegisPreferences,
+    masterKeyGate: MasterKeyGateState,
+    initiallyExpanded: Boolean = false
+) {
+    val accelerationMode by preferences.inferenceAccelerationMode.collectAsState()
+    val blockExplicitAdult by preferences.blockExplicitAdult.collectAsState()
+    val blockSuggestiveContent by preferences.blockSuggestiveContent.collectAsState()
+    val blockSensitiveGraphic by preferences.blockSensitiveGraphic.collectAsState()
+    val blockGamblingKeywords by preferences.blockGamblingKeywords.collectAsState()
+
+    val enabledCount = listOf(
+        blockExplicitAdult,
+        blockSuggestiveContent,
+        blockSensitiveGraphic,
+        blockGamblingKeywords
+    ).count { it }
+
+    CollapsibleEditsCard(
+        title = "AI Hardware & Categories",
+        summary = "${accelerationMode.displayName} • $enabledCount/4 Filters Active",
+        icon = Icons.Default.Memory,
+        accentColor = AegisPurple,
+        tone = CyberCardTone.LAVENDER,
+        borderColor = AegisLavenderBorder,
+        testTag = "ai_categories_card",
+        initiallyExpanded = initiallyExpanded
+    ) {
+        Text(
+            text = "AI Hardware Accelerator",
+            color = AegisTextPrimary,
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = ClassicalDisplayFont
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(
+                InferenceAccelerationMode.AUTO_BEST to "Auto",
+                InferenceAccelerationMode.CPU_XNNPACK to "CPU XNN",
+                InferenceAccelerationMode.NNAPI_NPU to "NPU/GPU"
+            ).forEach { (mode, label) ->
+                val selected = accelerationMode == mode
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (selected) AegisPurple else AegisCardBackground.copy(alpha = 0.85f))
+                        .border(1.dp, if (selected) AegisPurple else AegisCardBorder, RoundedCornerShape(10.dp))
+                        .clickable { preferences.setInferenceAccelerationMode(mode) }
+                        .testTag("accel_mode_${mode.name}"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (selected) AegisOnPrimaryWhite else AegisTextPrimary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.55f), modifier = Modifier.padding(vertical = 8.dp))
+
+        Text(
+            text = "Content Category Toggles",
+            color = AegisTextPrimary,
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = ClassicalDisplayFont
+        )
+        CompactSwitchRow(
+            title = "Explicit Adult Content",
+            checked = blockExplicitAdult,
+            onCheckedChange = { enabled ->
+                masterKeyGate.request("toggle explicit adult filter") {
+                    preferences.setBlockExplicitAdult(enabled)
+                }
+            },
+            testTag = "category_explicit_switch"
+        )
+        CompactSwitchRow(
+            title = "Suggestive Visuals",
+            checked = blockSuggestiveContent,
+            onCheckedChange = { enabled ->
+                masterKeyGate.request("toggle suggestive visuals filter") {
+                    preferences.setBlockSuggestiveContent(enabled)
+                }
+            },
+            testTag = "category_suggestive_switch"
+        )
+        CompactSwitchRow(
+            title = "Sensitive / Graphic Media",
+            checked = blockSensitiveGraphic,
+            onCheckedChange = { enabled ->
+                masterKeyGate.request("toggle sensitive graphic filter") {
+                    preferences.setBlockSensitiveGraphic(enabled)
+                }
+            },
+            testTag = "category_graphic_switch"
+        )
+        CompactSwitchRow(
+            title = "Gambling Websites & Search",
+            checked = blockGamblingKeywords,
+            onCheckedChange = { enabled ->
+                masterKeyGate.request("toggle gambling filter") {
+                    preferences.setBlockGamblingKeywords(enabled)
+                }
+            },
+            testTag = "category_gambling_switch"
+        )
+    }
+}
+
+@Composable
+internal fun GuardianRecoverySection(
+    preferences: AegisPreferences,
+    masterKeyGate: MasterKeyGateState
+) {
+    val context = LocalContext.current
+    val guardianEmail by preferences.guardianEmail.collectAsState()
+    val challengeId by preferences.recoveryChallengeCode.collectAsState()
+    var emailDraft by remember(guardianEmail) { mutableStateOf(guardianEmail) }
+
+    CyberCard(
+        borderColor = AegisGoldBorder,
+        tone = CyberCardTone.GOLD,
+        modifier = Modifier.testTag("guardian_recovery_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(AegisChampagneGold.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Key,
+                        contentDescription = null,
+                        tint = AegisChampagneGold,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Guardian Recovery & ID",
+                        color = AegisTextPrimary,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Text(
+                        text = if (guardianEmail.isBlank()) "Add recovery email for lockouts" else guardianEmail,
+                        color = AegisTextSecondary,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    masterKeyGate.request("generate new Challenge ID") {
+                        preferences.rotateRecoveryChallengeCode()
+                        Toast.makeText(context, "New Challenge ID generated", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .height(42.dp)
+                    .testTag("rotate_challenge_id_button")
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("NEW ID", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(AegisCardBackground)
+                .border(1.dp, AegisChampagneGold.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .testTag("recovery_challenge_badge")
+        ) {
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "ACTIVE DEVICE CHALLENGE ID (AUTO-ROTATES ON LOCKDOWN)",
+                    color = AegisChampagneGold,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.7.sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = challengeId,
+                    color = AegisTextPrimary,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = emailDraft,
+                onValueChange = { emailDraft = it },
+                placeholder = { Text("guardian@email.com", fontSize = 12.sp) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag("settings_guardian_email_input")
+            )
+            Button(
+                onClick = {
+                    masterKeyGate.request("update Guardian Recovery Email") {
+                        preferences.setGuardianEmail(emailDraft)
+                        Toast.makeText(context, "Recovery email saved", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = AegisPrimaryCyan, contentColor = AegisOnPrimaryWhite),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .height(48.dp)
+                    .testTag("settings_save_email_button")
+            ) {
+                Text("SAVE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun DeviceOwnerSetupSection(
+    onOpenWizard: () -> Unit
+) {
+    val context = LocalContext.current
+    val isDeviceOwner = remember { AegisDeviceAdminReceiver.isDeviceOwner(context) }
+    val isDeviceAdmin = remember { AegisDeviceAdminReceiver.isDeviceAdmin(context) }
+
+    CyberCard(
+        borderColor = if (isDeviceOwner) AegisPrimaryCyan.copy(alpha = 0.6f) else AegisLavenderBorder,
+        tone = CyberCardTone.SKY,
+        modifier = Modifier.testTag("device_owner_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(AegisPrimaryCyan.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AdminPanelSettings,
+                        contentDescription = null,
+                        tint = AegisPrimaryCyan,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Guided Device Owner Setup",
+                        color = AegisTextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Text(
+                        text = when {
+                            isDeviceOwner -> "Active • Maximum tamper resistance"
+                            isDeviceAdmin -> "Device Admin active • Upgrade to Owner"
+                            else -> "Step-by-step ADB tamper-proof wizard"
+                        },
+                        color = if (isDeviceOwner) AegisPrimaryCyan else AegisTextSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+
+            Button(
+                onClick = onOpenWizard,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AegisPrimaryCyan,
+                    contentColor = AegisOnPrimaryWhite
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .height(48.dp)
+                    .testTag("device_owner_wizard_button")
+            ) {
+                Text(
+                    text = if (isDeviceOwner) "STATUS" else "SETUP",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun PolicyBackupRestoreSection(
+    preferences: AegisPreferences,
+    masterKeyGate: MasterKeyGateState,
+    initiallyExpanded: Boolean = false
+) {
+    val context = LocalContext.current
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                val json = preferences.exportPolicyJson()
+                context.contentResolver.openOutputStream(uri)?.use { stream ->
+                    stream.write(json.toByteArray(Charsets.UTF_8))
+                }
+                Toast.makeText(context, "Policy backup saved successfully", Toast.LENGTH_SHORT).show()
+            }.onFailure { err ->
+                Toast.makeText(context, "Export failed: ${err.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                val content = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                if (!content.isNullOrBlank()) {
+                    if (preferences.restorePolicyJson(content)) {
+                        Toast.makeText(context, "Policy restored successfully", Toast.LENGTH_SHORT).show()
+                        (context as? Activity)?.recreate()
+                    } else {
+                        Toast.makeText(context, "Invalid backup format or checksum mismatch", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.onFailure { err ->
+                Toast.makeText(context, "Restore failed: ${err.localizedMessage}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    CollapsibleEditsCard(
+        title = "Backup & Restore Policy",
+        summary = "Export or restore encrypted Guardian settings (.slzbackup)",
+        icon = Icons.Default.Backup,
+        accentColor = AegisChampagneGold,
+        tone = CyberCardTone.GOLD,
+        borderColor = AegisGoldBorder,
+        testTag = "policy_backup_restore_card",
+        initiallyExpanded = initiallyExpanded
+    ) {
+        Text(
+            text = "Export your sensitivity settings, blocked domains, time budgets, and schedules to a secure JSON file, or restore a saved policy.",
+            color = AegisTextSecondary,
+            fontSize = 11.5.sp,
+            fontFamily = ClassicalBodyFont
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = {
+                    masterKeyGate.request("export policy backup") {
+                        val defaultName = "sheildlenz_policy_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.slzbackup"
+                        exportLauncher.launch(defaultName)
+                    }
+                },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).height(48.dp).testTag("export_policy_button")
+            ) {
+                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("EXPORT", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Button(
+                onClick = {
+                    masterKeyGate.request("restore policy backup") {
+                        importLauncher.launch(arrayOf("application/json", "*/*"))
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = AegisChampagneGold, contentColor = AegisOnPrimaryWhite),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.weight(1f).height(48.dp).testTag("restore_policy_button")
+            ) {
+                Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("RESTORE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

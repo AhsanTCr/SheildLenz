@@ -38,6 +38,10 @@ class AegisContainer(context: Context) {
         SecurityHistoryRepository(database.incidentDao())
     }
 
+    val blockedDnsLogRepository: com.example.data.repository.BlockedDnsLogRepository by lazy {
+        com.example.data.repository.BlockedDnsLogRepository(database.blockedDnsLogDao())
+    }
+
     val overlayController: SystemOverlayController by lazy {
         SystemOverlayController(appContext)
     }

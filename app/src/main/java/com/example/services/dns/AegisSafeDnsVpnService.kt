@@ -162,15 +162,16 @@ class AegisSafeDnsVpnService : VpnService() {
 
                 val query = DnsPacketHelper.parseIpv4UdpDnsPacket(packet, len) ?: continue
                 val prefs = container.preferences
-                val blockReason = DnsPacketHelper.matchesBlockedDomain(
+                val blockMatch = DnsPacketHelper.matchesBlockedDomainDetailed(
                     rawDomain = query.domain,
                     customDomains = prefs.customBlockedDomains.value,
                     customKeywords = prefs.customBlockedKeywords.value,
                     blockExplicitAdult = prefs.blockExplicitAdult.value,
-                    blockGambling = prefs.blockGamblingKeywords.value
+                    blockGambling = prefs.blockGamblingKeywords.value,
+                    whitelistedDomains = emptySet()
                 )
 
-                if (blockReason != null) {
+                if (blockMatch != null) {
                     val blockedDns = DnsPacketHelper.buildBlockedDnsResponsePayload(query.dnsPayload)
                     if (blockedDns != null) {
                         val respPacket = DnsPacketHelper.buildIpv4UdpResponsePacket(query, blockedDns)
@@ -178,7 +179,12 @@ class AegisSafeDnsVpnService : VpnService() {
                             output.write(respPacket)
                         }
                         _blockedQueryCount.value += 1
-                        _lastBlockedDomain.value = "${query.domain} ($blockReason)"
+                        _lastBlockedDomain.value = "${query.domain} (${blockMatch.reason})"
+                        container.blockedDnsLogRepository.recordBlockedQuery(
+                            domain = query.domain,
+                            reasonCategory = blockMatch.category,
+                            matchedRule = blockMatch.matchedRule
+                        )
                     }
                     continue
                 }

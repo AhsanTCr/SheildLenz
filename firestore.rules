@@ -108,10 +108,19 @@ service cloud.firestore {
         data.lockdownActive is bool;
     }
 
+    function isValidIntruderAlert(data) {
+      return data.attemptCount is int && data.attemptCount >= 1 &&
+        data.surface is string && data.surface.size() <= 60 &&
+        data.timestamp is int && data.timestamp >= 0 &&
+        data.photoBase64 is string && data.photoBase64.size() <= 350000 &&
+        data.acknowledged is bool;
+    }
+
     function isValidRemoteControlDoc(docId, data) {
       return (docId == 'settings' && isValidRemoteSettings(data)) ||
         (docId == 'commands' && isValidRemoteCommand(data)) ||
-        (docId == 'thumbnails' && isValidThumbnail(data));
+        (docId == 'thumbnails' && isValidThumbnail(data)) ||
+        (docId == 'intruder_alert' && isValidIntruderAlert(data));
     }
 
     match /users/{userId} {

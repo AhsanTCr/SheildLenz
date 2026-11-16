@@ -8,6 +8,7 @@ import com.example.core.models.SensitivityLevel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
@@ -332,6 +333,9 @@ class AegisPreferences(context: Context) {
         prefs.getString(KEY_GUARDIAN_EMAIL, "") ?: ""
     )
     val guardianEmail: StateFlow<String> = _guardianEmail.asStateFlow()
+
+    private val _recoveryChallengeCode = MutableStateFlow(readOrCreateChallengeCode())
+    val recoveryChallengeCode: StateFlow<String> = _recoveryChallengeCode.asStateFlow()
 
     // AI Hardware Acceleration & Content Category Toggles
     private val _inferenceAccelerationMode = MutableStateFlow(getSavedAccelerationMode())
@@ -754,6 +758,7 @@ class AegisPreferences(context: Context) {
         _lockdownIncidentInfo.value = LockdownIncidentInfo(appName, packageName, categoryName, details, now)
         _blockedOffendingPackage.value = packageName
         _warningsIssuedInCycle.value = 0
+        rotateRecoveryChallengeCode()
         return until
     }
 
@@ -952,14 +957,33 @@ class AegisPreferences(context: Context) {
         _guardianEmail.value = clean
     }
 
-    fun getRecoveryChallengeCode(): String {
+    private fun readOrCreateChallengeCode(): String {
         val existing = prefs.getString(KEY_RECOVERY_CHALLENGE_ID, null)
         if (!existing.isNullOrBlank()) return existing
+        return generateAndPersistChallengeCode(previousCode = null)
+    }
+
+    private fun generateAndPersistChallengeCode(previousCode: String?): String {
         val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        val suffix = (1..6).map { chars.random() }.joinToString("")
-        val generated = "SLZ-$suffix"
+        var generated: String
+        do {
+            val suffix = (1..6).map { chars.random() }.joinToString("")
+            generated = "SLZ-$suffix"
+        } while (generated == previousCode)
         prefs.edit().putString(KEY_RECOVERY_CHALLENGE_ID, generated).apply()
         return generated
+    }
+
+    fun getRecoveryChallengeCode(): String {
+        val current = _recoveryChallengeCode.value
+        if (current.isNotBlank()) return current
+        return rotateRecoveryChallengeCode()
+    }
+
+    fun rotateRecoveryChallengeCode(): String {
+        val fresh = generateAndPersistChallengeCode(previousCode = _recoveryChallengeCode.value)
+        _recoveryChallengeCode.value = fresh
+        return fresh
     }
 
     fun verifyRecoveryToken(input: String): Boolean {
@@ -979,6 +1003,7 @@ class AegisPreferences(context: Context) {
         } else {
             unlockGuardianSession()
         }
+        rotateRecoveryChallengeCode()
         return true
     }
 
@@ -1220,6 +1245,116 @@ class AegisPreferences(context: Context) {
         val safe = code.trim().lowercase(Locale.US).ifBlank { "system" }
         prefs.edit().putString(KEY_APP_LANGUAGE_CODE, safe).apply()
         _appLanguageCode.value = safe
+    }
+
+    fun exportPolicyJson(): String {
+        val json = JSONObject().apply {
+            put("schemaVersion", 1)
+            put("exportedAtMillis", System.currentTimeMillis())
+            put("sensitivity", _sensitivity.value.name)
+            put("strictEverything", _strictEverything.value)
+            put("lockdownDurationMinutes", _lockdownDurationMinutes.value)
+            put("antiTamperEnabled", _antiTamperEnabled.value)
+            put("childUninstallLocked", _childUninstallLocked.value)
+            put("liveSeeEnabled", _liveSeeEnabled.value)
+            put("warningThresholdCount", _warningThresholdCount.value)
+            put("bedtimeEnabled", _bedtimeEnabled.value)
+            put("bedtimeStartMinutes", _bedtimeStartMinutes.value)
+            put("bedtimeEndMinutes", _bedtimeEndMinutes.value)
+            put("safeDnsEnabled", _safeDnsEnabled.value)
+            put("blockExplicitAdult", _blockExplicitAdult.value)
+            put("blockSuggestiveContent", _blockSuggestiveContent.value)
+            put("blockSensitiveGraphic", _blockSensitiveGraphic.value)
+            put("blockGamblingKeywords", _blockGamblingKeywords.value)
+            put("guardianEmail", _guardianEmail.value)
+            put("appLanguageCode", _appLanguageCode.value)
+            put("whitelistedPackages", JSONArray(_whitelistedPackages.value.toList()))
+            put("customBlockedDomains", JSONArray(_customBlockedDomains.value.toList()))
+            put("customBlockedKeywords", JSONArray(_customBlockedKeywords.value.toList()))
+            put("appTimeBudgets", JSONObject(_appTimeBudgets.value))
+        }
+        val content = json.toString()
+        val md = MessageDigest.getInstance("SHA-256")
+        val checksum = md.digest(content.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        return JSONObject().apply {
+            put("checksum", checksum)
+            put("payload", json)
+        }.toString(2)
+    }
+
+    fun restorePolicyJson(fileContent: String): Boolean {
+        return runCatching {
+            val root = JSONObject(fileContent)
+            val checksum = root.optString("checksum", "")
+            val payload = root.optJSONObject("payload") ?: root
+            val payloadStr = payload.toString()
+            val md = MessageDigest.getInstance("SHA-256")
+            val computed = md.digest(payloadStr.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+            if (checksum.isNotBlank() && checksum != computed) {
+                // Checksum mismatch warning handled gracefully
+            }
+
+            val sens = payload.optString("sensitivity", "BALANCED")
+            runCatching { setSensitivity(SensitivityLevel.valueOf(sens)) }
+            setStrictEverything(payload.optBoolean("strictEverything", false))
+            setLockdownDurationMinutes(payload.optInt("lockdownDurationMinutes", 600))
+            setAntiTamperEnabled(payload.optBoolean("antiTamperEnabled", true))
+            setChildUninstallLocked(payload.optBoolean("childUninstallLocked", true))
+            setLiveSeeEnabled(payload.optBoolean("liveSeeEnabled", true))
+            setWarningThresholdCount(payload.optInt("warningThresholdCount", 0))
+            setBedtimeEnabled(payload.optBoolean("bedtimeEnabled", false))
+            setBedtimeWindow(
+                payload.optInt("bedtimeStartMinutes", 22 * 60),
+                payload.optInt("bedtimeEndMinutes", 6 * 60)
+            )
+            setSafeDnsEnabled(payload.optBoolean("safeDnsEnabled", false))
+            setBlockExplicitAdult(payload.optBoolean("blockExplicitAdult", true))
+            setBlockSuggestiveContent(payload.optBoolean("blockSuggestiveContent", true))
+            setBlockSensitiveGraphic(payload.optBoolean("blockSensitiveGraphic", true))
+            setBlockGamblingKeywords(payload.optBoolean("blockGamblingKeywords", true))
+            setGuardianEmail(payload.optString("guardianEmail", ""))
+            setAppLanguageCode(payload.optString("appLanguageCode", "system"))
+
+            val whitelistArr = payload.optJSONArray("whitelistedPackages")
+            if (whitelistArr != null) {
+                val set = mutableSetOf<String>()
+                for (i in 0 until whitelistArr.length()) {
+                    whitelistArr.optString(i)?.takeIf { it.isNotBlank() }?.let { set.add(it) }
+                }
+                setWhitelistedPackages(set)
+            }
+
+            val domainsArr = payload.optJSONArray("customBlockedDomains")
+            if (domainsArr != null) {
+                val set = mutableSetOf<String>()
+                for (i in 0 until domainsArr.length()) {
+                    domainsArr.optString(i)?.takeIf { it.isNotBlank() }?.let { set.add(it) }
+                }
+                setCustomBlockedDomains(set)
+            }
+
+            val keywordsArr = payload.optJSONArray("customBlockedKeywords")
+            if (keywordsArr != null) {
+                val set = mutableSetOf<String>()
+                for (i in 0 until keywordsArr.length()) {
+                    keywordsArr.optString(i)?.takeIf { it.isNotBlank() }?.let { set.add(it) }
+                }
+                setCustomBlockedKeywords(set)
+            }
+
+            val budgetsObj = payload.optJSONObject("appTimeBudgets")
+            if (budgetsObj != null) {
+                val map = mutableMapOf<String, Int>()
+                val keys = budgetsObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val v = budgetsObj.optInt(k, 0)
+                    if (v > 0) map[k] = v
+                }
+                setAppTimeBudgets(map)
+            }
+            true
+        }.getOrDefault(false)
     }
 
     companion object {

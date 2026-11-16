@@ -62,6 +62,7 @@ import com.example.ui.onboarding.OnboardingScreen
 import com.example.ui.parents.ParentsScreen
 import com.example.ui.protection.LiveProtectionScreen
 import com.example.ui.settings.SettingsScreen
+import com.example.ui.settings.WellbeingHubScreen
 import com.example.ui.splash.SplashScreen
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
@@ -325,6 +326,11 @@ fun AegisNavHost(
                                     navController.navigate(AegisDestinations.PROGRESS) {
                                         launchSingleTop = true
                                     }
+                                },
+                                onNavigateToWellbeing = {
+                                    navController.navigate(AegisDestinations.WELLBEING) {
+                                        launchSingleTop = true
+                                    }
                                 }
                             )
                         }
@@ -374,6 +380,21 @@ fun AegisNavHost(
                         } else {
                             SecurityHistoryScreen(
                                 historyRepo = container.securityHistoryRepository,
+                                preferences = container.preferences,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                    }
+
+                    composable(AegisDestinations.WELLBEING) {
+                        if (!isGuardianAuthorized) {
+                            GuardianGateScreen(
+                                preferences = container.preferences,
+                                protectionRepo = container.protectionRepository,
+                                onUnlocked = { }
+                            )
+                        } else {
+                            WellbeingHubScreen(
                                 preferences = container.preferences,
                                 onNavigateBack = { navController.popBackStack() }
                             )

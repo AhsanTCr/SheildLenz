@@ -533,20 +533,151 @@ class SystemOverlayController(private val context: Context) {
 
         root.addView(pinCard)
 
-        root.addView(verticalSpacer(18))
+        root.addView(verticalSpacer(20))
+
+        val challengeCode = prefs.getRecoveryChallengeCode()
+        val registeredEmail = prefs.guardianEmail.value.ifBlank { "Not configured during setup" }
+
+        // Dominant Always-Visible Challenge ID & Guardian Recovery Card — Sunlit Honey Gold pastel
+        val dominantChallengeCard = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = roundedBox("#FFF1CE", "#E59712", 32f)
+            setPadding(32, 24, 32, 24)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val recoveryHeading = TextView(context).apply {
+            text = "FORGOT PIN? GUARDIAN RECOVERY ID"
+            setTextColor(Color.parseColor("#D9820B"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 8)
+        }
+        dominantChallengeCard.addView(recoveryHeading)
+
+        val challengeCodeBadge = TextView(context).apply {
+            text = challengeCode
+            setTextColor(Color.parseColor("#1A3673"))
+            textSize = 22f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = roundedBox("#FFFFFF", "#E59712", 20f)
+            setPadding(34, 14, 34, 14)
+        }
+        dominantChallengeCard.addView(challengeCodeBadge)
+
+        val recoveryInfo = TextView(context).apply {
+            text = "Guardian Email: $registeredEmail\n" +
+                "Each block creates a fresh Challenge ID. Send this ID to AhsanTCr to receive your 8-char recovery unlock code."
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 11.5f
+            gravity = Gravity.CENTER
+            setPadding(0, 12, 0, 14)
+        }
+        dominantChallengeCard.addView(recoveryInfo)
+
+        val recoveryInput = EditText(context).apply {
+            hint = "Enter 8-Char AhsanTCr Recovery Code"
+            setHintTextColor(Color.parseColor("#5D76B0"))
+            setTextColor(Color.parseColor("#1A3673"))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            imeOptions = EditorInfo.IME_ACTION_NEXT
+            isSingleLine = true
+            typeface = Typeface.MONOSPACE
+            textSize = 13f
+            gravity = Gravity.CENTER
+            background = roundedBox("#FFFFFF", "#F2C667", 18f)
+            setPadding(20, 18, 20, 18)
+        }
+
+        val recoveryNewPinInput = EditText(context).apply {
+            hint = "Optional: Set New PIN (4–8 digits)"
+            setHintTextColor(Color.parseColor("#5D76B0"))
+            setTextColor(Color.parseColor("#1A3673"))
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            isSingleLine = true
+            typeface = Typeface.MONOSPACE
+            textSize = 13f
+            gravity = Gravity.CENTER
+            background = roundedBox("#FFFFFF", "#C0AEFD", 18f)
+            setPadding(20, 18, 20, 18)
+        }
+
+        val recoveryPanel = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 12
+            }
+        }
+        recoveryPanel.addView(recoveryInput)
+        recoveryPanel.addView(verticalSpacer(10))
+        recoveryPanel.addView(recoveryNewPinInput)
+        recoveryPanel.addView(verticalSpacer(10))
+
+        val verifyRecoveryBtn = Button(context).apply {
+            text = "VERIFY RECOVERY CODE & UNLOCK"
+            setTextColor(Color.WHITE)
+            background = roundedBox("#D9820B", "#D9820B", 20f)
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(20, 20, 20, 20)
+            setOnClickListener {
+                val entered = recoveryInput.text.toString()
+                val optionalNewPin = recoveryNewPinInput.text.toString().trim()
+                if (optionalNewPin.isNotEmpty() && (optionalNewPin.length !in 4..8 || !optionalNewPin.all { it.isDigit() })) {
+                    Toast.makeText(context, "New PIN must be 4–8 digits or left blank.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                if (prefs.resetPinWithRecoveryToken(entered, optionalNewPin.ifBlank { null })) {
+                    prefs.setShieldDesiredActive(true)
+                    AegisLockdownService.stop(context)
+                    dismissBlockOverlay()
+                    val msg = if (optionalNewPin.isNotBlank()) {
+                        "Recovery verified & new PIN saved. Device unlocked • Shield stays ON."
+                    } else {
+                        "Guardian recovery verified. Device unlocked • Shield stays ON."
+                    }
+                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    ensureShieldRemainsOnAfterUnlock()
+                } else {
+                    recoveryInput.setText("")
+                    Toast.makeText(
+                        context,
+                        "Invalid recovery code for Challenge ID $challengeCode.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+        bindPinSubmitOnEnter(recoveryNewPinInput, verifyRecoveryBtn)
+        recoveryPanel.addView(verifyRecoveryBtn)
 
         val emergencyRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
 
         val emergencyBtn = Button(context).apply {
             text = "EMERGENCY DIALER"
             setTextColor(Color.parseColor("#D9820B"))
-            background = roundedBox("#FFF1CE", "#F2C667", 18f)
+            background = roundedBox("#FFFFFF", "#F2C667", 18f)
             textSize = 11f
             typeface = Typeface.MONOSPACE
-            setPadding(24, 18, 24, 18)
+            setPadding(22, 18, 22, 18)
             visibility = if (prefs.showEmergencyDialerOnLockdown.value) View.VISIBLE else View.GONE
             setOnClickListener {
                 val dialIntent = Intent(Intent.ACTION_DIAL).apply {
@@ -560,97 +691,12 @@ class SystemOverlayController(private val context: Context) {
         }
         emergencyRow.addView(emergencyBtn)
 
-        val recoveryPanel = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            background = roundedBox("#FFF1CE", "#F2C667", 28f)
-            setPadding(30, 24, 30, 24)
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = 16
-            }
-        }
-
-        val challengeCode = prefs.getRecoveryChallengeCode()
-        val registeredEmail = prefs.guardianEmail.value.ifBlank { "Not configured during setup" }
-
-        val recoveryHeading = TextView(context).apply {
-            text = "GUARDIAN EMERGENCY RECOVERY"
-            setTextColor(Color.parseColor("#D9820B"))
-            textSize = 11f
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 8)
-        }
-        recoveryPanel.addView(recoveryHeading)
-
-        val recoveryInfo = TextView(context).apply {
-            text = "Guardian Email: $registeredEmail\n" +
-                "Device Challenge ID: $challengeCode\n" +
-                "Contact AhsanTCr with this Challenge ID to obtain a recovery password, then enter it below (or dial recovery via Emergency Dialer instructions)."
-            setTextColor(Color.parseColor("#3E5894"))
-            textSize = 11f
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 14)
-        }
-        recoveryPanel.addView(recoveryInfo)
-
-        val recoveryInput = EditText(context).apply {
-            hint = "Enter 8-Char AhsanTCr Recovery Code"
-            setHintTextColor(Color.parseColor("#5D76B0"))
-            setTextColor(Color.parseColor("#1A3673"))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            isSingleLine = true
-            typeface = Typeface.MONOSPACE
-            textSize = 13f
-            gravity = Gravity.CENTER
-            background = roundedBox("#FFFFFF", "#F2C667", 18f)
-            setPadding(20, 18, 20, 18)
-        }
-        recoveryPanel.addView(recoveryInput)
-        recoveryPanel.addView(verticalSpacer(10))
-
-        val verifyRecoveryBtn = Button(context).apply {
-            text = "VERIFY RECOVERY CODE & UNLOCK"
+        val recoveryToggleBtn = Button(context).apply {
+            text = "ENTER RECOVERY CODE"
             setTextColor(Color.WHITE)
-            background = roundedBox("#D9820B", "#D9820B", 20f)
+            background = roundedBox("#7C5CFA", "#7C5CFA", 18f)
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
-            setPadding(20, 18, 20, 18)
-            setOnClickListener {
-                val entered = recoveryInput.text.toString()
-                if (prefs.resetPinWithRecoveryToken(entered)) {
-                    prefs.setShieldDesiredActive(true)
-                    AegisLockdownService.stop(context)
-                    dismissBlockOverlay()
-                    Toast.makeText(
-                        context,
-                        "Guardian recovery verified. Device unlocked • Shield stays ON.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    ensureShieldRemainsOnAfterUnlock()
-                } else {
-                    recoveryInput.setText("")
-                    Toast.makeText(
-                        context,
-                        "Invalid recovery code for Challenge ID $challengeCode.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        }
-        bindPinSubmitOnEnter(recoveryInput, verifyRecoveryBtn)
-        recoveryPanel.addView(verifyRecoveryBtn)
-
-        val recoveryToggleBtn = Button(context).apply {
-            text = "FORGOT PIN? RECOVERY"
-            setTextColor(Color.parseColor("#7C5CFA"))
-            background = roundedBox("#EDE6FF", "#C0AEFD", 18f)
-            textSize = 11f
-            typeface = Typeface.MONOSPACE
             setPadding(24, 18, 24, 18)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -659,13 +705,16 @@ class SystemOverlayController(private val context: Context) {
                 leftMargin = 14
             }
             setOnClickListener {
-                recoveryPanel.visibility = if (recoveryPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                val nextVisible = recoveryPanel.visibility != View.VISIBLE
+                recoveryPanel.visibility = if (nextVisible) View.VISIBLE else View.GONE
+                text = if (nextVisible) "HIDE RECOVERY FORM" else "ENTER RECOVERY CODE"
             }
         }
         emergencyRow.addView(recoveryToggleBtn)
 
-        root.addView(emergencyRow)
-        root.addView(recoveryPanel)
+        dominantChallengeCard.addView(emergencyRow)
+        dominantChallengeCard.addView(recoveryPanel)
+        root.addView(dominantChallengeCard)
 
         root.addView(verticalSpacer(22))
         root.addView(createOverlayBrandingView(allowOpenLink = false))

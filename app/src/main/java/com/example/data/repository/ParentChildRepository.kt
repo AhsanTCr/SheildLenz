@@ -86,6 +86,14 @@ data class ChildLiveThumbnail(
     val lockdownActive: Boolean = false
 )
 
+data class IntruderAlertPayload(
+    val attemptCount: Int = 0,
+    val surface: String = "",
+    val timestamp: Long = 0L,
+    val photoBase64: String = "",
+    val acknowledged: Boolean = false
+)
+
 class ParentChildRepository(
     context: Context,
     db: FirebaseFirestore? = null,
@@ -640,6 +648,78 @@ class ParentChildRepository(
                     emit(null)
                 }
         )
+    }
+
+    suspend fun uploadIntruderAlert(
+        attemptCount: Int,
+        surface: String,
+        photoBase64: String = ""
+    ): Boolean {
+        val childUid = auth?.currentUser?.uid ?: return false
+        val db = firestoreOrNull ?: return false
+        val path = "users/$childUid/remote_control/intruder_alert"
+        return try {
+            db.document(path).set(
+                mapOf(
+                    "attemptCount" to attemptCount,
+                    "surface" to surface.take(60),
+                    "timestamp" to System.currentTimeMillis(),
+                    "photoBase64" to photoBase64.take(350000),
+                    "acknowledged" to false
+                )
+            ).await()
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, path)
+            false
+        }
+    }
+
+    fun observeIntruderAlert(childUid: String): Flow<IntruderAlertPayload?> = flow {
+        val uid = auth?.currentUser?.uid
+        val db = firestoreOrNull
+        if (uid == null || db == null) {
+            emit(null)
+            return@flow
+        }
+        val path = "users/$childUid/remote_control/intruder_alert"
+        emitAll(
+            db.document(path)
+                .snapshots()
+                .map { doc ->
+                    if (!doc.exists()) null else IntruderAlertPayload(
+                        attemptCount = (doc.getLong("attemptCount") ?: 1L).toInt(),
+                        surface = doc.getString("surface") ?: "PIN Entry",
+                        timestamp = doc.getLong("timestamp") ?: 0L,
+                        photoBase64 = doc.getString("photoBase64") ?: "",
+                        acknowledged = doc.getBoolean("acknowledged") ?: false
+                    )
+                }
+                .catch { error ->
+                    val fe = unwrapFirestoreError(error)
+                    if (fe == null && error is CancellationException) throw error
+                    if (auth?.currentUser?.uid == uid) {
+                        handleFirestoreError(fe ?: error, OperationType.GET, path)
+                    }
+                    emit(null)
+                }
+        )
+    }
+
+    suspend fun acknowledgeIntruderAlert(childUid: String): Boolean {
+        val path = "users/$childUid/remote_control/intruder_alert"
+        return try {
+            requireUserId()
+            requireDb().document(path).update("acknowledged", true).await()
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, path)
+            false
+        }
     }
 
     suspend fun logThreatToCloud(incident: SecurityIncident): Boolean {

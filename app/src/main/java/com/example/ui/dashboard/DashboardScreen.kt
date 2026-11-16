@@ -51,6 +51,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -141,7 +142,8 @@ fun DashboardScreen(
     onRequestStartProtection: () -> Unit = {},
     onRequestStopProtection: () -> Unit = {},
     onNavigateToStatus: () -> Unit = {},
-    onNavigateToProgress: () -> Unit = {}
+    onNavigateToProgress: () -> Unit = {},
+    onNavigateToWellbeing: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -1026,6 +1028,18 @@ fun DashboardScreen(
                             accentColor = AegisPurple,
                             onClick = onNavigateToProgress,
                             testTag = "home_open_progress_button"
+                        )
+
+                        HomeDestinationGatewayCard(
+                            title = "Wellbeing & Safe DNS",
+                            subtitle = "Safe DNS, Bedtime, App Budgets, Categories & Recovery",
+                            icon = Icons.Default.Dns,
+                            gradientColors = listOf(AegisChampagneGold, AegisPrimaryCyan),
+                            surfaceTint = listOf(Color(0xFFFFFBF2), Color(0xFFF0F9FF)),
+                            borderColor = AegisGoldBorder,
+                            accentColor = AegisChampagneGold,
+                            onClick = onNavigateToWellbeing,
+                            testTag = "home_open_wellbeing_button"
                         )
                     }
                 }

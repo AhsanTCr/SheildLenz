@@ -7,6 +7,7 @@ object AegisDestinations {
     const val EDITS = "edits"
     const val STATUS = "status"
     const val PROGRESS = "progress"
+    const val WELLBEING = "wellbeing"
     const val PARENTS = "parents"
     const val ABOUT = "about"
     const val PARENT_CHILD_LINK = "parent_child_link"
