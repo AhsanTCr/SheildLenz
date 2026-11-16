@@ -8,7 +8,11 @@ import com.example.core.models.SensitivityLevel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONObject
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class LockdownIncidentInfo(
     val appName: String = "Detected App",
@@ -64,6 +68,30 @@ enum class PowerMode(
         adaptiveBackoff = false
     )
 }
+
+enum class InferenceAccelerationMode(
+    val displayName: String,
+    val caption: String
+) {
+    AUTO_BEST(
+        displayName = "Auto (NPU/GPU + CPU)",
+        caption = "Uses hardware NNAPI when supported with XNNPACK fallback"
+    ),
+    CPU_XNNPACK(
+        displayName = "CPU (XNNPACK)",
+        caption = "Balanced SIMD CPU acceleration across all devices"
+    ),
+    NNAPI_NPU(
+        displayName = "NPU / GPU (NNAPI)",
+        caption = "Hardware AI delegate acceleration for lower CPU power"
+    )
+}
+
+data class WarningEscalationResult(
+    val shouldLockdown: Boolean,
+    val warningNumber: Int,
+    val maxWarnings: Int
+)
 
 class AegisPreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("aegis_shield_prefs", Context.MODE_PRIVATE)
@@ -288,6 +316,79 @@ class AegisPreferences(context: Context) {
     )
     val lastHandledRemoteCommandTs: StateFlow<Long> = _lastHandledRemoteCommandTs.asStateFlow()
 
+    // Configurable Warning Thresholds (0 = immediate lockdown; 1..5 = warnings before device lock)
+    private val _warningThresholdCount = MutableStateFlow(
+        prefs.getInt(KEY_WARNING_THRESHOLD_COUNT, 0).coerceIn(0, 5)
+    )
+    val warningThresholdCount: StateFlow<Int> = _warningThresholdCount.asStateFlow()
+
+    private val _warningsIssuedInCycle = MutableStateFlow(
+        prefs.getInt(KEY_WARNINGS_IN_CYCLE, 0).coerceAtLeast(0)
+    )
+    val warningsIssuedInCycle: StateFlow<Int> = _warningsIssuedInCycle.asStateFlow()
+
+    // Guardian Email & Emergency Recovery
+    private val _guardianEmail = MutableStateFlow(
+        prefs.getString(KEY_GUARDIAN_EMAIL, "") ?: ""
+    )
+    val guardianEmail: StateFlow<String> = _guardianEmail.asStateFlow()
+
+    // AI Hardware Acceleration & Content Category Toggles
+    private val _inferenceAccelerationMode = MutableStateFlow(getSavedAccelerationMode())
+    val inferenceAccelerationMode: StateFlow<InferenceAccelerationMode> = _inferenceAccelerationMode.asStateFlow()
+
+    private val _blockExplicitAdult = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_EXPLICIT_ADULT, true))
+    val blockExplicitAdult: StateFlow<Boolean> = _blockExplicitAdult.asStateFlow()
+
+    private val _blockSuggestiveContent = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_SUGGESTIVE_CONTENT, true))
+    val blockSuggestiveContent: StateFlow<Boolean> = _blockSuggestiveContent.asStateFlow()
+
+    private val _blockSensitiveGraphic = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_SENSITIVE_GRAPHIC, true))
+    val blockSensitiveGraphic: StateFlow<Boolean> = _blockSensitiveGraphic.asStateFlow()
+
+    private val _blockGamblingKeywords = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_GAMBLING_KEYWORDS, true))
+    val blockGamblingKeywords: StateFlow<Boolean> = _blockGamblingKeywords.asStateFlow()
+
+    // Bedtime Lock & Daily Per-App Time Budgets
+    private val _bedtimeEnabled = MutableStateFlow(prefs.getBoolean(KEY_BEDTIME_ENABLED, false))
+    val bedtimeEnabled: StateFlow<Boolean> = _bedtimeEnabled.asStateFlow()
+
+    private val _bedtimeStartMinutes = MutableStateFlow(
+        prefs.getInt(KEY_BEDTIME_START_MINUTES, 22 * 60).coerceIn(0, 1439)
+    )
+    val bedtimeStartMinutes: StateFlow<Int> = _bedtimeStartMinutes.asStateFlow()
+
+    private val _bedtimeEndMinutes = MutableStateFlow(
+        prefs.getInt(KEY_BEDTIME_END_MINUTES, 6 * 60).coerceIn(0, 1439)
+    )
+    val bedtimeEndMinutes: StateFlow<Int> = _bedtimeEndMinutes.asStateFlow()
+
+    private val _appTimeBudgets = MutableStateFlow(readIntMap(KEY_APP_TIME_BUDGETS))
+    val appTimeBudgets: StateFlow<Map<String, Int>> = _appTimeBudgets.asStateFlow()
+
+    private val _dailyAppUsageSeconds = MutableStateFlow(readDailyUsageMap(todayDateKey()))
+    val dailyAppUsageSeconds: StateFlow<Map<String, Int>> = _dailyAppUsageSeconds.asStateFlow()
+
+    // System-Wide Safe DNS & Custom Blocklists
+    private val _safeDnsEnabled = MutableStateFlow(prefs.getBoolean(KEY_SAFE_DNS_ENABLED, false))
+    val safeDnsEnabled: StateFlow<Boolean> = _safeDnsEnabled.asStateFlow()
+
+    private val _customBlockedDomains = MutableStateFlow(
+        prefs.getStringSet(KEY_CUSTOM_BLOCKED_DOMAINS, emptySet())?.toSet() ?: emptySet()
+    )
+    val customBlockedDomains: StateFlow<Set<String>> = _customBlockedDomains.asStateFlow()
+
+    private val _customBlockedKeywords = MutableStateFlow(
+        prefs.getStringSet(KEY_CUSTOM_BLOCKED_KEYWORDS, emptySet())?.toSet() ?: emptySet()
+    )
+    val customBlockedKeywords: StateFlow<Set<String>> = _customBlockedKeywords.asStateFlow()
+
+    // Multi-Language Localization Preference ("system", "en", "ur", "ar", "es", "hi", "fr")
+    private val _appLanguageCode = MutableStateFlow(
+        prefs.getString(KEY_APP_LANGUAGE_CODE, "system") ?: "system"
+    )
+    val appLanguageCode: StateFlow<String> = _appLanguageCode.asStateFlow()
+
     @Volatile
     private var guardianSettingsBypassUntilRealtime: Long = 0L
 
@@ -312,6 +413,15 @@ class AegisPreferences(context: Context) {
             PowerMode.valueOf(name ?: PowerMode.ADAPTIVE_ECO.name)
         } catch (_: Exception) {
             PowerMode.ADAPTIVE_ECO
+        }
+    }
+
+    private fun getSavedAccelerationMode(): InferenceAccelerationMode {
+        val name = prefs.getString(KEY_INFERENCE_ACCELERATION_MODE, InferenceAccelerationMode.AUTO_BEST.name)
+        return try {
+            InferenceAccelerationMode.valueOf(name ?: InferenceAccelerationMode.AUTO_BEST.name)
+        } catch (_: Exception) {
+            InferenceAccelerationMode.AUTO_BEST
         }
     }
 
@@ -634,6 +744,7 @@ class AegisPreferences(context: Context) {
             .putString(KEY_LOCKDOWN_DETAILS, details)
             .putLong(KEY_LOCKDOWN_DETECTED_AT, now)
             .putString(KEY_BLOCKED_PACKAGE, packageName)
+            .putInt(KEY_WARNINGS_IN_CYCLE, 0)
             .apply()
 
         _lockdownUntilMillis.value = until
@@ -642,6 +753,7 @@ class AegisPreferences(context: Context) {
         _isShieldDesiredActive.value = true
         _lockdownIncidentInfo.value = LockdownIncidentInfo(appName, packageName, categoryName, details, now)
         _blockedOffendingPackage.value = packageName
+        _warningsIssuedInCycle.value = 0
         return until
     }
 
@@ -707,12 +819,14 @@ class AegisPreferences(context: Context) {
             .putLong(KEY_LOCKDOWN_UNTIL_MILLIS, 0L)
             .putBoolean(KEY_LOCKDOWN_PENDING_UNLOCK, false)
             .putInt(KEY_LOCKDOWN_STAGE, LOCKDOWN_STAGE_NONE)
+            .putInt(KEY_WARNINGS_IN_CYCLE, 0)
             .remove(KEY_BLOCKED_PACKAGE)
             .apply()
         _lockdownUntilMillis.value = 0L
         _lockdownPendingUnlock.value = false
         _lockdownStage.value = LOCKDOWN_STAGE_NONE
         _blockedOffendingPackage.value = null
+        _warningsIssuedInCycle.value = 0
     }
 
     @VisibleForTesting
@@ -801,12 +915,338 @@ class AegisPreferences(context: Context) {
         return digest.joinToString("") { "%02x".format(it) }
     }
 
+    // --- 1. Configurable Warning Thresholds ---
+
+    fun setWarningThresholdCount(count: Int) {
+        val clamped = count.coerceIn(0, 5)
+        prefs.edit().putInt(KEY_WARNING_THRESHOLD_COUNT, clamped).apply()
+        _warningThresholdCount.value = clamped
+    }
+
+    fun recordThreatAndCheckLockdown(): WarningEscalationResult {
+        val maxWarnings = _warningThresholdCount.value.coerceIn(0, 5)
+        if (maxWarnings == 0) {
+            return WarningEscalationResult(shouldLockdown = true, warningNumber = 0, maxWarnings = 0)
+        }
+        val nextCount = _warningsIssuedInCycle.value + 1
+        return if (nextCount > maxWarnings) {
+            resetWarningCycle()
+            WarningEscalationResult(shouldLockdown = true, warningNumber = nextCount, maxWarnings = maxWarnings)
+        } else {
+            prefs.edit().putInt(KEY_WARNINGS_IN_CYCLE, nextCount).apply()
+            _warningsIssuedInCycle.value = nextCount
+            WarningEscalationResult(shouldLockdown = false, warningNumber = nextCount, maxWarnings = maxWarnings)
+        }
+    }
+
+    fun resetWarningCycle() {
+        prefs.edit().putInt(KEY_WARNINGS_IN_CYCLE, 0).apply()
+        _warningsIssuedInCycle.value = 0
+    }
+
+    // --- 2. Guardian Email & Emergency Dialer Recovery ---
+
+    fun setGuardianEmail(email: String) {
+        val clean = email.trim().take(160)
+        prefs.edit().putString(KEY_GUARDIAN_EMAIL, clean).apply()
+        _guardianEmail.value = clean
+    }
+
+    fun getRecoveryChallengeCode(): String {
+        val existing = prefs.getString(KEY_RECOVERY_CHALLENGE_ID, null)
+        if (!existing.isNullOrBlank()) return existing
+        val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        val suffix = (1..6).map { chars.random() }.joinToString("")
+        val generated = "SLZ-$suffix"
+        prefs.edit().putString(KEY_RECOVERY_CHALLENGE_ID, generated).apply()
+        return generated
+    }
+
+    fun verifyRecoveryToken(input: String): Boolean {
+        val normalized = input.trim().uppercase(Locale.US).replace("-", "").replace(" ", "")
+        if (normalized.length < 6) return false
+        val expected = computeRecoveryTokenForChallenge(getRecoveryChallengeCode())
+            .uppercase(Locale.US)
+            .replace("-", "")
+        return normalized == expected
+    }
+
+    fun resetPinWithRecoveryToken(token: String, newPin: String? = null): Boolean {
+        if (!verifyRecoveryToken(token)) return false
+        clearLockdown()
+        if (!newPin.isNullOrBlank() && newPin.length in 4..8 && newPin.all { it.isDigit() }) {
+            setGuardianPin(newPin)
+        } else {
+            unlockGuardianSession()
+        }
+        return true
+    }
+
+    // --- 3. AI Hardware Acceleration & Content Category Toggles ---
+
+    fun setInferenceAccelerationMode(mode: InferenceAccelerationMode) {
+        prefs.edit().putString(KEY_INFERENCE_ACCELERATION_MODE, mode.name).apply()
+        _inferenceAccelerationMode.value = mode
+    }
+
+    fun setBlockExplicitAdult(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_EXPLICIT_ADULT, enabled).apply()
+        _blockExplicitAdult.value = enabled
+    }
+
+    fun setBlockSuggestiveContent(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_SUGGESTIVE_CONTENT, enabled).apply()
+        _blockSuggestiveContent.value = enabled
+    }
+
+    fun setBlockSensitiveGraphic(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_SENSITIVE_GRAPHIC, enabled).apply()
+        _blockSensitiveGraphic.value = enabled
+    }
+
+    fun setBlockGamblingKeywords(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_GAMBLING_KEYWORDS, enabled).apply()
+        _blockGamblingKeywords.value = enabled
+    }
+
+    // --- 4. Bedtime Lock & Daily Per-App Time Budgets ---
+
+    fun setBedtimeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BEDTIME_ENABLED, enabled).apply()
+        _bedtimeEnabled.value = enabled
+    }
+
+    fun setBedtimeWindow(startMinutes: Int, endMinutes: Int) {
+        val safeStart = startMinutes.coerceIn(0, 1439)
+        val safeEnd = endMinutes.coerceIn(0, 1439)
+        prefs.edit()
+            .putInt(KEY_BEDTIME_START_MINUTES, safeStart)
+            .putInt(KEY_BEDTIME_END_MINUTES, safeEnd)
+            .apply()
+        _bedtimeStartMinutes.value = safeStart
+        _bedtimeEndMinutes.value = safeEnd
+    }
+
+    fun isWithinBedtimeLockWindow(currentMinuteOfDay: Int = currentClockMinuteOfDay()): Boolean {
+        if (!_bedtimeEnabled.value) return false
+        return isMinuteWithinWindow(
+            minuteOfDay = currentMinuteOfDay,
+            startMinute = _bedtimeStartMinutes.value,
+            endMinute = _bedtimeEndMinutes.value
+        )
+    }
+
+    fun setAppTimeBudgets(budgets: Map<String, Int>) {
+        val sanitized = budgets.entries
+            .filter { it.key.isNotBlank() && it.value > 0 }
+            .take(50)
+            .associate { it.key.trim() to it.value.coerceIn(1, 720) }
+        writeIntMap(KEY_APP_TIME_BUDGETS, sanitized)
+        _appTimeBudgets.value = sanitized
+    }
+
+    fun setAppTimeBudget(packageName: String, limitMinutes: Int) {
+        val cleanPkg = packageName.trim()
+        if (cleanPkg.isBlank()) return
+        val next = _appTimeBudgets.value.toMutableMap()
+        if (limitMinutes <= 0) {
+            next.remove(cleanPkg)
+        } else {
+            next[cleanPkg] = limitMinutes.coerceIn(1, 720)
+        }
+        setAppTimeBudgets(next)
+    }
+
+    fun removeAppTimeBudget(packageName: String) {
+        val next = _appTimeBudgets.value.toMutableMap()
+        if (next.remove(packageName) != null) {
+            setAppTimeBudgets(next)
+        }
+    }
+
+    fun recordAppUsageSeconds(
+        packageName: String,
+        deltaSeconds: Int = 1,
+        dateKey: String = todayDateKey()
+    ): Int {
+        if (packageName.isBlank() || deltaSeconds <= 0) return 0
+        val currentMap = readDailyUsageMap(dateKey).toMutableMap()
+        val updated = (currentMap[packageName] ?: 0) + deltaSeconds
+        currentMap[packageName] = updated
+        prefs.edit()
+            .putString(KEY_DAILY_USAGE_DATE, dateKey)
+            .putString(KEY_DAILY_USAGE_MAP, JSONObject(currentMap.mapValues { it.value }).toString())
+            .apply()
+        _dailyAppUsageSeconds.value = currentMap
+        return updated
+    }
+
+    fun getAppUsedSecondsToday(packageName: String, dateKey: String = todayDateKey()): Int {
+        if (packageName.isBlank()) return 0
+        val currentMap = readDailyUsageMap(dateKey)
+        if (_dailyAppUsageSeconds.value != currentMap) {
+            _dailyAppUsageSeconds.value = currentMap
+        }
+        return currentMap[packageName] ?: 0
+    }
+
+    fun isAppTimeBudgetExceeded(packageName: String, dateKey: String = todayDateKey()): Boolean {
+        val limitMinutes = _appTimeBudgets.value[packageName] ?: return false
+        val extMap = readDailyExtensionMap(dateKey)
+        val extraMinutes = extMap[packageName] ?: 0
+        val allowedSeconds = (limitMinutes + extraMinutes) * 60
+        return getAppUsedSecondsToday(packageName, dateKey) >= allowedSeconds
+    }
+
+    fun getRemainingBudgetSeconds(packageName: String, dateKey: String = todayDateKey()): Int? {
+        val limitMinutes = _appTimeBudgets.value[packageName] ?: return null
+        val extMap = readDailyExtensionMap(dateKey)
+        val extraMinutes = extMap[packageName] ?: 0
+        val allowedSeconds = (limitMinutes + extraMinutes) * 60
+        return (allowedSeconds - getAppUsedSecondsToday(packageName, dateKey)).coerceAtLeast(0)
+    }
+
+    fun grantTemporaryBudgetExtension(
+        packageName: String,
+        extraMinutes: Int = 15,
+        dateKey: String = todayDateKey()
+    ) {
+        if (packageName.isBlank() || extraMinutes <= 0) return
+        val extMap = readDailyExtensionMap(dateKey).toMutableMap()
+        extMap[packageName] = (extMap[packageName] ?: 0) + extraMinutes
+        prefs.edit()
+            .putString(KEY_DAILY_EXT_DATE, dateKey)
+            .putString(KEY_DAILY_EXT_MAP, JSONObject(extMap.mapValues { it.value }).toString())
+            .apply()
+    }
+
+    private fun readIntMap(key: String): Map<String, Int> {
+        val raw = prefs.getString(key, null) ?: return emptyMap()
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                val iter = json.keys()
+                while (iter.hasNext()) {
+                    val k = iter.next()
+                    put(k, json.optInt(k, 0))
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun writeIntMap(key: String, map: Map<String, Int>) {
+        prefs.edit().putString(key, JSONObject(map.mapValues { it.value }).toString()).apply()
+    }
+
+    private fun readDailyUsageMap(dateKey: String): Map<String, Int> {
+        val storedDate = prefs.getString(KEY_DAILY_USAGE_DATE, "")
+        if (storedDate != dateKey) {
+            return emptyMap()
+        }
+        return readIntMap(KEY_DAILY_USAGE_MAP)
+    }
+
+    private fun readDailyExtensionMap(dateKey: String): Map<String, Int> {
+        val storedDate = prefs.getString(KEY_DAILY_EXT_DATE, "")
+        if (storedDate != dateKey) {
+            return emptyMap()
+        }
+        return readIntMap(KEY_DAILY_EXT_MAP)
+    }
+
+    private fun todayDateKey(): String =
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+
+    // --- 5. System-Wide Safe DNS & Custom Blocklists ---
+
+    fun setSafeDnsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SAFE_DNS_ENABLED, enabled).apply()
+        _safeDnsEnabled.value = enabled
+    }
+
+    fun setCustomBlockedDomains(domains: Set<String>) {
+        val cleaned = domains.mapNotNull { normalizeDomainInput(it) }.take(200).toSet()
+        prefs.edit().putStringSet(KEY_CUSTOM_BLOCKED_DOMAINS, cleaned).apply()
+        _customBlockedDomains.value = cleaned
+    }
+
+    fun addCustomBlockedDomain(raw: String): Boolean {
+        val domain = normalizeDomainInput(raw) ?: return false
+        val next = _customBlockedDomains.value.toMutableSet()
+        if (next.add(domain)) {
+            setCustomBlockedDomains(next)
+            return true
+        }
+        return false
+    }
+
+    fun removeCustomBlockedDomain(domain: String) {
+        val next = _customBlockedDomains.value.toMutableSet()
+        if (next.remove(domain)) {
+            setCustomBlockedDomains(next)
+        }
+    }
+
+    fun setCustomBlockedKeywords(keywords: Set<String>) {
+        val cleaned = keywords.map { it.trim().lowercase(Locale.US) }
+            .filter { it.length >= 2 }
+            .take(200)
+            .toSet()
+        prefs.edit().putStringSet(KEY_CUSTOM_BLOCKED_KEYWORDS, cleaned).apply()
+        _customBlockedKeywords.value = cleaned
+    }
+
+    fun addCustomBlockedKeyword(raw: String): Boolean {
+        val kw = raw.trim().lowercase(Locale.US)
+        if (kw.length < 2) return false
+        val next = _customBlockedKeywords.value.toMutableSet()
+        if (next.add(kw)) {
+            setCustomBlockedKeywords(next)
+            return true
+        }
+        return false
+    }
+
+    fun removeCustomBlockedKeyword(keyword: String) {
+        val next = _customBlockedKeywords.value.toMutableSet()
+        if (next.remove(keyword)) {
+            setCustomBlockedKeywords(next)
+        }
+    }
+
+    // --- 6. Multi-Language Support ---
+
+    fun setAppLanguageCode(code: String) {
+        val safe = code.trim().lowercase(Locale.US).ifBlank { "system" }
+        prefs.edit().putString(KEY_APP_LANGUAGE_CODE, safe).apply()
+        _appLanguageCode.value = safe
+    }
+
     companion object {
         const val DEFAULT_LOCKDOWN_HOURS = 10
         const val MAX_LOCKDOWN_MINUTES = 24 * 60
         const val LOCKDOWN_STAGE_NONE = 0
         const val LOCKDOWN_STAGE_INITIAL = 1
         const val LOCKDOWN_STAGE_DOUBLE_TIME = 2
+
+        fun computeRecoveryTokenForChallenge(challengeCode: String): String {
+            val md = MessageDigest.getInstance("SHA-256")
+            val digest = md.digest(("ahsantcr_sheildlenz_recovery_v1_" + challengeCode.trim().uppercase(Locale.US)).toByteArray(Charsets.UTF_8))
+            return digest.take(4).joinToString("") { "%02X".format(it) }
+        }
+
+        fun normalizeDomainInput(raw: String): String? {
+            val cleaned = raw.trim()
+                .lowercase(Locale.US)
+                .removePrefix("https://")
+                .removePrefix("http://")
+                .removePrefix("www.")
+                .substringBefore("/")
+                .substringBefore("?")
+                .substringBefore(":")
+                .trim('.')
+            return if (cleaned.length >= 3 && cleaned.contains('.')) cleaned else null
+        }
 
         fun formatMinutesLabel(totalMinutes: Int): String {
             val safe = totalMinutes.coerceAtLeast(1)
@@ -943,5 +1383,27 @@ class AegisPreferences(context: Context) {
         private const val KEY_PARENT_APPROVED_UNINSTALL_UNTIL = "key_parent_approved_uninstall_until"
         private const val KEY_LIVE_SEE_ENABLED = "key_live_see_enabled"
         private const val KEY_LAST_REMOTE_CMD_TS = "key_last_remote_cmd_ts"
+
+        private const val KEY_WARNING_THRESHOLD_COUNT = "key_warning_threshold_count"
+        private const val KEY_WARNINGS_IN_CYCLE = "key_warnings_in_cycle"
+        private const val KEY_GUARDIAN_EMAIL = "key_guardian_email"
+        private const val KEY_RECOVERY_CHALLENGE_ID = "key_recovery_challenge_id"
+        private const val KEY_INFERENCE_ACCELERATION_MODE = "key_inference_acceleration_mode"
+        private const val KEY_BLOCK_EXPLICIT_ADULT = "key_block_explicit_adult"
+        private const val KEY_BLOCK_SUGGESTIVE_CONTENT = "key_block_suggestive_content"
+        private const val KEY_BLOCK_SENSITIVE_GRAPHIC = "key_block_sensitive_graphic"
+        private const val KEY_BLOCK_GAMBLING_KEYWORDS = "key_block_gambling_keywords"
+        private const val KEY_BEDTIME_ENABLED = "key_bedtime_enabled"
+        private const val KEY_BEDTIME_START_MINUTES = "key_bedtime_start_minutes"
+        private const val KEY_BEDTIME_END_MINUTES = "key_bedtime_end_minutes"
+        private const val KEY_APP_TIME_BUDGETS = "key_app_time_budgets"
+        private const val KEY_DAILY_USAGE_DATE = "key_daily_usage_date"
+        private const val KEY_DAILY_USAGE_MAP = "key_daily_usage_map"
+        private const val KEY_DAILY_EXT_DATE = "key_daily_ext_date"
+        private const val KEY_DAILY_EXT_MAP = "key_daily_ext_map"
+        private const val KEY_SAFE_DNS_ENABLED = "key_safe_dns_enabled"
+        private const val KEY_CUSTOM_BLOCKED_DOMAINS = "key_custom_blocked_domains"
+        private const val KEY_CUSTOM_BLOCKED_KEYWORDS = "key_custom_blocked_keywords"
+        private const val KEY_APP_LANGUAGE_CODE = "key_app_language_code"
     }
 }

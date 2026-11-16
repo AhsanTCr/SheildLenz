@@ -74,6 +74,24 @@ class ParentChildSyncController(
                             if (remote.whitelistedPackages.isNotEmpty()) {
                                 preferences.setWhitelistedPackages(remote.whitelistedPackages)
                             }
+                            preferences.setWarningThresholdCount(remote.warningThresholdCount)
+                            preferences.setBedtimeEnabled(remote.bedtimeEnabled)
+                            preferences.setBedtimeWindow(remote.bedtimeStartMinutes, remote.bedtimeEndMinutes)
+                            preferences.setAppTimeBudgets(remote.appTimeBudgets)
+                            preferences.setCustomBlockedDomains(remote.customBlockedDomains)
+                            preferences.setCustomBlockedKeywords(remote.customBlockedKeywords)
+                            preferences.setSafeDnsEnabled(remote.safeDnsEnabled)
+                            if (remote.safeDnsEnabled) {
+                                if (android.net.VpnService.prepare(context) == null) {
+                                    com.example.services.dns.AegisSafeDnsVpnService.start(context)
+                                }
+                            } else {
+                                com.example.services.dns.AegisSafeDnsVpnService.stop(context)
+                            }
+                            preferences.setBlockExplicitAdult(remote.blockExplicitAdult)
+                            preferences.setBlockSuggestiveContent(remote.blockSuggestiveContent)
+                            preferences.setBlockSensitiveGraphic(remote.blockSensitiveGraphic)
+                            preferences.setBlockGamblingKeywords(remote.blockGamblingKeywords)
                             AegisDeviceAdminReceiver.setChildUninstallBlockedIfDeviceOwner(
                                 context,
                                 preferences.isChildUninstallBlocked()

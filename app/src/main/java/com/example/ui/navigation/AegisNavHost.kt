@@ -37,9 +37,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.annotation.StringRes
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -49,6 +51,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.R
 import com.example.di.AegisContainer
 import com.example.ui.about.AboutScreen
 import com.example.ui.auth.GuardianGateScreen
@@ -70,7 +73,7 @@ import com.example.ui.theme.ClassicalBodyFont
 
 private data class MainTabItem(
     val route: String,
-    val label: String,
+    @StringRes val labelRes: Int,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 )
@@ -78,25 +81,25 @@ private data class MainTabItem(
 private val MainTabItems = listOf(
     MainTabItem(
         route = AegisDestinations.HOME,
-        label = "Home",
+        labelRes = R.string.nav_home,
         selectedIcon = Icons.Filled.Home,
         unselectedIcon = Icons.Outlined.Home
     ),
     MainTabItem(
         route = AegisDestinations.EDITS,
-        label = "Edits",
+        labelRes = R.string.nav_edits,
         selectedIcon = Icons.Filled.Tune,
         unselectedIcon = Icons.Outlined.Tune
     ),
     MainTabItem(
         route = AegisDestinations.PARENTS,
-        label = "Parents",
+        labelRes = R.string.nav_parents,
         selectedIcon = Icons.Filled.SupervisorAccount,
         unselectedIcon = Icons.Outlined.SupervisorAccount
     ),
     MainTabItem(
         route = AegisDestinations.ABOUT,
-        label = "About",
+        labelRes = R.string.nav_about,
         selectedIcon = Icons.Filled.Info,
         unselectedIcon = Icons.Outlined.Info
     )
@@ -161,18 +164,19 @@ fun AegisNavHost(
                 ) {
                     MainTabItems.forEach { tab ->
                         val selected = currentRoute == tab.route
+                        val tabLabel = stringResource(tab.labelRes)
                         NavigationRailItem(
                             selected = selected,
                             onClick = { navigateToTab(tab.route) },
                             icon = {
                                 Icon(
                                     imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.label
+                                    contentDescription = tabLabel
                                 )
                             },
                             label = {
                                 Text(
-                                    text = tab.label,
+                                    text = tabLabel,
                                     fontSize = 11.sp,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                     fontFamily = ClassicalBodyFont,
@@ -223,18 +227,19 @@ fun AegisNavHost(
                             ) {
                                 MainTabItems.forEach { tab ->
                                     val selected = currentRoute == tab.route
+                                    val tabLabel = stringResource(tab.labelRes)
                                     NavigationBarItem(
                                         selected = selected,
                                         onClick = { navigateToTab(tab.route) },
                                         icon = {
                                             Icon(
                                                 imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                                contentDescription = tab.label
+                                                contentDescription = tabLabel
                                             )
                                         },
                                         label = {
                                             Text(
-                                                text = tab.label,
+                                                text = tabLabel,
                                                 fontSize = 11.sp,
                                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                                 fontFamily = ClassicalBodyFont,

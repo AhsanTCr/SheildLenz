@@ -56,7 +56,19 @@ data class RemotePolicySettings(
     val antiTamperEnabled: Boolean = true,
     val childUninstallLocked: Boolean = true,
     val liveSeeEnabled: Boolean = true,
-    val whitelistedPackages: Set<String> = emptySet()
+    val whitelistedPackages: Set<String> = emptySet(),
+    val warningThresholdCount: Int = 0,
+    val bedtimeEnabled: Boolean = false,
+    val bedtimeStartMinutes: Int = 22 * 60,
+    val bedtimeEndMinutes: Int = 6 * 60,
+    val appTimeBudgets: Map<String, Int> = emptyMap(),
+    val customBlockedDomains: Set<String> = emptySet(),
+    val customBlockedKeywords: Set<String> = emptySet(),
+    val safeDnsEnabled: Boolean = false,
+    val blockExplicitAdult: Boolean = true,
+    val blockSuggestiveContent: Boolean = true,
+    val blockSensitiveGraphic: Boolean = true,
+    val blockGamblingKeywords: Boolean = true
 )
 
 data class RemoteCommandPayload(
@@ -408,6 +420,18 @@ class ParentChildRepository(
                 "childUninstallLocked" to settings.childUninstallLocked,
                 "liveSeeEnabled" to settings.liveSeeEnabled,
                 "whitelistedPackages" to settings.whitelistedPackages.take(40),
+                "warningThresholdCount" to settings.warningThresholdCount.coerceIn(0, 5),
+                "bedtimeEnabled" to settings.bedtimeEnabled,
+                "bedtimeStartMinutes" to settings.bedtimeStartMinutes.coerceIn(0, 1439),
+                "bedtimeEndMinutes" to settings.bedtimeEndMinutes.coerceIn(0, 1439),
+                "appTimeBudgets" to settings.appTimeBudgets.entries.take(50).associate { it.key to it.value.coerceIn(1, 720) },
+                "customBlockedDomains" to settings.customBlockedDomains.take(200),
+                "customBlockedKeywords" to settings.customBlockedKeywords.take(200),
+                "safeDnsEnabled" to settings.safeDnsEnabled,
+                "blockExplicitAdult" to settings.blockExplicitAdult,
+                "blockSuggestiveContent" to settings.blockSuggestiveContent,
+                "blockSensitiveGraphic" to settings.blockSensitiveGraphic,
+                "blockGamblingKeywords" to settings.blockGamblingKeywords,
                 "updatedAt" to FieldValue.serverTimestamp()
             )
             db.document(path).set(payload).await()
@@ -440,6 +464,23 @@ class ParentChildRepository(
                             ?.mapNotNull { it as? String }
                             ?.toSet()
                             ?: emptySet()
+                        val domainsRaw = (doc.get("customBlockedDomains") as? List<*>)
+                            ?.mapNotNull { it as? String }
+                            ?.toSet()
+                            ?: emptySet()
+                        val keywordsRaw = (doc.get("customBlockedKeywords") as? List<*>)
+                            ?.mapNotNull { it as? String }
+                            ?.toSet()
+                            ?: emptySet()
+                        val budgetsRaw = (doc.get("appTimeBudgets") as? Map<*, *>)
+                            ?.entries
+                            ?.mapNotNull { (k, v) ->
+                                val pkg = k as? String
+                                val mins = (v as? Number)?.toInt()
+                                if (!pkg.isNullOrBlank() && mins != null && mins > 0) pkg to mins.coerceIn(1, 720) else null
+                            }
+                            ?.toMap()
+                            ?: emptyMap()
                         RemotePolicySettings(
                             sensitivity = sensitivity,
                             strictEverything = doc.getBoolean("strictEverything") ?: false,
@@ -448,7 +489,19 @@ class ParentChildRepository(
                             antiTamperEnabled = doc.getBoolean("antiTamperEnabled") ?: true,
                             childUninstallLocked = doc.getBoolean("childUninstallLocked") ?: true,
                             liveSeeEnabled = doc.getBoolean("liveSeeEnabled") ?: true,
-                            whitelistedPackages = whitelistRaw
+                            whitelistedPackages = whitelistRaw,
+                            warningThresholdCount = (doc.getLong("warningThresholdCount") ?: 0L).toInt().coerceIn(0, 5),
+                            bedtimeEnabled = doc.getBoolean("bedtimeEnabled") ?: false,
+                            bedtimeStartMinutes = (doc.getLong("bedtimeStartMinutes") ?: (22L * 60L)).toInt().coerceIn(0, 1439),
+                            bedtimeEndMinutes = (doc.getLong("bedtimeEndMinutes") ?: (6L * 60L)).toInt().coerceIn(0, 1439),
+                            appTimeBudgets = budgetsRaw,
+                            customBlockedDomains = domainsRaw,
+                            customBlockedKeywords = keywordsRaw,
+                            safeDnsEnabled = doc.getBoolean("safeDnsEnabled") ?: false,
+                            blockExplicitAdult = doc.getBoolean("blockExplicitAdult") ?: true,
+                            blockSuggestiveContent = doc.getBoolean("blockSuggestiveContent") ?: true,
+                            blockSensitiveGraphic = doc.getBoolean("blockSensitiveGraphic") ?: true,
+                            blockGamblingKeywords = doc.getBoolean("blockGamblingKeywords") ?: true
                         )
                     }
                 }

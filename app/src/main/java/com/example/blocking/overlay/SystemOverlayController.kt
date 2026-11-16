@@ -130,6 +130,72 @@ class SystemOverlayController(private val context: Context) {
         }
     }
 
+    fun showWarningOverlay(
+        appName: String,
+        packageName: String,
+        categoryName: String,
+        warningNumber: Int,
+        maxWarnings: Int
+    ) {
+        if (!PermissionHelper.hasOverlayPermission(context)) {
+            Log.w(TAG, "Cannot show warning overlay: SYSTEM_ALERT_WINDOW permission missing.")
+            return
+        }
+
+        mainHandler.post {
+            val prefs = AegisContainer.getInstance(context).preferences
+            if (prefs.isLockdownActive()) {
+                showLockdownOverlay(prefs.lockdownIncidentInfo.value)
+                return@post
+            }
+            removeCurrentViewImmediate()
+            activeOverlayMode = OverlayMode.WARNING
+            try {
+                val view = createWarningLayout(appName, packageName, categoryName, warningNumber, maxWarnings)
+                windowManager?.addView(view, buildFullscreenLayoutParams())
+                overlayView = view
+                isOverlayVisible = true
+                Log.i(TAG, "Sheildlenz Warning Overlay $warningNumber/$maxWarnings presented.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to present Warning Overlay", e)
+            }
+        }
+    }
+
+    fun showUsageOrBedtimeOverlay(
+        title: String,
+        subtitle: String,
+        packageName: String,
+        allowGuardianExtension: Boolean
+    ) {
+        if (!PermissionHelper.hasOverlayPermission(context)) {
+            Log.w(TAG, "Cannot show usage/bedtime overlay: SYSTEM_ALERT_WINDOW permission missing.")
+            return
+        }
+
+        mainHandler.post {
+            val prefs = AegisContainer.getInstance(context).preferences
+            if (prefs.isLockdownActive()) {
+                showLockdownOverlay(prefs.lockdownIncidentInfo.value)
+                return@post
+            }
+            if (isOverlayVisible && overlayView != null && activeOverlayMode == OverlayMode.USAGE_OR_BEDTIME) {
+                return@post
+            }
+            removeCurrentViewImmediate()
+            activeOverlayMode = OverlayMode.USAGE_OR_BEDTIME
+            try {
+                val view = createUsageOrBedtimeLayout(title, subtitle, packageName, allowGuardianExtension)
+                windowManager?.addView(view, buildFullscreenLayoutParams())
+                overlayView = view
+                isOverlayVisible = true
+                Log.i(TAG, "Sheildlenz Usage/Bedtime Overlay presented ($title).")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to present Usage/Bedtime Overlay", e)
+            }
+        }
+    }
+
     fun showBlockOverlay(
         category: ThreatCategory,
         appName: String,
@@ -469,12 +535,18 @@ class SystemOverlayController(private val context: Context) {
 
         root.addView(verticalSpacer(18))
 
+        val emergencyRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
         val emergencyBtn = Button(context).apply {
             text = "EMERGENCY DIALER"
             setTextColor(Color.parseColor("#D9820B"))
             background = roundedBox("#FFF1CE", "#F2C667", 18f)
             textSize = 11f
             typeface = Typeface.MONOSPACE
+            setPadding(24, 18, 24, 18)
             visibility = if (prefs.showEmergencyDialerOnLockdown.value) View.VISIBLE else View.GONE
             setOnClickListener {
                 val dialIntent = Intent(Intent.ACTION_DIAL).apply {
@@ -486,7 +558,114 @@ class SystemOverlayController(private val context: Context) {
                 }
             }
         }
-        root.addView(emergencyBtn)
+        emergencyRow.addView(emergencyBtn)
+
+        val recoveryPanel = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundedBox("#FFF1CE", "#F2C667", 28f)
+            setPadding(30, 24, 30, 24)
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 16
+            }
+        }
+
+        val challengeCode = prefs.getRecoveryChallengeCode()
+        val registeredEmail = prefs.guardianEmail.value.ifBlank { "Not configured during setup" }
+
+        val recoveryHeading = TextView(context).apply {
+            text = "GUARDIAN EMERGENCY RECOVERY"
+            setTextColor(Color.parseColor("#D9820B"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 8)
+        }
+        recoveryPanel.addView(recoveryHeading)
+
+        val recoveryInfo = TextView(context).apply {
+            text = "Guardian Email: $registeredEmail\n" +
+                "Device Challenge ID: $challengeCode\n" +
+                "Contact AhsanTCr with this Challenge ID to obtain a recovery password, then enter it below (or dial recovery via Emergency Dialer instructions)."
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 11f
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 14)
+        }
+        recoveryPanel.addView(recoveryInfo)
+
+        val recoveryInput = EditText(context).apply {
+            hint = "Enter 8-Char AhsanTCr Recovery Code"
+            setHintTextColor(Color.parseColor("#5D76B0"))
+            setTextColor(Color.parseColor("#1A3673"))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            isSingleLine = true
+            typeface = Typeface.MONOSPACE
+            textSize = 13f
+            gravity = Gravity.CENTER
+            background = roundedBox("#FFFFFF", "#F2C667", 18f)
+            setPadding(20, 18, 20, 18)
+        }
+        recoveryPanel.addView(recoveryInput)
+        recoveryPanel.addView(verticalSpacer(10))
+
+        val verifyRecoveryBtn = Button(context).apply {
+            text = "VERIFY RECOVERY CODE & UNLOCK"
+            setTextColor(Color.WHITE)
+            background = roundedBox("#D9820B", "#D9820B", 20f)
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(20, 18, 20, 18)
+            setOnClickListener {
+                val entered = recoveryInput.text.toString()
+                if (prefs.resetPinWithRecoveryToken(entered)) {
+                    prefs.setShieldDesiredActive(true)
+                    AegisLockdownService.stop(context)
+                    dismissBlockOverlay()
+                    Toast.makeText(
+                        context,
+                        "Guardian recovery verified. Device unlocked • Shield stays ON.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    ensureShieldRemainsOnAfterUnlock()
+                } else {
+                    recoveryInput.setText("")
+                    Toast.makeText(
+                        context,
+                        "Invalid recovery code for Challenge ID $challengeCode.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+        bindPinSubmitOnEnter(recoveryInput, verifyRecoveryBtn)
+        recoveryPanel.addView(verifyRecoveryBtn)
+
+        val recoveryToggleBtn = Button(context).apply {
+            text = "FORGOT PIN? RECOVERY"
+            setTextColor(Color.parseColor("#7C5CFA"))
+            background = roundedBox("#EDE6FF", "#C0AEFD", 18f)
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setPadding(24, 18, 24, 18)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = 14
+            }
+            setOnClickListener {
+                recoveryPanel.visibility = if (recoveryPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            }
+        }
+        emergencyRow.addView(recoveryToggleBtn)
+
+        root.addView(emergencyRow)
+        root.addView(recoveryPanel)
 
         root.addView(verticalSpacer(22))
         root.addView(createOverlayBrandingView(allowOpenLink = false))
@@ -618,6 +797,218 @@ class SystemOverlayController(private val context: Context) {
         root.addView(verticalSpacer(24))
         root.addView(createOverlayBrandingView(allowOpenLink = true))
 
+        return root
+    }
+
+    private fun createWarningLayout(
+        appName: String,
+        packageName: String,
+        categoryName: String,
+        warningNumber: Int,
+        maxWarnings: Int
+    ): View {
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.parseColor("#D2E5FF"), Color.parseColor("#FFF0CC"))
+            )
+            setPadding(56, 72, 56, 72)
+            isClickable = true
+            isFocusable = true
+        }
+
+        val badge = TextView(context).apply {
+            text = "WARNING $warningNumber OF $maxWarnings BEFORE LOCKDOWN"
+            setTextColor(Color.parseColor("#D9820B"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = roundedBox("#FFF1CE", "#F2C667", 50f)
+            setPadding(32, 12, 32, 12)
+        }
+        root.addView(badge)
+
+        val title = TextView(context).apply {
+            text = "Unsafe Content Blocked"
+            setTextColor(Color.parseColor("#1A3673"))
+            textSize = 24f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 26, 0, 12)
+        }
+        root.addView(title)
+
+        val desc = TextView(context).apply {
+            val remaining = (maxWarnings - warningNumber).coerceAtLeast(0)
+            text = "Detected $categoryName in $appName ($packageName).\n" +
+                "The app was closed automatically. " +
+                if (remaining == 0) {
+                    "This is your final warning—the next violation will trigger a full device lockdown."
+                } else {
+                    "$remaining warning(s) remaining before a full device lockdown engages."
+                }
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(28, 22, 28, 24)
+            background = roundedBox("#E8F2FF", "#9AC2FE", 32f)
+        }
+        root.addView(desc)
+
+        root.addView(verticalSpacer(22))
+
+        val homeBtn = Button(context).apply {
+            text = "ACKNOWLEDGE & RETURN HOME"
+            setTextColor(Color.WHITE)
+            background = roundedBox("#2563EB", "#2563EB", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 24, 24, 24)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(homeIntent)
+                dismissBlockOverlay()
+            }
+        }
+        root.addView(homeBtn)
+        root.addView(verticalSpacer(24))
+        root.addView(createOverlayBrandingView(allowOpenLink = false))
+        return root
+    }
+
+    private fun createUsageOrBedtimeLayout(
+        titleText: String,
+        subtitleText: String,
+        packageName: String,
+        allowGuardianExtension: Boolean
+    ): View {
+        val prefs = AegisContainer.getInstance(context).preferences
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.parseColor("#D2E5FF"), Color.parseColor("#E6E4FF"))
+            )
+            setPadding(56, 72, 56, 72)
+            isClickable = true
+            isFocusable = true
+        }
+
+        val badge = TextView(context).apply {
+            text = "SHEILDLENZ WELLBEING GUARD"
+            setTextColor(Color.parseColor("#2563EB"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = roundedBox("#E8F2FF", "#9AC2FE", 50f)
+            setPadding(32, 12, 32, 12)
+        }
+        root.addView(badge)
+
+        val title = TextView(context).apply {
+            text = titleText
+            setTextColor(Color.parseColor("#1A3673"))
+            textSize = 23f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 26, 0, 12)
+        }
+        root.addView(title)
+
+        val desc = TextView(context).apply {
+            text = subtitleText
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(28, 22, 28, 24)
+            background = roundedBox("#EDE6FF", "#C0AEFD", 32f)
+        }
+        root.addView(desc)
+
+        root.addView(verticalSpacer(20))
+
+        if (allowGuardianExtension && prefs.hasGuardianPin.value) {
+            val pinField = EditText(context).apply {
+                hint = "Guardian PIN for +15m Extension"
+                setHintTextColor(Color.parseColor("#5D76B0"))
+                setTextColor(Color.parseColor("#1A3673"))
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                imeOptions = EditorInfo.IME_ACTION_DONE
+                isSingleLine = true
+                typeface = Typeface.MONOSPACE
+                textSize = 14f
+                gravity = Gravity.CENTER
+                background = roundedBox("#E8F2FF", "#9AC2FE", 22f)
+                setPadding(24, 20, 24, 20)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            root.addView(pinField)
+            root.addView(verticalSpacer(12))
+
+            val extendBtn = Button(context).apply {
+                text = "EXTEND APP BUDGET +15 MIN"
+                setTextColor(Color.WHITE)
+                background = roundedBox("#7C5CFA", "#7C5CFA", 24f)
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(24, 22, 24, 22)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setOnClickListener {
+                    if (prefs.verifyGuardianPin(pinField.text.toString())) {
+                        prefs.grantTemporaryBudgetExtension(packageName, 15)
+                        dismissBlockOverlay()
+                        Toast.makeText(context, "Granted +15 minutes for $packageName.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        pinField.setText("")
+                        Toast.makeText(context, "Incorrect Guardian PIN.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            bindPinSubmitOnEnter(pinField, extendBtn)
+            root.addView(extendBtn)
+            root.addView(verticalSpacer(12))
+        }
+
+        val homeBtn = Button(context).apply {
+            text = "RETURN TO HOME SCREEN"
+            setTextColor(Color.parseColor("#2563EB"))
+            background = roundedBox("#E8F2FF", "#9AC2FE", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 22, 24, 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(homeIntent)
+                dismissBlockOverlay()
+            }
+        }
+        root.addView(homeBtn)
+        root.addView(verticalSpacer(24))
+        root.addView(createOverlayBrandingView(allowOpenLink = false))
         return root
     }
 
@@ -795,7 +1186,9 @@ class SystemOverlayController(private val context: Context) {
     private enum class OverlayMode {
         NONE,
         LOCKDOWN,
-        TAMPER
+        TAMPER,
+        WARNING,
+        USAGE_OR_BEDTIME
     }
 
     companion object {

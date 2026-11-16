@@ -72,7 +72,19 @@ class ParentChildRepositoryRuleTest : FirestoreEmulatorTestBase() {
                     antiTamperEnabled = true,
                     childUninstallLocked = true,
                     liveSeeEnabled = true,
-                    whitelistedPackages = setOf("com.android.dialer")
+                    whitelistedPackages = setOf("com.android.dialer"),
+                    warningThresholdCount = 2,
+                    bedtimeEnabled = true,
+                    bedtimeStartMinutes = 22 * 60,
+                    bedtimeEndMinutes = 6 * 60,
+                    appTimeBudgets = mapOf("com.google.android.youtube" to 45),
+                    customBlockedDomains = setOf("blocked-test.com"),
+                    customBlockedKeywords = setOf("gambletest"),
+                    safeDnsEnabled = true,
+                    blockExplicitAdult = true,
+                    blockSuggestiveContent = false,
+                    blockSensitiveGraphic = true,
+                    blockGamblingKeywords = true
                 )
             )
         )
@@ -83,6 +95,13 @@ class ParentChildRepositoryRuleTest : FirestoreEmulatorTestBase() {
         val syncedSettings = withTimeout(5000L) { repo.observeRemoteSettings(childUid).first { it != null } }
         assertEquals(SensitivityLevel.STRICT, syncedSettings?.sensitivity)
         assertEquals(90, syncedSettings?.lockdownDurationMinutes)
+        assertEquals(2, syncedSettings?.warningThresholdCount)
+        assertEquals(true, syncedSettings?.bedtimeEnabled)
+        assertEquals(45, syncedSettings?.appTimeBudgets?.get("com.google.android.youtube"))
+        assertTrue(syncedSettings?.customBlockedDomains?.contains("blocked-test.com") == true)
+        assertTrue(syncedSettings?.customBlockedKeywords?.contains("gambletest") == true)
+        assertEquals(true, syncedSettings?.safeDnsEnabled)
+        assertEquals(false, syncedSettings?.blockSuggestiveContent)
 
         val syncedCmd = withTimeout(5000L) { repo.observeRemoteCommands(childUid).first { it != null } }
         assertEquals(ParentChildRepository.COMMAND_ALLOW_UNINSTALL, syncedCmd?.action)

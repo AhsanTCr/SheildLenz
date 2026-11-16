@@ -78,6 +78,18 @@ service cloud.firestore {
         data.childUninstallLocked is bool &&
         data.liveSeeEnabled is bool &&
         (!('whitelistedPackages' in data) || (data.whitelistedPackages is list && data.whitelistedPackages.size() <= 40)) &&
+        (!('warningThresholdCount' in data) || (data.warningThresholdCount is int && data.warningThresholdCount >= 0 && data.warningThresholdCount <= 5)) &&
+        (!('bedtimeEnabled' in data) || data.bedtimeEnabled is bool) &&
+        (!('bedtimeStartMinutes' in data) || (data.bedtimeStartMinutes is int && data.bedtimeStartMinutes >= 0 && data.bedtimeStartMinutes <= 1439)) &&
+        (!('bedtimeEndMinutes' in data) || (data.bedtimeEndMinutes is int && data.bedtimeEndMinutes >= 0 && data.bedtimeEndMinutes <= 1439)) &&
+        (!('appTimeBudgets' in data) || (data.appTimeBudgets is map && data.appTimeBudgets.size() <= 50)) &&
+        (!('customBlockedDomains' in data) || (data.customBlockedDomains is list && data.customBlockedDomains.size() <= 200)) &&
+        (!('customBlockedKeywords' in data) || (data.customBlockedKeywords is list && data.customBlockedKeywords.size() <= 200)) &&
+        (!('safeDnsEnabled' in data) || data.safeDnsEnabled is bool) &&
+        (!('blockExplicitAdult' in data) || data.blockExplicitAdult is bool) &&
+        (!('blockSuggestiveContent' in data) || data.blockSuggestiveContent is bool) &&
+        (!('blockSensitiveGraphic' in data) || data.blockSensitiveGraphic is bool) &&
+        (!('blockGamblingKeywords' in data) || data.blockGamblingKeywords is bool) &&
         data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 

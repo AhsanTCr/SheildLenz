@@ -23,7 +23,8 @@ data class ActiveModelInfo(
     val outputClassCount: Int = 0,
     val inputSpecLabel: String = "Not Loaded",
     val statusMessage: String = "No .tflite model loaded",
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val activeAcceleratorLabel: String = "CPU (XNNPACK)"
 )
 
 sealed class ModelImportResult {
@@ -57,25 +58,31 @@ class ModelManager(
     }
 
     fun inspectCurrentModel(): ActiveModelInfo {
+        val accelLabel = when (preferences.inferenceAccelerationMode.value) {
+            com.example.data.preferences.InferenceAccelerationMode.CPU_XNNPACK -> "CPU (XNNPACK)"
+            com.example.data.preferences.InferenceAccelerationMode.NNAPI_NPU -> "NNAPI (NPU/GPU)"
+            com.example.data.preferences.InferenceAccelerationMode.AUTO_BEST -> "Auto (NNAPI + XNNPACK)"
+        }
         val file = activeModelFile
         if (file.exists() && file.length() > 0L) {
             val displayName = preferences.importedModelName.value ?: "Imported Model (.tflite)"
             val inspected = validateModelFile(file, displayName, "Phone Storage")
             if (inspected is ModelImportResult.Success) {
-                return inspected.info
+                return inspected.info.copy(activeAcceleratorLabel = accelLabel)
             } else if (inspected is ModelImportResult.Failure) {
                 return ActiveModelInfo(
                     isLoaded = false,
                     displayName = displayName,
                     sourceLabel = "Phone Storage",
                     statusMessage = "Model Error",
-                    errorMessage = inspected.reason
+                    errorMessage = inspected.reason,
+                    activeAcceleratorLabel = accelLabel
                 )
             }
         }
 
         if (hasBundledAssetModel()) {
-            val classifier = TFLiteContentClassifier(context, this)
+            val classifier = TFLiteContentClassifier(context, this, preferences = preferences)
             return try {
                 if (classifier.isModelReady) {
                     ActiveModelInfo(
@@ -87,7 +94,8 @@ class ModelManager(
                         isQuantizedInput = classifier.isQuantizedInput,
                         outputClassCount = classifier.outputClassCount,
                         inputSpecLabel = "${classifier.inputWidth}x${classifier.inputHeight} ${if (classifier.isQuantizedInput) "UInt8" else "Float32"}",
-                        statusMessage = "Model Ready (${classifier.outputClassCount}-Class)"
+                        statusMessage = "Model Ready (${classifier.outputClassCount}-Class)",
+                        activeAcceleratorLabel = classifier.activeAcceleratorLabel
                     )
                 } else {
                     ActiveModelInfo(

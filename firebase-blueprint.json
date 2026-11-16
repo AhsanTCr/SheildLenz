@@ -74,6 +74,18 @@
         "childUninstallLocked": { "type": "boolean" },
         "liveSeeEnabled": { "type": "boolean" },
         "whitelistedPackages": { "type": "array" },
+        "warningThresholdCount": { "type": "integer" },
+        "bedtimeEnabled": { "type": "boolean" },
+        "bedtimeStartMinutes": { "type": "integer" },
+        "bedtimeEndMinutes": { "type": "integer" },
+        "appTimeBudgets": { "type": "object" },
+        "customBlockedDomains": { "type": "array" },
+        "customBlockedKeywords": { "type": "array" },
+        "safeDnsEnabled": { "type": "boolean" },
+        "blockExplicitAdult": { "type": "boolean" },
+        "blockSuggestiveContent": { "type": "boolean" },
+        "blockSensitiveGraphic": { "type": "boolean" },
+        "blockGamblingKeywords": { "type": "boolean" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["sensitivity", "strictEverything", "lockdownDurationMinutes", "antiTamperEnabled", "childUninstallLocked", "liveSeeEnabled", "updatedAt"]

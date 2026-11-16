@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Sheildlenz</string>
+    <string name="accessibility_service_description">शील्डलेन्ज़ एक्सेसिबिलिटी सेवा अनुचित सामग्री पाए जाने पर सुरक्षा कार्रवाई के लिए सक्रिय ऐप का नाम पहचानती है। कोई भी निजी संदेश या पासवर्ड एकत्र नहीं किया जाता।</string>
+    <string name="device_admin_description">डिवाइस एडमिनिस्ट्रेटर अधिकार सख्त सुरक्षा और अनधिकृत अनइंस्टॉल रोकथाम लागू करने देते हैं।</string>
+    <string name="nav_home">होम</string>
+    <string name="nav_edits">सेटिंग्स</string>
+    <string name="nav_parents">माता-पिता</string>
+    <string name="nav_about">जानकारी</string>
+    <string name="section_safe_dns">सुरक्षित DNS और ब्लॉकलिस्ट</string>
+    <string name="section_bedtime_budgets">बेडटाइम और ऐप सीमाएं</string>
+    <string name="section_app_language">ऐप की भाषा</string>
+    <string name="about_gpl_title">ओपन-सोर्स लाइसेंस (GPL v3)</string>
+</resources>

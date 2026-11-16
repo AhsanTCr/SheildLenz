@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -76,8 +77,10 @@ fun GuardianGateScreen(
 ) {
     val telemetry by protectionRepo.telemetry.collectAsState()
     val hasGuardianPin by preferences.hasGuardianPin.collectAsState()
+    val savedEmail by preferences.guardianEmail.collectAsState()
     var pinInput by remember(hasGuardianPin) { mutableStateOf("") }
     var confirmPinInput by remember(hasGuardianPin) { mutableStateOf("") }
+    var emailInput by remember(hasGuardianPin, savedEmail) { mutableStateOf(savedEmail) }
     var pinError by remember(hasGuardianPin) { mutableStateOf<String?>(null) }
     val confirmFocusRequester = remember { FocusRequester() }
 
@@ -91,6 +94,8 @@ fun GuardianGateScreen(
                 pinInput = ""
             }
         } else {
+            val trimmedEmail = emailInput.trim()
+            val emailInvalid = trimmedEmail.isNotEmpty() && (!trimmedEmail.contains("@") || !trimmedEmail.contains("."))
             when {
                 pinInput.length < 4 -> {
                     pinError = "Password must be 4–8 digits"
@@ -99,7 +104,13 @@ fun GuardianGateScreen(
                     pinError = "Passwords do not match"
                     confirmPinInput = ""
                 }
+                emailInvalid -> {
+                    pinError = "Enter a valid Guardian recovery email or leave blank"
+                }
                 else -> {
+                    if (trimmedEmail.isNotEmpty()) {
+                        preferences.setGuardianEmail(trimmedEmail)
+                    }
                     preferences.setGuardianPin(pinInput)
                     onUnlocked()
                 }
@@ -277,6 +288,48 @@ fun GuardianGateScreen(
                                     }
                                 }
                                 .testTag("guardian_gate_confirm_pin_input")
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = emailInput,
+                            onValueChange = {
+                                emailInput = it
+                                pinError = null
+                            },
+                            label = {
+                                Text("Guardian Recovery Email (for Emergency Unlock)", fontFamily = ClassicalBodyFont)
+                            },
+                            leadingIcon = {
+                                Icon(imageVector = Icons.Default.Email, contentDescription = null, tint = AegisPurple)
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onDone = { submitGate() }
+                            ),
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AegisPurple,
+                                unfocusedBorderColor = AegisCardBorder,
+                                focusedContainerColor = AegisCardBackground,
+                                unfocusedContainerColor = AegisCardBackground,
+                                focusedTextColor = AegisTextPrimary,
+                                unfocusedTextColor = AegisTextPrimary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("guardian_gate_email_input")
+                        )
+                        Text(
+                            text = "Challenge ID: ${preferences.getRecoveryChallengeCode()} • Contact AhsanTCr if PIN is forgotten during a lockdown.",
+                            color = AegisTextSecondary,
+                            fontSize = 11.sp,
+                            fontFamily = ClassicalBodyFont,
+                            modifier = Modifier.padding(top = 6.dp)
                         )
                     }
 

@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Sheildlenz</string>
+    <string name="accessibility_service_description">تحدد خدمة إمكانية الوصول في شيلدلينز حزمة التطبيق النشط لتوفير الحماية الفورية عند اكتشاف محتوى غير لائق دون جمع أي بيانات خاصة.</string>
+    <string name="device_admin_description">تتيح امتيازات مسؤول الجهاز تطبيق سياسات الحماية الصارمة ومنع الإزالة غير المصرح بها.</string>
+    <string name="nav_home">الرئيسية</string>
+    <string name="nav_edits">الإعدادات</string>
+    <string name="nav_parents">الوالدين</string>
+    <string name="nav_about">حول</string>
+    <string name="section_safe_dns">نظام DNS الآمن وقوائم الحظر</string>
+    <string name="section_bedtime_budgets">وقت النوم وحدود التطبيقات</string>
+    <string name="section_app_language">لغة التطبيق</string>
+    <string name="about_gpl_title">ترخيص المصدر المفتوح (GPL v3)</string>
+</resources>

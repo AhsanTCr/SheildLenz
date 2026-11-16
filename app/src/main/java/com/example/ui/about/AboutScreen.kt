@@ -60,10 +60,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
+import com.example.R
 import com.example.core.update.ApkDownloadState
 import com.example.core.update.UpdateChecker
 import com.example.data.preferences.AegisPreferences
@@ -139,7 +141,7 @@ fun AboutScreen(
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars,
             topBar = {
-                CyberTopBar(title = "About")
+                CyberTopBar(title = stringResource(R.string.nav_about))
             },
             containerColor = Color.Transparent
         ) { innerPadding ->
@@ -224,6 +226,31 @@ fun AboutScreen(
                         ) {
                             AhsanTcrBrandingPill()
                         }
+                    }
+                }
+
+                // 3b. Open-Source License Notice (GPL v3)
+                item {
+                    CyberCard(
+                        borderColor = AegisLavenderBorder,
+                        tone = CyberCardTone.LAVENDER,
+                        modifier = Modifier.testTag("about_gpl_license_card")
+                    ) {
+                        Text(
+                            text = stringResource(R.string.about_gpl_title),
+                            color = AegisTextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Sheildlenz is free and open-source software licensed under the GNU General Public License v3.0 (GPL-3.0). Source code and releases: github.com/ahsantcr/SheildLenz.",
+                            color = AegisTextSecondary,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp,
+                            fontFamily = ClassicalBodyFont
+                        )
                     }
                 }
 

@@ -28,7 +28,10 @@ class ThreatDecisionEngine {
         isStrictEverything: Boolean,
         explicitThresholdOverride: Float? = null,
         suggestiveThresholdOverride: Float? = null,
-        consecutiveFramesRequired: Int = 2
+        consecutiveFramesRequired: Int = 2,
+        blockExplicitAdult: Boolean = true,
+        blockSuggestiveContent: Boolean = true,
+        blockSensitiveGraphic: Boolean = true
     ): DecisionOutcome {
         val explicitThreshold = explicitThresholdOverride ?: sensitivity.threshold
         val suggestiveThreshold = suggestiveThresholdOverride ?: sensitivity.threshold
@@ -38,7 +41,7 @@ class ThreatDecisionEngine {
         val safe = result.safeScore
 
         // 1. Explicit Adult Content: Immediate critical threat
-        if (explicit >= explicitThreshold || (isStrictEverything && explicit >= 0.50f)) {
+        if (blockExplicitAdult && (explicit >= explicitThreshold || (isStrictEverything && explicit >= 0.50f))) {
             consecutiveSuspiciousCount = 0
             return DecisionOutcome(
                 shouldBlock = true,
@@ -49,8 +52,22 @@ class ThreatDecisionEngine {
             )
         }
 
-        // 2. Suggestive Adult / Provocative Content:
-        if (suggestive >= suggestiveThreshold || (isStrictEverything && suggestive >= 0.55f)) {
+        // 2. Sensitive / Graphic visual check (if model exposes SENSITIVE_GRAPHIC or graphic score)
+        if (blockSensitiveGraphic && result.topCategory == ThreatCategory.SENSITIVE_GRAPHIC &&
+            result.confidence >= explicitThreshold
+        ) {
+            consecutiveSuspiciousCount = 0
+            return DecisionOutcome(
+                shouldBlock = true,
+                category = ThreatCategory.SENSITIVE_GRAPHIC,
+                severity = ThreatSeverity.HIGH,
+                confidence = result.confidence,
+                reason = "Sensitive graphic media detected with ${(result.confidence * 100).toInt()}% confidence"
+            )
+        }
+
+        // 3. Suggestive Adult / Provocative Content:
+        if (blockSuggestiveContent && (suggestive >= suggestiveThreshold || (isStrictEverything && suggestive >= 0.55f))) {
             if (isStrictEverything || suggestive >= 0.85f || requiredFrames <= 1) {
                 // High confidence suggestive, Strict Everything enabled, or 1-frame immediate confirmation
                 consecutiveSuspiciousCount = 0
@@ -76,7 +93,7 @@ class ThreatDecisionEngine {
                 }
             }
         } else {
-            // Clean frame: reset consecutive counter
+            // Clean or category-exempted frame: reset consecutive counter
             consecutiveSuspiciousCount = 0
         }
 

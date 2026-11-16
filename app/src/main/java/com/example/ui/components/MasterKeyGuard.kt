@@ -88,7 +88,7 @@ class MasterKeyGateState(
         cancelCallback?.invoke()
     }
 
-    internal fun submitKey(keyInput: String): String? {
+    internal fun submitKey(keyInput: String, recoveryEmailInput: String = ""): String? {
         val hasPin = preferences.hasGuardianPin.value
         return if (hasPin) {
             if (keyInput.isEmpty() || !preferences.verifyGuardianPin(keyInput)) {
@@ -102,9 +102,15 @@ class MasterKeyGateState(
                 null
             }
         } else {
+            val trimmedEmail = recoveryEmailInput.trim()
             if (keyInput.length < 4) {
                 "Master Key must be 4–8 digits"
+            } else if (trimmedEmail.isNotEmpty() && (!trimmedEmail.contains("@") || !trimmedEmail.contains("."))) {
+                "Enter a valid recovery email or leave blank"
             } else {
+                if (trimmedEmail.isNotEmpty()) {
+                    preferences.setGuardianEmail(trimmedEmail)
+                }
                 preferences.setGuardianPin(keyInput)
                 val action = pendingAction
                 pendingActionLabel = null
@@ -125,10 +131,11 @@ fun rememberMasterKeyGate(preferences: AegisPreferences): MasterKeyGateState {
 
     if (actionLabel != null) {
         var keyInput by remember(actionLabel) { mutableStateOf("") }
+        var emailInput by remember(actionLabel) { mutableStateOf(preferences.guardianEmail.value) }
         var keyError by remember(actionLabel) { mutableStateOf<String?>(null) }
 
         val submitAction: () -> Unit = {
-            val err = state.submitKey(keyInput)
+            val err = state.submitKey(keyInput, emailInput)
             if (err != null) {
                 keyError = err
                 keyInput = ""
@@ -220,6 +227,35 @@ fun rememberMasterKeyGate(preferences: AegisPreferences): MasterKeyGateState {
                             }
                             .testTag("master_key_prompt_input")
                     )
+                    if (!hasGuardianPin) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = emailInput,
+                            onValueChange = {
+                                emailInput = it
+                                keyError = null
+                            },
+                            label = { Text("Guardian Recovery Email (Optional)", fontFamily = ClassicalBodyFont) },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Email,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { submitAction() }),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AegisPurple,
+                                unfocusedBorderColor = AegisLavenderBorder,
+                                focusedContainerColor = AegisCardBackground,
+                                unfocusedContainerColor = AegisCardBackground,
+                                focusedTextColor = AegisTextPrimary,
+                                unfocusedTextColor = AegisTextPrimary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("master_key_prompt_email_input")
+                        )
+                    }
                     if (keyError != null) {
                         Text(
                             text = keyError!!,

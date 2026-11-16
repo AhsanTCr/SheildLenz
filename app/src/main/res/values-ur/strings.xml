@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Sheildlenz</string>
+    <string name="accessibility_service_description">شیلڈلینز ایکسیسبیلٹی سروس صرف فعال ایپ کا پیکیج نام شناخت کرتی ہے تاکہ نامناسب مواد کی صورت میں فوری حفاظت فراہم کی جا سکے۔</string>
+    <string name="device_admin_description">ڈیوائس ایڈمنسٹریٹر اجازت شیلڈلینز کو مضبوط تحفظ اور ایپ کنٹرول نافذ کرنے دیتی ہے۔</string>
+    <string name="nav_home">ہوم</string>
+    <string name="nav_edits">ترتیبات</string>
+    <string name="nav_parents">والدین</string>
+    <string name="nav_about">تفصیل</string>
+    <string name="section_safe_dns">محفوظ ڈی این ایس اور بلاک لسٹ</string>
+    <string name="section_bedtime_budgets">سونے کا وقت اور ایپ حدود</string>
+    <string name="section_app_language">ایپ کی زبان</string>
+    <string name="about_gpl_title">اوپن سورس لائسنس (GPL v3)</string>
+</resources>

@@ -93,6 +93,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -102,8 +103,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.core.models.SensitivityLevel
 import com.example.data.preferences.AegisPreferences
+import com.example.data.preferences.InferenceAccelerationMode
 import com.example.data.preferences.PowerMode
 import com.example.data.repository.ProtectionRepository
 import com.example.detection.classifier.ModelManager
@@ -190,6 +193,14 @@ fun SettingsScreen(
     val pauseWhenScreenOff by preferences.pauseWhenScreenOff.collectAsState()
     val adaptiveCadenceEnabled by preferences.adaptiveCadenceEnabled.collectAsState()
     val autoThrottleLowBattery by preferences.autoThrottleLowBattery.collectAsState()
+    val warningThreshold by preferences.warningThresholdCount.collectAsState()
+    val accelerationMode by preferences.inferenceAccelerationMode.collectAsState()
+    val blockExplicitAdult by preferences.blockExplicitAdult.collectAsState()
+    val blockSuggestiveContent by preferences.blockSuggestiveContent.collectAsState()
+    val blockSensitiveGraphic by preferences.blockSensitiveGraphic.collectAsState()
+    val blockGamblingKeywords by preferences.blockGamblingKeywords.collectAsState()
+    val guardianEmail by preferences.guardianEmail.collectAsState()
+    val challengeId = remember { preferences.getRecoveryChallengeCode() }
 
     val stage1DurationLabel = AegisPreferences.formatMinutesLabel(lockdownDurationMinutes)
 
@@ -197,6 +208,8 @@ fun SettingsScreen(
     var pinInput by remember { mutableStateOf("") }
     var confirmPinInput by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf<String?>(null) }
+    var showDeviceOwnerWizard by remember { mutableStateOf(false) }
+    var emailDraft by remember(guardianEmail) { mutableStateOf(guardianEmail) }
 
     var isDeviceAdmin by remember { mutableStateOf(AegisDeviceAdminReceiver.isDeviceAdmin(context)) }
     val masterKeyGate = rememberMasterKeyGate(preferences)
@@ -205,7 +218,7 @@ fun SettingsScreen(
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars,
             topBar = {
-                CyberTopBar(title = "Edits")
+                CyberTopBar(title = stringResource(R.string.nav_edits))
             },
             containerColor = Color.Transparent
         ) { innerPadding ->
@@ -525,7 +538,206 @@ fun SettingsScreen(
                             },
                             testTag = "strict_everything_switch"
                         )
+
+                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.55f), modifier = Modifier.padding(vertical = 8.dp))
+
+                        Text(
+                            text = "Warning Thresholds Before Lock",
+                            color = AegisTextPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(0 to "0 (Now)", 1 to "1 Warn", 2 to "2 Warn", 3 to "3 Warn").forEach { (count, label) ->
+                                val selected = warningThreshold == count
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (selected) AegisChampagneGold else AegisCardBackground.copy(alpha = 0.8f))
+                                        .border(1.dp, if (selected) AegisChampagneGold else AegisCardBorder, RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            masterKeyGate.request("change warning threshold") {
+                                                preferences.setWarningThresholdCount(count)
+                                            }
+                                        }
+                                        .testTag("warning_threshold_$count"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (selected) AegisOnPrimaryWhite else AegisTextPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.55f), modifier = Modifier.padding(vertical = 8.dp))
+
+                        Text(
+                            text = "AI Hardware Accelerator",
+                            color = AegisTextPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                InferenceAccelerationMode.AUTO_BEST to "Auto",
+                                InferenceAccelerationMode.CPU_XNNPACK to "CPU XNN",
+                                InferenceAccelerationMode.NNAPI_NPU to "NPU/GPU"
+                            ).forEach { (mode, label) ->
+                                val selected = accelerationMode == mode
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (selected) AegisPurple else AegisCardBackground.copy(alpha = 0.8f))
+                                        .border(1.dp, if (selected) AegisPurple else AegisCardBorder, RoundedCornerShape(10.dp))
+                                        .clickable { preferences.setInferenceAccelerationMode(mode) }
+                                        .testTag("accel_mode_${mode.name}"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (selected) AegisOnPrimaryWhite else AegisTextPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.55f), modifier = Modifier.padding(vertical = 8.dp))
+
+                        Text(
+                            text = "Content Category Toggles",
+                            color = AegisTextPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                        CompactSwitchRow(
+                            title = "Explicit Adult Content",
+                            checked = blockExplicitAdult,
+                            onCheckedChange = { enabled ->
+                                masterKeyGate.request("toggle explicit adult filter") {
+                                    preferences.setBlockExplicitAdult(enabled)
+                                }
+                            },
+                            testTag = "category_explicit_switch"
+                        )
+                        CompactSwitchRow(
+                            title = "Suggestive Visuals",
+                            checked = blockSuggestiveContent,
+                            onCheckedChange = { enabled ->
+                                masterKeyGate.request("toggle suggestive visuals filter") {
+                                    preferences.setBlockSuggestiveContent(enabled)
+                                }
+                            },
+                            testTag = "category_suggestive_switch"
+                        )
+                        CompactSwitchRow(
+                            title = "Sensitive / Graphic Media",
+                            checked = blockSensitiveGraphic,
+                            onCheckedChange = { enabled ->
+                                masterKeyGate.request("toggle sensitive graphic filter") {
+                                    preferences.setBlockSensitiveGraphic(enabled)
+                                }
+                            },
+                            testTag = "category_graphic_switch"
+                        )
+                        CompactSwitchRow(
+                            title = "Gambling Websites & Search",
+                            checked = blockGamblingKeywords,
+                            onCheckedChange = { enabled ->
+                                masterKeyGate.request("toggle gambling filter") {
+                                    preferences.setBlockGamblingKeywords(enabled)
+                                }
+                            },
+                            testTag = "category_gambling_switch"
+                        )
+
+                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.55f), modifier = Modifier.padding(vertical = 8.dp))
+
+                        Text(
+                            text = "Guardian Recovery Email",
+                            color = AegisTextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                        Text(
+                            text = "Challenge ID: $challengeId • Needed if PIN is forgotten.",
+                            color = AegisTextSecondary,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = emailDraft,
+                                onValueChange = { emailDraft = it },
+                                placeholder = { Text("guardian@email.com", fontSize = 12.sp) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("settings_guardian_email_input")
+                            )
+                            Button(
+                                onClick = {
+                                    masterKeyGate.request("update Guardian Recovery Email") {
+                                        preferences.setGuardianEmail(emailDraft)
+                                        Toast.makeText(context, "Recovery email saved", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AegisPrimaryCyan, contentColor = AegisOnPrimaryWhite),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("settings_save_email_button")
+                            ) {
+                                Text("SAVE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
+                }
+
+                // 7b. System-Wide Safe DNS & Custom Blocklists
+                item {
+                    SafeDnsAndBlocklistSection(
+                        preferences = preferences,
+                        masterKeyGate = masterKeyGate
+                    )
+                }
+
+                // 7c. Bedtime Lock & Per-App Time Budgets
+                item {
+                    BedtimeAndBudgetsSection(
+                        preferences = preferences,
+                        masterKeyGate = masterKeyGate
+                    )
                 }
 
                 // 8. Resistance & Lockdown Policy (1-Tap Accordion)
@@ -650,13 +862,38 @@ fun SettingsScreen(
                                 Text("ACTIVATE DEVICE ADMIN", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = ClassicalBodyFont)
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { showDeviceOwnerWizard = true },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("device_owner_wizard_button")
+                        ) {
+                            Text("GUIDED DEVICE OWNER SETUP", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = ClassicalBodyFont)
+                        }
                     }
                 }
 
-                // 8. 7-Tap Secret Advanced Precision Lab (when unlocked)
+                // 8b. Multi-Language Selector
+                item {
+                    LanguageSelectorSection(preferences = preferences)
+                }
+
+                // 9. 7-Tap Secret Advanced Precision Lab (when unlocked)
                 item {
                     AdvancedPrecisionLabSection(preferences = preferences)
                 }
+            }
+
+            if (showDeviceOwnerWizard) {
+                DeviceOwnerWizardDialog(
+                    preferences = preferences,
+                    onDismiss = { showDeviceOwnerWizard = false },
+                    onStatusChanged = { isDeviceAdmin = AegisDeviceAdminReceiver.isDeviceAdmin(context) }
+                )
             }
 
             if (showPinDialog) {
@@ -820,7 +1057,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun CollapsibleEditsCard(
+internal fun CollapsibleEditsCard(
     title: String,
     summary: String,
     icon: ImageVector,
@@ -1483,7 +1720,7 @@ private fun ScheduledProtectionSection(
 }
 
 @Composable
-private fun ScheduleHourStepper(
+internal fun ScheduleHourStepper(
     label: String,
     minuteOfDay: Int,
     onMinusHour: () -> Unit,

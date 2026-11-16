@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Sheildlenz</string>
+    <string name="accessibility_service_description">El servicio de accesibilidad de Sheildlenz identifica la aplicación activa en primer plano para bloquear contenido inapropiado sin recopilar mensajes ni contraseñas.</string>
+    <string name="device_admin_description">Los privilegios de administrador del dispositivo permiten aplicar políticas estrictas de suspensión y protección contra desinstalación.</string>
+    <string name="nav_home">Inicio</string>
+    <string name="nav_edits">Ajustes</string>
+    <string name="nav_parents">Padres</string>
+    <string name="nav_about">Acerca de</string>
+    <string name="section_safe_dns">DNS Seguro y Listas de Bloqueo</string>
+    <string name="section_bedtime_budgets">Hora de Dormir y Límites</string>
+    <string name="section_app_language">Idioma de la App</string>
+    <string name="about_gpl_title">Licencia de Código Abierto (GPL v3)</string>
+</resources>

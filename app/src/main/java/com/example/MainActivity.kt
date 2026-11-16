@@ -3,12 +3,14 @@ package com.example
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import java.util.Locale
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -19,6 +21,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.example.core.permissions.PermissionHelper
 import com.example.core.update.UpdateChecker
+import com.example.data.preferences.AegisPreferences
 import com.example.data.repository.ParentChildRepository
 import com.example.di.AegisContainer
 import com.example.services.protection.AegisLockdownService
@@ -30,6 +33,22 @@ import com.example.ui.theme.AegisVoidBackground
 class MainActivity : ComponentActivity() {
     private val container by lazy { AegisContainer.getInstance(this) }
     private var promptedShieldRearmInSession = false
+
+    override fun attachBaseContext(newBase: Context) {
+        val langCode = runCatching { AegisPreferences(newBase).appLanguageCode.value }
+            .getOrDefault("system")
+        if (langCode.isBlank() || langCode == "system") {
+            super.attachBaseContext(newBase)
+            return
+        }
+        val locale = Locale.forLanguageTag(langCode)
+        Locale.setDefault(locale)
+        val config = Configuration(newBase.resources.configuration).apply {
+            setLocale(locale)
+            setLayoutDirection(locale)
+        }
+        super.attachBaseContext(newBase.createConfigurationContext(config))
+    }
 
     @SuppressLint("InvalidFragmentVersionForActivityResult")
     private val mediaProjectionLauncher = registerForActivityResult(

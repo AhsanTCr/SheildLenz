@@ -2,9 +2,12 @@ package com.example.detection.classifier
 
 import android.content.Context
 import android.content.res.AssetFileDescriptor
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import com.example.core.models.ThreatCategory
+import com.example.data.preferences.AegisPreferences
+import com.example.data.preferences.InferenceAccelerationMode
 import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import java.io.FileInputStream
@@ -16,7 +19,8 @@ import java.nio.channels.FileChannel
 class TFLiteContentClassifier(
     private val context: Context,
     private val modelManager: ModelManager? = null,
-    private val assetName: String = ModelManager.BUNDLED_ASSET_NAME
+    private val assetName: String = ModelManager.BUNDLED_ASSET_NAME,
+    private val preferences: AegisPreferences? = null
 ) : ContentClassifier {
 
     private var interpreter: Interpreter? = null
@@ -36,6 +40,9 @@ class TFLiteContentClassifier(
     override var outputClassCount: Int = 0
         private set
 
+    var activeAcceleratorLabel: String = "CPU (XNNPACK)"
+        private set
+
     private var outputDataType: DataType = DataType.FLOAT32
     private var outputScale: Float = 1.0f
     private var outputZeroPoint: Int = 0
@@ -47,7 +54,7 @@ class TFLiteContentClassifier(
 
     override val modelSpecification: String
         get() = if (isModelReady) {
-            "TFLite Active • Input: [1, $inputHeight, $inputWidth, 3] ${if (isQuantizedInput) "UInt8" else "Float32"} • Output: [1, $outputClassCount]"
+            "TFLite ($activeAcceleratorLabel) • Input: [1, $inputHeight, $inputWidth, 3] ${if (isQuantizedInput) "UInt8" else "Float32"} • Output: [1, $outputClassCount]"
         } else {
             "No TFLite Model Loaded • Supported: [1, H, W, 3] Float32/UInt8 -> [1, 2|3|5] Classes"
         }
@@ -56,33 +63,62 @@ class TFLiteContentClassifier(
         reloadModel()
     }
 
+    private fun buildOptions(useNnapi: Boolean): Interpreter.Options {
+        return Interpreter.Options().apply {
+            setNumThreads(2)
+            setUseNNAPI(useNnapi)
+            setUseXNNPACK(!useNnapi)
+        }
+    }
+
+    private fun createInterpreterWithFallback(): Pair<Interpreter?, String> {
+        val desiredMode = preferences?.inferenceAccelerationMode?.value ?: InferenceAccelerationMode.CPU_XNNPACK
+        val tryNnapi = (desiredMode == InferenceAccelerationMode.NNAPI_NPU ||
+            desiredMode == InferenceAccelerationMode.AUTO_BEST) &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+
+        val importedFile = modelManager?.activeModelFile
+        val useImported = importedFile != null && importedFile.exists() && importedFile.length() > 0L
+
+        if (tryNnapi) {
+            try {
+                val nnapiOptions = buildOptions(useNnapi = true)
+                val nnapiInterpreter = if (useImported) {
+                    Interpreter(importedFile!!, nnapiOptions)
+                } else {
+                    loadAssetModelFile(context, assetName)?.let { Interpreter(it, nnapiOptions) }
+                }
+                if (nnapiInterpreter != null) {
+                    return nnapiInterpreter to "NNAPI (NPU/GPU)"
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "NNAPI delegate unavailable, falling back to XNNPACK CPU: ${e.message}")
+            }
+        }
+
+        val cpuOptions = buildOptions(useNnapi = false)
+        val cpuInterpreter = if (useImported) {
+            Log.i(TAG, "Loading user-imported TFLite model from ${importedFile!!.absolutePath}")
+            Interpreter(importedFile, cpuOptions)
+        } else {
+            val assetBuffer = loadAssetModelFile(context, assetName)
+            if (assetBuffer != null) {
+                Log.i(TAG, "Loading bundled TFLite asset model: $assetName")
+                Interpreter(assetBuffer, cpuOptions)
+            } else {
+                null
+            }
+        }
+        return cpuInterpreter to "CPU (XNNPACK)"
+    }
+
     @Synchronized
     override fun reloadModel(): Boolean {
         close()
         lastErrorMessage = null
         try {
-            val options = Interpreter.Options().apply {
-                setNumThreads(2)
-                setUseNNAPI(false) // Safe CPU execution across Android 7.0+
-                setUseXNNPACK(true) // Vectorized SIMD CPU acceleration for lower latency & energy
-            }
-
-            val importedFile = modelManager?.activeModelFile
-            val createdInterpreter: Interpreter? = when {
-                importedFile != null && importedFile.exists() && importedFile.length() > 0L -> {
-                    Log.i(TAG, "Loading user-imported TFLite model from ${importedFile.absolutePath}")
-                    Interpreter(importedFile, options)
-                }
-                else -> {
-                    val assetBuffer = loadAssetModelFile(context, assetName)
-                    if (assetBuffer != null) {
-                        Log.i(TAG, "Loading bundled TFLite asset model: $assetName")
-                        Interpreter(assetBuffer, options)
-                    } else {
-                        null
-                    }
-                }
-            }
+            val (createdInterpreter, accelLabel) = createInterpreterWithFallback()
+            activeAcceleratorLabel = accelLabel
 
             if (createdInterpreter == null) {
                 isModelReady = false

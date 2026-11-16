@@ -191,7 +191,11 @@ class AegisProtectionService : Service() {
         Log.i(TAG, "AegisProtectionService created (Eco Engine + Multi-Region Chrome Protection).")
         createNotificationChannel()
 
-        contentClassifier = TFLiteContentClassifier(this, container.modelManager)
+        contentClassifier = TFLiteContentClassifier(
+            context = this,
+            modelManager = container.modelManager,
+            preferences = container.preferences
+        )
         framePreprocessor = FramePreprocessor(
             inputWidth = contentClassifier.inputWidth,
             inputHeight = contentClassifier.inputHeight,
@@ -224,28 +228,13 @@ class AegisProtectionService : Service() {
 
         serviceScope.launch {
             container.modelManager.modelVersion.drop(1).collect {
-                backgroundHandler?.post {
-                    val reloaded = contentClassifier.reloadModel()
-                    if (reloaded) {
-                        framePreprocessor.configure(
-                            width = contentClassifier.inputWidth,
-                            height = contentClassifier.inputHeight,
-                            quantizedUInt8 = contentClassifier.isQuantizedInput
-                        )
-                    }
-                    decisionEngine.reset()
-                    consecutiveIdleOrSafeTicks = 0
-                    cancelTrailingScan()
-                    container.refreshModelTelemetry()
-                    val statusLabel = if (reloaded) {
-                        "Sheildlenz Active • Chrome & All Apps Armed"
-                    } else {
-                        "Chrome Web Guard Active • Load .tflite for Vision"
-                    }
-                    val nm = getSystemService(NotificationManager::class.java)
-                    nm?.notify(NOTIFICATION_ID, buildForegroundNotification(statusLabel))
-                    Log.i(TAG, "Service reloaded TFLite model cleanly. Ready=$reloaded")
-                }
+                reloadClassifierOnBackground("model change")
+            }
+        }
+
+        serviceScope.launch {
+            container.preferences.inferenceAccelerationMode.drop(1).collect {
+                reloadClassifierOnBackground("accelerator mode change")
             }
         }
 
@@ -257,6 +246,65 @@ class AegisProtectionService : Service() {
                     }
                 }
             }
+        }
+
+        serviceScope.launch {
+            while (!isStopped) {
+                kotlinx.coroutines.delay(1000L)
+                if (isScreenInteractive && !container.preferences.isLockdownActive() && !container.preferences.maintenanceMode.value) {
+                    val activePkg = resolveTrackedForegroundPackage()
+                    val prefs = container.preferences
+                    if (!activePkg.isNullOrBlank() &&
+                        !isZeroCostSkipPackage(activePkg, packageName) &&
+                        !prefs.isPackageWhitelisted(activePkg)
+                    ) {
+                        prefs.recordAppUsageSeconds(activePkg, 1)
+                        if (prefs.isWithinBedtimeLockWindow()) {
+                            AegisAccessibilityService.performEmergencyHomeAction()
+                            overlayController.showUsageOrBedtimeOverlay(
+                                title = "Bedtime Lock Active",
+                                subtitle = "${container.protectionRepository.activeAppLabel.value} is locked during Bedtime Hours.",
+                                packageName = activePkg,
+                                allowGuardianExtension = false
+                            )
+                        } else if (prefs.isAppTimeBudgetExceeded(activePkg)) {
+                            val limitMins = prefs.appTimeBudgets.value[activePkg] ?: 0
+                            AegisAccessibilityService.closeAndEvictPackage(this@AegisProtectionService, activePkg)
+                            overlayController.showUsageOrBedtimeOverlay(
+                                title = "Daily Time Limit Reached",
+                                subtitle = "${container.protectionRepository.activeAppLabel.value} reached its $limitMins minute daily limit.",
+                                packageName = activePkg,
+                                allowGuardianExtension = true
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun reloadClassifierOnBackground(reason: String) {
+        backgroundHandler?.post {
+            val reloaded = contentClassifier.reloadModel()
+            if (reloaded) {
+                framePreprocessor.configure(
+                    width = contentClassifier.inputWidth,
+                    height = contentClassifier.inputHeight,
+                    quantizedUInt8 = contentClassifier.isQuantizedInput
+                )
+            }
+            decisionEngine.reset()
+            consecutiveIdleOrSafeTicks = 0
+            cancelTrailingScan()
+            container.refreshModelTelemetry()
+            val statusLabel = if (reloaded) {
+                "Sheildlenz Active • Chrome & All Apps Armed"
+            } else {
+                "Chrome Web Guard Active • Load .tflite for Vision"
+            }
+            val nm = getSystemService(NotificationManager::class.java)
+            nm?.notify(NOTIFICATION_ID, buildForegroundNotification(statusLabel))
+            Log.i(TAG, "Service reloaded TFLite model ($reason). Ready=$reloaded, Accel=${contentClassifier.activeAcceleratorLabel}")
         }
     }
 
@@ -652,6 +700,10 @@ class AegisProtectionService : Service() {
             val suggestiveOverride = if (useCustomThresholds) prefs.customSuggestiveThreshold.value else null
             val consecutiveRequired = prefs.consecutiveFramesRequired.value
 
+            val explicitEnabled = prefs.blockExplicitAdult.value
+            val suggestiveEnabled = prefs.blockSuggestiveContent.value
+            val graphicEnabled = prefs.blockSensitiveGraphic.value
+
             val explicitThreshold = explicitOverride ?: sensitivity.threshold
             val suggestiveThreshold = suggestiveOverride ?: sensitivity.threshold
 
@@ -672,10 +724,10 @@ class AegisProtectionService : Service() {
 
                     // Short-circuit immediately if this crop already triggers an immediate block
                     if (!isMaintenance) {
-                        val immediateExplicit = res.explicitScore >= explicitThreshold ||
-                            (isStrictEverything && res.explicitScore >= 0.50f)
-                        val suggestiveHit = res.suggestiveScore >= suggestiveThreshold ||
-                            (isStrictEverything && res.suggestiveScore >= 0.55f)
+                        val immediateExplicit = (explicitEnabled || graphicEnabled) &&
+                            (res.explicitScore >= explicitThreshold || (isStrictEverything && res.explicitScore >= 0.50f))
+                        val suggestiveHit = suggestiveEnabled &&
+                            (res.suggestiveScore >= suggestiveThreshold || (isStrictEverything && res.suggestiveScore >= 0.55f))
                         val immediateSuggestive = suggestiveHit &&
                             (isStrictEverything || res.suggestiveScore >= 0.85f || consecutiveRequired <= 1)
                         if (immediateExplicit || immediateSuggestive) {
@@ -695,7 +747,10 @@ class AegisProtectionService : Service() {
                     isStrictEverything = isStrictEverything,
                     explicitThresholdOverride = explicitOverride,
                     suggestiveThresholdOverride = suggestiveOverride,
-                    consecutiveFramesRequired = consecutiveRequired
+                    consecutiveFramesRequired = consecutiveRequired,
+                    blockExplicitAdult = explicitEnabled,
+                    blockSuggestiveContent = suggestiveEnabled,
+                    blockSensitiveGraphic = graphicEnabled
                 )
                 if (decision.shouldBlock) {
                     cancelTrailingScan()
@@ -767,6 +822,39 @@ class AegisProtectionService : Service() {
         if (!wentHome) {
             launchHomeFallback()
         }
+
+        val escalation = container.preferences.recordThreatAndCheckLockdown()
+        if (!escalation.shouldLockdown) {
+            overlayController.showWarningOverlay(
+                appName = targetAppName,
+                packageName = targetPkg,
+                categoryName = decision.category.displayName,
+                warningNumber = escalation.warningNumber,
+                maxWarnings = escalation.maxWarnings
+            )
+            serviceScope.launch {
+                val incident = SecurityIncident(
+                    timestampMillis = System.currentTimeMillis(),
+                    packageName = targetPkg.ifBlank { "foreground.screen" },
+                    appDisplayName = targetAppName,
+                    category = decision.category,
+                    severity = com.example.core.models.ThreatSeverity.MEDIUM,
+                    confidenceScore = decision.confidence,
+                    actionTaken = "Warning ${escalation.warningNumber}/${escalation.maxWarnings} • App Evicted",
+                    diagnosticSummary = fullDetails,
+                    lockdownDurationMinutes = 0
+                )
+                container.securityHistoryRepository.logIncident(incident)
+                container.protectionRepository.recordDetection(decision.category)
+                if (container.preferences.parentalRole.value == "child" &&
+                    !container.preferences.pairedParentUid.value.isNullOrBlank()
+                ) {
+                    container.parentChildRepository.logThreatToCloud(incident)
+                }
+            }
+            return
+        }
+
         val suspended = if (targetPkg.isNotBlank()) {
             AegisDeviceAdminReceiver.suspendPackageIfDeviceOwner(this, targetPkg)
         } else {

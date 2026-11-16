@@ -22,7 +22,8 @@ data class EngineTelemetry(
     val modelInputSpec: String = "Not Loaded",
     val modelOutputClasses: Int = 0,
     val modelStatusMessage: String = "No .tflite model loaded",
-    val modelErrorMessage: String? = null
+    val modelErrorMessage: String? = null,
+    val activeAcceleratorLabel: String = "CPU (XNNPACK)"
 ) {
     fun ecoSavedPercent(): Int {
         val total = framesProcessedCount + framesSkippedCount

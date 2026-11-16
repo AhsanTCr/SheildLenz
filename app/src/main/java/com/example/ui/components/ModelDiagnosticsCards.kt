@@ -551,6 +551,8 @@ fun ModelManagerCard(
                         else -> "${telemetry.modelOutputClasses}-Class"
                     }
                 )
+                HorizontalDivider(color = AegisLavenderBorder.copy(alpha = 0.65f), modifier = Modifier.padding(vertical = 4.dp))
+                ModelMetaRow("Accelerator", telemetry.activeAcceleratorLabel)
             }
         } else {
             Text(

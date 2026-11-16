@@ -137,6 +137,32 @@ test("Child registers pairing code and parent claims pairing while stranger is d
       childUninstallLocked: true,
       liveSeeEnabled: true,
       whitelistedPackages: ["com.android.dialer"],
+      warningThresholdCount: 2,
+      bedtimeEnabled: true,
+      bedtimeStartMinutes: 1320,
+      bedtimeEndMinutes: 360,
+      appTimeBudgets: { "com.google.android.youtube": 45 },
+      customBlockedDomains: ["example-bad.com"],
+      customBlockedKeywords: ["casino"],
+      safeDnsEnabled: true,
+      blockExplicitAdult: true,
+      blockSuggestiveContent: true,
+      blockSensitiveGraphic: true,
+      blockGamblingKeywords: true,
+      updatedAt: safePastTimestamp(),
+    })
+  );
+
+  // Invalid warningThresholdCount (> 5) is rejected by rules
+  await assertFails(
+    parentDb.collection("users").doc(CHILD_UID).collection("remote_control").doc("settings").set({
+      sensitivity: "STRICT",
+      strictEverything: true,
+      lockdownDurationMinutes: 60,
+      antiTamperEnabled: true,
+      childUninstallLocked: true,
+      liveSeeEnabled: true,
+      warningThresholdCount: 9,
       updatedAt: safePastTimestamp(),
     })
   );

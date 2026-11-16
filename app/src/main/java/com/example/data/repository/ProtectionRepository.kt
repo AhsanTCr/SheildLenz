@@ -61,6 +61,7 @@ class ProtectionRepository(private val context: Context) {
                 modelOutputClasses = info.outputClassCount,
                 modelStatusMessage = info.statusMessage,
                 modelErrorMessage = info.errorMessage,
+                activeAcceleratorLabel = info.activeAcceleratorLabel,
                 statusMessage = buildStatusMessage(
                     isEnabled = current.isProtectionEnabled,
                     hasOverlay = current.isOverlayPermitted,

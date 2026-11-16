@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
@@ -113,6 +114,7 @@ import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
 import com.example.ui.components.LuxurySectionHeader
 import com.example.ui.components.QrCodeImage
+import com.example.ui.components.QrScannerDialog
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
@@ -194,6 +196,7 @@ fun ParentsScreen(
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var pairingInput by remember { mutableStateOf("") }
     var selectedChildUid by remember { mutableStateOf<String?>(null) }
+    var showQrScanner by remember { mutableStateOf(false) }
 
     LaunchedEffect(pendingPairingCode) {
         if (!pendingPairingCode.isNullOrBlank()) {
@@ -201,6 +204,19 @@ fun ParentsScreen(
             preferences.setParentalRole("parent")
             onConsumePendingPairingCode()
         }
+    }
+
+    if (showQrScanner) {
+        QrScannerDialog(
+            onDismiss = { showQrScanner = false },
+            onBeforePermissionRequest = { preferences.beginAuthorizedExternalFlow() },
+            onCodeScanned = { scanned ->
+                showQrScanner = false
+                val parsed = ParentChildRepository.extractPairingCode(scanned) ?: scanned
+                pairingInput = parsed
+                Toast.makeText(context, "QR Scanned: $parsed", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     val currentUid = currentUser?.uid
@@ -627,6 +643,19 @@ fun ParentsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 OutlinedButton(
+                                    onClick = { showQrScanner = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                        .testTag("scan_child_qr_button")
+                                ) {
+                                    Icon(Icons.Default.QrCodeScanner, contentDescription = "Scan Child QR", modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("SCAN QR", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                OutlinedButton(
                                     onClick = {
                                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                                         val clipText = cm?.primaryClip?.getItemAt(0)?.text?.toString() ?: ""
@@ -638,47 +667,51 @@ fun ParentsScreen(
                                         }
                                     },
                                     shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.height(48.dp)
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
                                 ) {
                                     Icon(Icons.Default.ContentPaste, contentDescription = "Paste code", modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("PASTE", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                 }
+                            }
 
-                                Button(
-                                    onClick = {
-                                        if (currentUser == null) {
-                                            Toast.makeText(context, "Please sign in with Google above first.", Toast.LENGTH_SHORT).show()
-                                            return@Button
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Button(
+                                onClick = {
+                                    if (currentUser == null) {
+                                        Toast.makeText(context, "Please sign in with Google above first.", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    isWorking = true
+                                    scope.launch {
+                                        val result = repository.pairWithChildByCode(pairingInput)
+                                        result.onSuccess { paired ->
+                                            selectedChildUid = paired.childUid
+                                            pairingInput = ""
+                                            statusMessage = "Paired with ${paired.childDisplayName}!"
+                                            Toast.makeText(context, statusMessage, Toast.LENGTH_SHORT).show()
+                                        }.onFailure { err ->
+                                            statusMessage = err.localizedMessage ?: "Pairing failed."
+                                            Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
                                         }
-                                        isWorking = true
-                                        scope.launch {
-                                            val result = repository.pairWithChildByCode(pairingInput)
-                                            result.onSuccess { paired ->
-                                                selectedChildUid = paired.childUid
-                                                pairingInput = ""
-                                                statusMessage = "Paired with ${paired.childDisplayName}!"
-                                                Toast.makeText(context, statusMessage, Toast.LENGTH_SHORT).show()
-                                            }.onFailure { err ->
-                                                statusMessage = err.localizedMessage ?: "Pairing failed."
-                                                Toast.makeText(context, statusMessage, Toast.LENGTH_LONG).show()
-                                            }
-                                            isWorking = false
-                                        }
-                                    },
-                                    enabled = !isWorking && pairingInput.isNotBlank(),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AegisPrimaryCyan,
-                                        contentColor = AegisOnPrimaryWhite
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(48.dp)
-                                        .testTag("pair_child_button")
-                                ) {
-                                    Text("PAIR CHILD DEVICE", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
+                                        isWorking = false
+                                    }
+                                },
+                                enabled = !isWorking && pairingInput.isNotBlank(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AegisPrimaryCyan,
+                                    contentColor = AegisOnPrimaryWhite
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("pair_child_button")
+                            ) {
+                                Text("PAIR CHILD DEVICE", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -686,6 +719,29 @@ fun ParentsScreen(
                     // Paired Children Strip + Remote Controls
                     if (pairedChildren.isNotEmpty() && activeChild != null) {
                         item {
+                            LuxurySectionHeader(title = "Family Dashboard", accentColor = AegisPrimaryCyan)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            CyberCard(
+                                borderColor = AegisCardBorder,
+                                tone = CyberCardTone.SKY,
+                                modifier = Modifier.testTag("parent_family_overview_card")
+                            ) {
+                                Text(
+                                    text = "${pairedChildren.size} Paired Child ${if (pairedChildren.size == 1) "Device" else "Devices"}",
+                                    color = AegisTextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalDisplayFont
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Active child: ${activeChild.childDisplayName} • Tap a child chip below to manage warnings, bedtime lock, Safe DNS, and budgets.",
+                                    color = AegisTextSecondary,
+                                    fontSize = 11.5.sp,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
                             LuxurySectionHeader(title = "Linked Child Devices (${pairedChildren.size})", accentColor = AegisChampagneGold)
                             Spacer(modifier = Modifier.height(6.dp))
                             CyberCard(
@@ -1486,6 +1542,20 @@ private fun ParentRemoteSettingsCard(
     var antiTamper by remember(currentRemote) { mutableStateOf(currentRemote.antiTamperEnabled) }
     var liveSee by remember(currentRemote) { mutableStateOf(currentRemote.liveSeeEnabled) }
     var durationMinutes by remember(currentRemote) { mutableIntStateOf(currentRemote.lockdownDurationMinutes) }
+    var warningThreshold by remember(currentRemote) { mutableIntStateOf(currentRemote.warningThresholdCount) }
+    var blockExplicit by remember(currentRemote) { mutableStateOf(currentRemote.blockExplicitAdult) }
+    var blockSuggestive by remember(currentRemote) { mutableStateOf(currentRemote.blockSuggestiveContent) }
+    var blockGraphic by remember(currentRemote) { mutableStateOf(currentRemote.blockSensitiveGraphic) }
+    var blockGambling by remember(currentRemote) { mutableStateOf(currentRemote.blockGamblingKeywords) }
+    var bedtimeEnabled by remember(currentRemote) { mutableStateOf(currentRemote.bedtimeEnabled) }
+    var bedtimeStartMinutes by remember(currentRemote) { mutableIntStateOf(currentRemote.bedtimeStartMinutes) }
+    var bedtimeEndMinutes by remember(currentRemote) { mutableIntStateOf(currentRemote.bedtimeEndMinutes) }
+    var safeDnsEnabled by remember(currentRemote) { mutableStateOf(currentRemote.safeDnsEnabled) }
+    var domainsCsv by remember(currentRemote) { mutableStateOf(currentRemote.customBlockedDomains.joinToString(", ")) }
+    var keywordsCsv by remember(currentRemote) { mutableStateOf(currentRemote.customBlockedKeywords.joinToString(", ")) }
+    var budgetsCsv by remember(currentRemote) {
+        mutableStateOf(currentRemote.appTimeBudgets.entries.joinToString(", ") { "${it.key}=${it.value}" })
+    }
     var whitelistCsv by remember(currentRemote) {
         mutableStateOf(currentRemote.whitelistedPackages.joinToString(", "))
     }
@@ -1523,6 +1593,42 @@ private fun ParentRemoteSettingsCard(
                         text = level.displayName,
                         color = if (selected) AegisOnPrimaryWhite else AegisTextPrimary,
                         fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = "Warnings Before Lock",
+            color = AegisTextPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = ClassicalDisplayFont
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(0 to "Immediate", 1 to "1 Warn", 2 to "2 Warns", 3 to "3 Warns").forEach { (count, label) ->
+                val selected = warningThreshold == count
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (selected) AegisChampagneGold else AegisCardBackground)
+                        .border(1.dp, if (selected) AegisChampagneGold else AegisCardBorder, RoundedCornerShape(10.dp))
+                        .clickable { warningThreshold = count },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = label,
+                        color = if (selected) AegisOnPrimaryWhite else AegisTextPrimary,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1571,6 +1677,48 @@ private fun ParentRemoteSettingsCard(
         RemoteSwitchRow("Strict Everything Filter", strictEverything) { strictEverything = it }
         RemoteSwitchRow("Anti-Tamper Guard", antiTamper) { antiTamper = it }
         RemoteSwitchRow("Live See Thumbnails", liveSee) { liveSee = it }
+        RemoteSwitchRow("Explicit Adult Category", blockExplicit) { blockExplicit = it }
+        RemoteSwitchRow("Suggestive Content Category", blockSuggestive) { blockSuggestive = it }
+        RemoteSwitchRow("Sensitive Graphic Category", blockGraphic) { blockGraphic = it }
+        RemoteSwitchRow("Gambling Filter", blockGambling) { blockGambling = it }
+        RemoteSwitchRow("Safe DNS Filtering", safeDnsEnabled) { safeDnsEnabled = it }
+        RemoteSwitchRow(
+            "Bedtime Lock (${AegisPreferences.formatClockTime(bedtimeStartMinutes)}-${AegisPreferences.formatClockTime(bedtimeEndMinutes)})",
+            bedtimeEnabled
+        ) { bedtimeEnabled = it }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = domainsCsv,
+            onValueChange = { domainsCsv = it },
+            label = { Text("Blocked Domains (comma-separated)") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = keywordsCsv,
+            onValueChange = { keywordsCsv = it },
+            label = { Text("Blocked Keywords (comma-separated)") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = budgetsCsv,
+            onValueChange = { budgetsCsv = it },
+            label = { Text("App Time Budgets (pkg=mins, comma-separated)") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -1591,6 +1739,23 @@ private fun ParentRemoteSettingsCard(
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
                     .toSet()
+                val parsedDomains = domainsCsv.split(",")
+                    .mapNotNull { AegisPreferences.normalizeDomainInput(it) }
+                    .toSet()
+                val parsedKeywords = keywordsCsv.split(",")
+                    .map { it.trim().lowercase(Locale.US) }
+                    .filter { it.length >= 2 }
+                    .toSet()
+                val parsedBudgets = budgetsCsv.split(",")
+                    .mapNotNull { entry ->
+                        val parts = entry.split("=")
+                        if (parts.size == 2) {
+                            val pkg = parts[0].trim()
+                            val mins = parts[1].trim().toIntOrNull()
+                            if (pkg.isNotBlank() && mins != null && mins > 0) pkg to mins.coerceIn(1, 720) else null
+                        } else null
+                    }
+                    .toMap()
                 onPushSettings(
                     RemotePolicySettings(
                         sensitivity = sensitivity,
@@ -1599,7 +1764,19 @@ private fun ParentRemoteSettingsCard(
                         antiTamperEnabled = antiTamper,
                         childUninstallLocked = currentRemote.childUninstallLocked,
                         liveSeeEnabled = liveSee,
-                        whitelistedPackages = parsedWhitelist
+                        whitelistedPackages = parsedWhitelist,
+                        warningThresholdCount = warningThreshold,
+                        bedtimeEnabled = bedtimeEnabled,
+                        bedtimeStartMinutes = bedtimeStartMinutes,
+                        bedtimeEndMinutes = bedtimeEndMinutes,
+                        appTimeBudgets = parsedBudgets,
+                        customBlockedDomains = parsedDomains,
+                        customBlockedKeywords = parsedKeywords,
+                        safeDnsEnabled = safeDnsEnabled,
+                        blockExplicitAdult = blockExplicit,
+                        blockSuggestiveContent = blockSuggestive,
+                        blockSensitiveGraphic = blockGraphic,
+                        blockGamblingKeywords = blockGambling
                     )
                 )
             },

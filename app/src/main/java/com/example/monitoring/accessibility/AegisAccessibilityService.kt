@@ -113,6 +113,46 @@ class AegisAccessibilityService : AccessibilityService() {
         // 4. Track active monitored foreground application accurately across apps (including Chrome & returning to Sheildlenz)
         updateTrackedForegroundPackage(eventType, resolvedPkg)
 
+        // 4b. Bedtime Lock & Daily Per-App Time Budget Enforcement (zero special usage permissions)
+        if (!prefs.maintenanceMode.value &&
+            !isExemptSystemOrLauncherPackage(resolvedPkg) &&
+            !prefs.isPackageWhitelisted(resolvedPkg)
+        ) {
+            if (prefs.isWithinBedtimeLockWindow()) {
+                if (now - lastLockdownInterceptTimeMs > 900L) {
+                    lastLockdownInterceptTimeMs = now
+                    val appLabel = getAppLabel(resolvedPkg)
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    overlayController.showUsageOrBedtimeOverlay(
+                        title = "Bedtime Lock Active",
+                        subtitle = "$appLabel is paused during Guardian Bedtime Hours (${AegisPreferences.formatClockTime(prefs.bedtimeStartMinutes.value)} – ${AegisPreferences.formatClockTime(prefs.bedtimeEndMinutes.value)}).",
+                        packageName = resolvedPkg,
+                        allowGuardianExtension = false
+                    )
+                }
+                return
+            }
+
+            if (prefs.isAppTimeBudgetExceeded(resolvedPkg)) {
+                if (now - lastLockdownInterceptTimeMs > 900L) {
+                    lastLockdownInterceptTimeMs = now
+                    val appLabel = getAppLabel(resolvedPkg)
+                    val limitMins = prefs.appTimeBudgets.value[resolvedPkg] ?: 0
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    if (prefs.evictAppOnThreat.value) {
+                        killBackgroundApp(this, resolvedPkg)
+                    }
+                    overlayController.showUsageOrBedtimeOverlay(
+                        title = "Daily Time Limit Reached",
+                        subtitle = "$appLabel has reached its $limitMins minute daily time budget.",
+                        packageName = resolvedPkg,
+                        allowGuardianExtension = true
+                    )
+                }
+                return
+            }
+        }
+
         // 5. Real-time Chrome & Third-Party Browser URL / Search Safety Guard
         val isShieldArmed = prefs.isShieldDesiredActive.value ||
             container.protectionRepository.telemetry.value.isProtectionEnabled
@@ -123,6 +163,15 @@ class AegisAccessibilityService : AccessibilityService() {
         ) {
             inspectBrowserForUnsafeUrl(resolvedPkg, event, eventType, now)
         }
+    }
+
+    private fun isExemptSystemOrLauncherPackage(pkgName: String): Boolean {
+        if (pkgName == packageName) return true
+        if (isAllowedDuringLockdown(pkgName) || isTransientOverlayPackage(pkgName)) return true
+        val lower = pkgName.lowercase()
+        return lower.contains("launcher") ||
+            lower == "com.android.settings" ||
+            lower == "com.miui.home"
     }
 
     private fun updateTrackedForegroundPackage(eventType: Int, pkgName: String) {
@@ -215,7 +264,13 @@ class AegisAccessibilityService : AccessibilityService() {
         val candidate = builder.toString()
         if (candidate.isBlank()) return
 
-        val matchedReason = detectExplicitBrowserUrl(candidate) ?: return
+        val prefs = container.preferences
+        val matchedReason = detectExplicitBrowserUrl(
+            rawText = candidate,
+            customDomains = prefs.customBlockedDomains.value,
+            customKeywords = prefs.customBlockedKeywords.value,
+            blockGamblingKeywords = prefs.blockGamblingKeywords.value
+        ) ?: return
         if (nowUptime - lastBrowserBlockTimeMs < 1500L) return
         lastBrowserBlockTimeMs = nowUptime
 
@@ -294,6 +349,34 @@ class AegisAccessibilityService : AccessibilityService() {
         if (prefs.evictAppOnThreat.value) {
             killBackgroundApp(this, browserPkg)
         }
+
+        val escalation = prefs.recordThreatAndCheckLockdown()
+        if (!escalation.shouldLockdown) {
+            overlayController.showWarningOverlay(
+                appName = appLabel,
+                packageName = browserPkg,
+                categoryName = ThreatCategory.EXPLICIT_ADULT.displayName,
+                warningNumber = escalation.warningNumber,
+                maxWarnings = escalation.maxWarnings
+            )
+            serviceScope.launch {
+                val incident = SecurityIncident(
+                    timestampMillis = System.currentTimeMillis(),
+                    packageName = browserPkg,
+                    appDisplayName = appLabel,
+                    category = ThreatCategory.EXPLICIT_ADULT,
+                    severity = ThreatSeverity.MEDIUM,
+                    confidenceScore = 1.0f,
+                    actionTaken = "Warning ${escalation.warningNumber}/${escalation.maxWarnings} • Browser Evicted",
+                    diagnosticSummary = fullDetails,
+                    lockdownDurationMinutes = 0
+                )
+                container.securityHistoryRepository.logIncident(incident)
+                container.protectionRepository.recordDetection(ThreatCategory.EXPLICIT_ADULT)
+            }
+            return
+        }
+
         val suspended = AegisDeviceAdminReceiver.suspendPackageIfDeviceOwner(this, browserPkg)
 
         prefs.engageFullDeviceLockdown(
@@ -460,6 +543,10 @@ class AegisAccessibilityService : AccessibilityService() {
             """(?:^|[^a-z0-9])(?:pornhub|xvideos|xnxx|xhamster|redtube|youporn|tube8|spankbang|chaturbate|stripchat|rule34|nhentai|hanime|erome|youjizz|tnaflix|fapello|porn|porno|pornography|hentai|nsfw|xxx|nude|nudes|blowjob|handjob|milf|creampie|gangbang|threesome|bdsm)(?=$|[^a-z0-9])"""
         )
 
+        private val GAMBLING_TOKEN_REGEX = Regex(
+            """(?:^|[^a-z0-9])(?:bet365|draftkings|fanduel|1xbet|stake\.com|roobet|pokerstars|888casino|betway|williamhill|sportsbook|online\s+casino|slot\s+machine)(?=$|[^a-z0-9])"""
+        )
+
         fun isBrowserPackage(packageName: String?): Boolean {
             if (packageName.isNullOrBlank()) return false
             val lower = packageName.lowercase()
@@ -470,11 +557,43 @@ class AegisAccessibilityService : AccessibilityService() {
          * Inspects browser omnibox URLs, search terms, and page titles using boundary-safe rules
          * to prevent substring false positives (e.g., "portrait", "portal", "scunthorpe").
          */
-        fun detectExplicitBrowserUrl(rawText: String?): String? {
+        @JvmOverloads
+        fun detectExplicitBrowserUrl(
+            rawText: String?,
+            customDomains: Set<String> = emptySet(),
+            customKeywords: Set<String> = emptySet(),
+            blockGamblingKeywords: Boolean = true
+        ): String? {
             if (rawText.isNullOrBlank()) return null
             val normalized = rawText.lowercase()
                 .replace("%20", " ")
                 .replace("+", " ")
+
+            for (customDomain in customDomains) {
+                val clean = customDomain.trim().lowercase().removePrefix("www.")
+                if (clean.length >= 3) {
+                    val escaped = Regex.escape(clean)
+                    val domainRegex = Regex("""(?:^|[^a-z0-9-])$escaped(?=$|[^a-z0-9])""")
+                    if (domainRegex.containsMatchIn(normalized)) {
+                        return "Custom Blocklist Guard blocked domain '$clean'."
+                    }
+                }
+            }
+
+            for (customKeyword in customKeywords) {
+                val kw = customKeyword.trim().lowercase()
+                if (kw.length >= 2) {
+                    val escaped = Regex.escape(kw)
+                    val kwRegex = Regex("""(?:^|[^a-z0-9])$escaped(?=$|[^a-z0-9])""")
+                    if (kwRegex.containsMatchIn(normalized)) {
+                        return "Custom Blocklist Guard blocked keyword '$kw'."
+                    }
+                }
+            }
+
+            if (blockGamblingKeywords && GAMBLING_TOKEN_REGEX.containsMatchIn(normalized)) {
+                return "Gambling Filter Guard blocked betting/casino site or search."
+            }
 
             val tldMatch = EXPLICIT_TLD_REGEX.find(normalized)
             if (tldMatch != null) {
