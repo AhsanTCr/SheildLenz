@@ -215,7 +215,15 @@ class AegisSafeDnsVpnService : VpnService() {
         tunOutput: FileOutputStream,
         writeLock: Any
     ) {
-        for (resolverIp in UPSTREAM_SAFE_DNS_SERVERS) {
+        val selectedProvider = container.preferences.safeDnsProvider.value
+        val resolverList = listOf(
+            selectedProvider.primaryIp,
+            selectedProvider.secondaryIp,
+            "185.228.168.168",
+            "1.1.1.3"
+        ).distinct()
+
+        for (resolverIp in resolverList) {
             var socket: DatagramSocket? = null
             try {
                 socket = DatagramSocket()

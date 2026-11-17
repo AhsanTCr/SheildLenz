@@ -555,6 +555,7 @@ class ExampleRobolectricTest {
         assertEquals(null, gate.pendingActionLabel)
 
         // 2. When Master Key exists, reject wrong key and accept right key
+        prefs.lockGuardianSession()
         gate.request("change setting") { executedCount++ }
         val wrongErr = gate.submitKey("0000")
         assertEquals("Incorrect Master Key", wrongErr)
@@ -567,6 +568,7 @@ class ExampleRobolectricTest {
         assertEquals(null, gate.pendingActionLabel)
 
         // 3. Cancellation invokes onCancel and does not authorize action
+        prefs.lockGuardianSession()
         var cancelledCount = 0
         gate.request(
             actionLabel = "update threshold",

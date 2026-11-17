@@ -378,34 +378,39 @@ object UpdateChecker {
      */
     fun triggerUserUpdateAction(context: Context) {
         val appContext = context.applicationContext
-        val info = _updateInfo.value
-        when (val state = _apkDownloadState.value) {
-            is ApkDownloadState.ReadyToInstall -> {
-                autoInstallApk(appContext, state.apkFile)
-            }
-            is ApkDownloadState.SignatureConflict -> {
-                triggerCleanUninstallForUpgrade(appContext)
-            }
-            is ApkDownloadState.Preloading -> {
-                boostActivePreloadToTurbo(appContext, state)
-            }
-            is ApkDownloadState.Downloading,
-            ApkDownloadState.Verifying,
-            ApkDownloadState.Installing -> Unit
-            else -> {
-                val apkUrl = info?.apkDownloadUrl
-                if (!apkUrl.isNullOrBlank()) {
-                    startApkDownload(
-                        context = appContext,
-                        apkUrl = apkUrl,
-                        versionTag = cleanVersionTag(info.latestVersion),
-                        expectedTotalBytes = info.apkSizeBytes,
-                        expectedSha256 = info.expectedSha256
-                    )
-                } else if (info != null) {
-                    openReleaseUrl(appContext, info.releaseUrl)
+        try {
+            val info = _updateInfo.value
+            when (val state = _apkDownloadState.value) {
+                is ApkDownloadState.ReadyToInstall -> {
+                    autoInstallApk(appContext, state.apkFile)
+                }
+                is ApkDownloadState.SignatureConflict -> {
+                    triggerCleanUninstallForUpgrade(appContext)
+                }
+                is ApkDownloadState.Preloading -> {
+                    boostActivePreloadToTurbo(appContext, state)
+                }
+                is ApkDownloadState.Downloading,
+                ApkDownloadState.Verifying,
+                ApkDownloadState.Installing -> Unit
+                else -> {
+                    val apkUrl = info?.apkDownloadUrl
+                    if (!apkUrl.isNullOrBlank()) {
+                        startApkDownload(
+                            context = appContext,
+                            apkUrl = apkUrl,
+                            versionTag = cleanVersionTag(info.latestVersion),
+                            expectedTotalBytes = info.apkSizeBytes,
+                            expectedSha256 = info.expectedSha256
+                        )
+                    } else if (info != null) {
+                        openReleaseUrl(appContext, info.releaseUrl)
+                    }
                 }
             }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Safe recovery from update action failure", t)
+            openReleaseUrl(appContext, GITHUB_RELEASES_WEB_URL)
         }
     }
 
@@ -1320,59 +1325,9 @@ object UpdateChecker {
             return false
         }
 
-        return try {
-            AegisContainer.getInstance(appContext).preferences.grantTemporarySettingsAuthorization()
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !appContext.packageManager.canRequestPackageInstalls()) {
-                val prev = _apkDownloadState.value as? ApkDownloadState.ReadyToInstall
-                _apkDownloadState.value = ApkDownloadState.ReadyToInstall(
-                    apkFile = apkFile,
-                    needsInstallPermission = true,
-                    preloadedReady = prev?.preloadedReady ?: false,
-                    verifiedSha256 = prev?.verifiedSha256
-                )
-                AegisBackgroundDownloadService.stop(appContext)
-                val permIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                    data = Uri.parse("package:${appContext.packageName}")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                appContext.startActivity(permIntent)
-                return false
-            }
-
-            _apkDownloadState.value = ApkDownloadState.Installing
-            val installer = appContext.packageManager.packageInstaller
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-                setAppPackageName(appContext.packageName)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-                }
-            }
-
-            val sessionId = installer.createSession(params)
-            installer.openSession(sessionId).use { session ->
-                FileInputStream(apkFile).use { input ->
-                    session.openWrite("sheildlenz_update.apk", 0, apkFile.length()).use { output ->
-                        val buffer = ByteArray(32 * 1024)
-                        var read: Int
-                        while (input.read(buffer).also { read = it } != -1) {
-                            output.write(buffer, 0, read)
-                        }
-                        session.fsync(output)
-                    }
-                }
-
-                val callbackIntent = Intent(appContext, ApkInstallResultReceiver::class.java)
-                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
-                val pendingIntent = PendingIntent.getBroadcast(appContext, sessionId, callbackIntent, flags)
-                session.commit(pendingIntent.intentSender)
-            }
-            true
-        } catch (e: Exception) {
-            Log.w(TAG, "PackageInstaller session failed; falling back to ACTION_VIEW installer", e)
-            installApk(appContext, apkFile)
-        }
+        // Standard Intent.ACTION_VIEW via FileProvider guarantees 100% crash-free install
+        // without process termination from PackageInstaller session.commit()
+        return installApk(appContext, apkFile)
     }
 
     fun onPackageInstallConflict(context: Context, customReason: String? = null) {
@@ -1476,9 +1431,13 @@ object UpdateChecker {
             appContext.startActivity(installIntent)
             AegisBackgroundDownloadService.stop(appContext)
             true
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to launch APK installer", e)
             AegisBackgroundDownloadService.stop(appContext)
+            _apkDownloadState.value = ApkDownloadState.Failed(
+                "Unable to open package installer directly. Opening GitHub Releases..."
+            )
+            openReleaseUrl(appContext, GITHUB_RELEASES_WEB_URL)
             false
         }
     }

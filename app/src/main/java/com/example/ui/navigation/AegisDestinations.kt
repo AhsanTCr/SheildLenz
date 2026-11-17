@@ -12,4 +12,5 @@ object AegisDestinations {
     const val ABOUT = "about"
     const val PARENT_CHILD_LINK = "parent_child_link"
     const val BLOCK_SCREEN = "block_screen"
+    const val GUARDIAN_GATE = "guardian_gate"
 }

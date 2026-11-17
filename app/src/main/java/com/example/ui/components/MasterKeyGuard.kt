@@ -75,6 +75,12 @@ class MasterKeyGateState(
         onCancel: () -> Unit = {},
         onAuthorized: () -> Unit
     ) {
+        val hasPin = preferences.hasGuardianPin.value
+        val isUnlocked = preferences.isGuardianSessionUnlocked.value
+        if (hasPin && isUnlocked) {
+            onAuthorized()
+            return
+        }
         pendingActionLabel = actionLabel
         pendingCancel = onCancel
         pendingAction = onAuthorized
@@ -94,6 +100,7 @@ class MasterKeyGateState(
             if (keyInput.isEmpty() || !preferences.verifyGuardianPin(keyInput)) {
                 "Incorrect Master Key"
             } else {
+                preferences.unlockGuardianSession()
                 val action = pendingAction
                 pendingActionLabel = null
                 pendingAction = null
@@ -112,6 +119,7 @@ class MasterKeyGateState(
                     preferences.setGuardianEmail(trimmedEmail)
                 }
                 preferences.setGuardianPin(keyInput)
+                preferences.unlockGuardianSession()
                 val action = pendingAction
                 pendingActionLabel = null
                 pendingAction = null

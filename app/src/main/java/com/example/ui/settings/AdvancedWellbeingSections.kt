@@ -1,6 +1,9 @@
 package com.example.ui.settings
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.widget.Toast
@@ -9,9 +12,16 @@ import java.util.Date
 import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.Color
+import com.example.data.preferences.SafeDnsProvider
+import com.example.ui.theme.AegisSuccessGreen
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -114,6 +124,7 @@ internal fun SafeDnsAndBlocklistSection(
 ) {
     val context = LocalContext.current
     val safeDnsEnabled by preferences.safeDnsEnabled.collectAsState()
+    val currentProvider by preferences.safeDnsProvider.collectAsState()
     val blockedDomains by preferences.customBlockedDomains.collectAsState()
     val blockedKeywords by preferences.customBlockedKeywords.collectAsState()
     val blockedQueryCount by AegisSafeDnsVpnService.blockedQueryCount.collectAsState()
@@ -136,7 +147,7 @@ internal fun SafeDnsAndBlocklistSection(
     }
 
     val summaryText = buildString {
-        append(if (safeDnsEnabled) "Safe DNS ON" else "Safe DNS OFF")
+        append(if (safeDnsEnabled) "Safe DNS ON (${currentProvider.ratingBadge})" else "Safe DNS OFF")
         append(" • ${blockedDomains.size} domains, ${blockedKeywords.size} keywords")
     }
 
@@ -164,7 +175,7 @@ internal fun SafeDnsAndBlocklistSection(
                     fontFamily = ClassicalDisplayFont
                 )
                 Text(
-                    text = "Zero-battery local DNS filter (Cloudflare Family 1.1.1.3) + SafeSearch enforcement.",
+                    text = "Zero-battery local DNS filter with strict anti-adult & anti-gambling protection.",
                     color = AegisTextSecondary,
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
@@ -210,6 +221,119 @@ internal fun SafeDnsAndBlocklistSection(
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = ClassicalBodyFont
             )
+        }
+
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 10.dp))
+
+        Text(
+            text = "Safe DNS Upstream Provider",
+            color = AegisTextPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = ClassicalDisplayFont
+        )
+        Text(
+            text = "Choose strict Deen halal filtering or high-speed family protection:",
+            color = AegisTextSecondary,
+            fontSize = 11.sp,
+            fontFamily = ClassicalBodyFont
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SafeDnsProvider.entries.forEach { prov ->
+                val selected = currentProvider == prov
+                val borderColor = if (selected) AegisPrimaryCyan else AegisCardBorder
+                val containerColor = if (selected) AegisPrimaryCyan.copy(alpha = 0.08f) else AegisCardBackground
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable {
+                            preferences.setSafeDnsProvider(prov)
+                            Toast.makeText(context, "${prov.displayName} activated", Toast.LENGTH_SHORT).show()
+                        }
+                        .testTag("dns_provider_${prov.id}"),
+                    shape = RoundedCornerShape(14.dp),
+                    color = containerColor,
+                    border = BorderStroke(if (selected) 1.5.dp else 1.dp, borderColor)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .border(1.5.dp, if (selected) AegisPrimaryCyan else AegisCardBorder, CircleShape)
+                                .background(if (selected) AegisPrimaryCyan else Color.Transparent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = prov.displayName,
+                                    color = AegisTextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalDisplayFont
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(
+                                            if (prov == SafeDnsProvider.DEEN_STRICT) AegisSuccessGreen.copy(alpha = 0.16f)
+                                            else AegisPurple.copy(alpha = 0.14f)
+                                        )
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = prov.ratingBadge,
+                                        color = if (prov == SafeDnsProvider.DEEN_STRICT) AegisSuccessGreen else AegisPurple,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalBodyFont
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = prov.description,
+                                color = AegisTextSecondary,
+                                fontSize = 10.5.sp,
+                                lineHeight = 14.5.sp,
+                                fontFamily = ClassicalBodyFont
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "DNS: ${prov.primaryIp} • ${prov.secondaryIp}",
+                                color = AegisTextMuted,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 10.dp))
@@ -1069,31 +1193,54 @@ internal fun GuardianRecoverySection(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        Box(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(AegisCardBackground)
-                .border(1.dp, AegisChampagneGold.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-                .testTag("recovery_challenge_badge")
+                .clip(RoundedCornerShape(16.dp))
+                .testTag("recovery_challenge_badge"),
+            color = AegisCardBackground,
+            border = BorderStroke(1.2.dp, AegisChampagneGold.copy(alpha = 0.75f))
         ) {
-            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "ACTIVE DEVICE CHALLENGE ID (AUTO-ROTATES ON LOCKDOWN)",
-                    color = AegisChampagneGold,
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.7.sp
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = challengeId,
-                    color = AegisTextPrimary,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(
+                        text = "DEVICE CHALLENGE ID (AUTO-ROTATES)",
+                        color = AegisChampagneGold,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = challengeId,
+                        color = AegisTextPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 3.sp
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        cm?.setPrimaryClip(ClipData.newPlainText("Sheildlenz Challenge ID", challengeId))
+                        Toast.makeText(context, "Copied Challenge ID $challengeId", Toast.LENGTH_SHORT).show()
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.height(42.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("COPY", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
 

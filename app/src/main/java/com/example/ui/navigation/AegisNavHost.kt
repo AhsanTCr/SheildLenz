@@ -131,10 +131,10 @@ fun AegisNavHost(
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val showMainNavigation = isGuardianAuthorized && MainTabItems.any { it.route == currentRoute }
+    val showMainNavigation = MainTabItems.any { it.route == currentRoute }
 
-    LaunchedEffect(pendingPairingCode, isGuardianAuthorized) {
-        if (!pendingPairingCode.isNullOrBlank() && isGuardianAuthorized) {
+    LaunchedEffect(pendingPairingCode) {
+        if (!pendingPairingCode.isNullOrBlank()) {
             navController.navigate(AegisDestinations.PARENTS) {
                 launchSingleTop = true
             }
@@ -303,134 +303,87 @@ fun AegisNavHost(
                     }
 
                     composable(AegisDestinations.HOME) {
-                        if (!isGuardianAuthorized) {
-                            GuardianGateScreen(
-                                preferences = container.preferences,
-                                protectionRepo = container.protectionRepository,
-                                onUnlocked = { }
-                            )
-                        } else {
-                            DashboardScreen(
-                                protectionRepo = container.protectionRepository,
-                                modelManager = container.modelManager,
-                                preferences = container.preferences,
-                                onModelUpdated = { container.refreshModelTelemetry() },
-                                onRequestStartProtection = onRequestStartProtection,
-                                onRequestStopProtection = onRequestStopProtection,
-                                onNavigateToStatus = {
-                                    navController.navigate(AegisDestinations.STATUS) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onNavigateToProgress = {
-                                    navController.navigate(AegisDestinations.PROGRESS) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onNavigateToWellbeing = {
-                                    navController.navigate(AegisDestinations.WELLBEING) {
-                                        launchSingleTop = true
-                                    }
+                        DashboardScreen(
+                            protectionRepo = container.protectionRepository,
+                            modelManager = container.modelManager,
+                            preferences = container.preferences,
+                            onModelUpdated = { container.refreshModelTelemetry() },
+                            onRequestStartProtection = onRequestStartProtection,
+                            onRequestStopProtection = onRequestStopProtection,
+                            onNavigateToStatus = {
+                                navController.navigate(AegisDestinations.STATUS) {
+                                    launchSingleTop = true
                                 }
-                            )
-                        }
+                            },
+                            onNavigateToProgress = {
+                                navController.navigate(AegisDestinations.PROGRESS) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onNavigateToWellbeing = {
+                                navController.navigate(AegisDestinations.WELLBEING) {
+                                    launchSingleTop = true
+                                }
+                            }
+                        )
                     }
 
                     composable(AegisDestinations.EDITS) {
-                        if (!isGuardianAuthorized) {
-                            GuardianGateScreen(
-                                preferences = container.preferences,
-                                protectionRepo = container.protectionRepository,
-                                onUnlocked = { }
-                            )
-                        } else {
-                            SettingsScreen(
-                                preferences = container.preferences,
-                                modelManager = container.modelManager,
-                                protectionRepo = container.protectionRepository,
-                                onModelUpdated = { container.refreshModelTelemetry() }
-                            )
-                        }
+                        SettingsScreen(
+                            preferences = container.preferences,
+                            modelManager = container.modelManager,
+                            protectionRepo = container.protectionRepository,
+                            onModelUpdated = { container.refreshModelTelemetry() }
+                        )
                     }
 
                     composable(AegisDestinations.STATUS) {
-                        if (!isGuardianAuthorized) {
-                            GuardianGateScreen(
-                                preferences = container.preferences,
-                                protectionRepo = container.protectionRepository,
-                                onUnlocked = { }
-                            )
-                        } else {
-                            LiveProtectionScreen(
-                                protectionRepo = container.protectionRepository,
-                                preferences = container.preferences,
-                                onRequestArmShield = onRequestStartProtection,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
-                        }
+                        LiveProtectionScreen(
+                            protectionRepo = container.protectionRepository,
+                            preferences = container.preferences,
+                            onRequestArmShield = onRequestStartProtection,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
                     }
 
                     composable(AegisDestinations.PROGRESS) {
-                        if (!isGuardianAuthorized) {
-                            GuardianGateScreen(
-                                preferences = container.preferences,
-                                protectionRepo = container.protectionRepository,
-                                onUnlocked = { }
-                            )
-                        } else {
-                            SecurityHistoryScreen(
-                                historyRepo = container.securityHistoryRepository,
-                                preferences = container.preferences,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
-                        }
+                        SecurityHistoryScreen(
+                            historyRepo = container.securityHistoryRepository,
+                            preferences = container.preferences,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
                     }
 
                     composable(AegisDestinations.WELLBEING) {
-                        if (!isGuardianAuthorized) {
-                            GuardianGateScreen(
-                                preferences = container.preferences,
-                                protectionRepo = container.protectionRepository,
-                                onUnlocked = { }
-                            )
-                        } else {
-                            WellbeingHubScreen(
-                                preferences = container.preferences,
-                                onNavigateBack = { navController.popBackStack() }
-                            )
-                        }
+                        WellbeingHubScreen(
+                            preferences = container.preferences,
+                            blockedDnsLogRepo = container.blockedDnsLogRepository,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
                     }
 
                     composable(AegisDestinations.PARENTS) {
-                        if (!isGuardianAuthorized) {
-                            GuardianGateScreen(
-                                preferences = container.preferences,
-                                protectionRepo = container.protectionRepository,
-                                onUnlocked = { }
-                            )
-                        } else {
-                            ParentsScreen(
-                                repository = container.parentChildRepository,
-                                preferences = container.preferences,
-                                syncController = container.parentChildSyncController,
-                                pendingPairingCode = pendingPairingCode,
-                                onConsumePendingPairingCode = { container.setPendingPairingCode(null) }
-                            )
-                        }
+                        ParentsScreen(
+                            repository = container.parentChildRepository,
+                            preferences = container.preferences,
+                            syncController = container.parentChildSyncController,
+                            pendingPairingCode = pendingPairingCode,
+                            onConsumePendingPairingCode = { container.setPendingPairingCode(null) }
+                        )
                     }
 
                     composable(AegisDestinations.ABOUT) {
-                        if (!isGuardianAuthorized) {
-                            GuardianGateScreen(
-                                preferences = container.preferences,
-                                protectionRepo = container.protectionRepository,
-                                onUnlocked = { }
-                            )
-                        } else {
-                            AboutScreen(
-                                preferences = container.preferences
-                            )
-                        }
+                        AboutScreen(
+                            preferences = container.preferences
+                        )
+                    }
+
+                    composable(AegisDestinations.GUARDIAN_GATE) {
+                        GuardianGateScreen(
+                            preferences = container.preferences,
+                            protectionRepo = container.protectionRepository,
+                            onUnlocked = { navController.popBackStack() }
+                        )
                     }
 
                     composable(AegisDestinations.PARENT_CHILD_LINK) {

@@ -70,6 +70,49 @@ enum class PowerMode(
     )
 }
 
+enum class SafeDnsProvider(
+    val id: String,
+    val displayName: String,
+    val subtitle: String,
+    val primaryIp: String,
+    val secondaryIp: String,
+    val ratingBadge: String,
+    val description: String
+) {
+    DEEN_STRICT(
+        id = "deen_strict",
+        displayName = "Deen Strict (CleanBrowsing)",
+        subtitle = "Zero-tolerance adult, gambling & malicious blocklist",
+        primaryIp = "185.228.168.168",
+        secondaryIp = "185.228.169.168",
+        ratingBadge = "STRICT DEEN",
+        description = "Strict family filter blocking adult domains, gambling, malicious sites, and enforcing SafeSearch on Google, Bing, and YouTube for clean Halal browsing."
+    ),
+    CLOUDFLARE_FAMILY(
+        id = "cloudflare_family",
+        displayName = "Cloudflare Family (1.1.1.3)",
+        subtitle = "Ultra-fast global protection against malware & adult sites",
+        primaryIp = "1.1.1.3",
+        secondaryIp = "1.0.0.3",
+        ratingBadge = "FAST FAMILY",
+        description = "High-speed Anycast 1.1.1.3 DNS automatically blocking known malware, phishing domains, and explicit adult websites."
+    ),
+    ADGUARD_FAMILY(
+        id = "adguard_family",
+        displayName = "AdGuard Family Protection",
+        subtitle = "Ad-free safe browsing with adult content blocking",
+        primaryIp = "94.140.14.15",
+        secondaryIp = "94.140.15.16",
+        ratingBadge = "AD-FREE FAMILY",
+        description = "Comprehensive family filter blocking adult domains, malicious sites, and annoying tracking/advertising servers."
+    );
+
+    companion object {
+        fun fromId(id: String?): SafeDnsProvider =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: DEEN_STRICT
+    }
+}
+
 enum class InferenceAccelerationMode(
     val displayName: String,
     val caption: String
@@ -373,9 +416,13 @@ class AegisPreferences(context: Context) {
     private val _dailyAppUsageSeconds = MutableStateFlow(readDailyUsageMap(todayDateKey()))
     val dailyAppUsageSeconds: StateFlow<Map<String, Int>> = _dailyAppUsageSeconds.asStateFlow()
 
-    // System-Wide Safe DNS & Custom Blocklists
     private val _safeDnsEnabled = MutableStateFlow(prefs.getBoolean(KEY_SAFE_DNS_ENABLED, false))
     val safeDnsEnabled: StateFlow<Boolean> = _safeDnsEnabled.asStateFlow()
+
+    private val _safeDnsProvider = MutableStateFlow(
+        SafeDnsProvider.fromId(prefs.getString(KEY_SAFE_DNS_PROVIDER, SafeDnsProvider.DEEN_STRICT.id))
+    )
+    val safeDnsProvider: StateFlow<SafeDnsProvider> = _safeDnsProvider.asStateFlow()
 
     private val _customBlockedDomains = MutableStateFlow(
         prefs.getStringSet(KEY_CUSTOM_BLOCKED_DOMAINS, emptySet())?.toSet() ?: emptySet()
@@ -1189,6 +1236,11 @@ class AegisPreferences(context: Context) {
         _safeDnsEnabled.value = enabled
     }
 
+    fun setSafeDnsProvider(provider: SafeDnsProvider) {
+        prefs.edit().putString(KEY_SAFE_DNS_PROVIDER, provider.id).apply()
+        _safeDnsProvider.value = provider
+    }
+
     fun setCustomBlockedDomains(domains: Set<String>) {
         val cleaned = domains.mapNotNull { normalizeDomainInput(it) }.take(200).toSet()
         prefs.edit().putStringSet(KEY_CUSTOM_BLOCKED_DOMAINS, cleaned).apply()
@@ -1262,6 +1314,7 @@ class AegisPreferences(context: Context) {
             put("bedtimeStartMinutes", _bedtimeStartMinutes.value)
             put("bedtimeEndMinutes", _bedtimeEndMinutes.value)
             put("safeDnsEnabled", _safeDnsEnabled.value)
+            put("safeDnsProvider", _safeDnsProvider.value.id)
             put("blockExplicitAdult", _blockExplicitAdult.value)
             put("blockSuggestiveContent", _blockSuggestiveContent.value)
             put("blockSensitiveGraphic", _blockSensitiveGraphic.value)
@@ -1308,6 +1361,10 @@ class AegisPreferences(context: Context) {
                 payload.optInt("bedtimeEndMinutes", 6 * 60)
             )
             setSafeDnsEnabled(payload.optBoolean("safeDnsEnabled", false))
+            val savedDnsProv = payload.optString("safeDnsProvider", null)
+            if (!savedDnsProv.isNullOrBlank()) {
+                setSafeDnsProvider(SafeDnsProvider.fromId(savedDnsProv))
+            }
             setBlockExplicitAdult(payload.optBoolean("blockExplicitAdult", true))
             setBlockSuggestiveContent(payload.optBoolean("blockSuggestiveContent", true))
             setBlockSensitiveGraphic(payload.optBoolean("blockSensitiveGraphic", true))
@@ -1537,6 +1594,7 @@ class AegisPreferences(context: Context) {
         private const val KEY_DAILY_EXT_DATE = "key_daily_ext_date"
         private const val KEY_DAILY_EXT_MAP = "key_daily_ext_map"
         private const val KEY_SAFE_DNS_ENABLED = "key_safe_dns_enabled"
+        private const val KEY_SAFE_DNS_PROVIDER = "key_safe_dns_provider"
         private const val KEY_CUSTOM_BLOCKED_DOMAINS = "key_custom_blocked_domains"
         private const val KEY_CUSTOM_BLOCKED_KEYWORDS = "key_custom_blocked_keywords"
         private const val KEY_APP_LANGUAGE_CODE = "key_app_language_code"
