@@ -92,6 +92,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
@@ -335,10 +336,7 @@ fun DashboardScreen(
 
     val showUpdateBanner = updateInfo?.isUpdateAvailable == true &&
         !homeBannerHidden &&
-        apkDownloadState !is ApkDownloadState.Downloading &&
-        apkDownloadState !is ApkDownloadState.Installing &&
-        apkDownloadState !is ApkDownloadState.Installed &&
-        (apkDownloadState as? ApkDownloadState.ReadyToInstall)?.needsInstallPermission != true
+        apkDownloadState !is ApkDownloadState.Installed
 
     val hasAnyExtraCard = showUpdateBanner || (isWithinScheduledWindow && !isOn) || !telemetry.isModelLoaded
 
@@ -386,7 +384,9 @@ fun DashboardScreen(
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = if (isReadyPreloaded) 10.dp else 0.dp)
                                     ) {
                                         Box(
                                             modifier = Modifier
@@ -403,52 +403,38 @@ fun DashboardScreen(
                                             )
                                         }
                                         Spacer(modifier = Modifier.width(10.dp))
-                                        Column {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = if (isReadyPreloaded) {
-                                                        "Update Ready: $latestLabel"
-                                                    } else {
-                                                        "Update Available: $latestLabel"
-                                                    },
-                                                    color = AegisTextPrimary,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontFamily = ClassicalDisplayFont
-                                                )
-                                                if (isReadyPreloaded) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .clip(RoundedCornerShape(6.dp))
-                                                            .background(AegisPurple.copy(alpha = 0.16f))
-                                                            .border(1.dp, AegisLavenderBorder, RoundedCornerShape(6.dp))
-                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = "READY 0s",
-                                                            color = AegisPurple,
-                                                            fontSize = 9.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            fontFamily = ClassicalBodyFont
-                                                        )
-                                                    }
-                                                }
-                                            }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = if (isReadyPreloaded) {
+                                                    "Update Ready: $latestLabel"
+                                                } else {
+                                                    "Update Available: $latestLabel"
+                                                },
+                                                color = AegisTextPrimary,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = ClassicalDisplayFont,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
                                             Text(
                                                 text = when (val st = apkDownloadState) {
                                                     is ApkDownloadState.Preloading -> {
                                                         val pct = st.progress?.let { "${(it * 100).toInt()}%" } ?: "..."
                                                         "Preloading silently (100 KB/s) • $pct"
                                                     }
+                                                    is ApkDownloadState.Downloading -> {
+                                                        val pct = st.progress?.let { "${(it * 100).toInt()}%" } ?: "..."
+                                                        "Downloading inside app • $pct"
+                                                    }
                                                     is ApkDownloadState.PausedLowBattery -> {
                                                         val saved = UpdateChecker.formatBytesMb(st.bytesDownloaded)
                                                         "Preload paused (Battery <= 20%) • $saved"
                                                     }
                                                     ApkDownloadState.Verifying -> "Verifying SHA-256 & APK integrity..."
+                                                    ApkDownloadState.Installing -> "Launching in-app installer..."
                                                     is ApkDownloadState.ReadyToInstall -> when {
+                                                        st.needsInstallPermission -> "Allow 'Install unknown apps' to finish"
                                                         st.preloadedReady -> "Verified Ready • Instant 1-Tap Install"
                                                         else -> "App $currentLabel → $latestLabel"
                                                     }
@@ -457,18 +443,44 @@ fun DashboardScreen(
                                                     else -> "App $currentLabel → Latest $latestLabel"
                                                 },
                                                 color = if (isReadyPreloaded) AegisPurple else AegisChampagneGold,
-                                                fontSize = 11.sp,
+                                                fontSize = 11.5.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                fontFamily = ClassicalBodyFont
+                                                fontFamily = ClassicalBodyFont,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
 
+                                    if (isReadyPreloaded) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(AegisPurple.copy(alpha = 0.14f))
+                                                .border(1.dp, AegisLavenderBorder, RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = "READY 0s",
+                                                color = AegisPurple,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = ClassicalBodyFont,
+                                                maxLines = 1,
+                                                softWrap = false
+                                            )
+                                        }
+                                    }
+                                }
+
+                                val showActionButton = apkDownloadState !is ApkDownloadState.Verifying &&
+                                    apkDownloadState !is ApkDownloadState.Installing
+                                if (showActionButton) {
+                                    Spacer(modifier = Modifier.height(10.dp))
                                     when (val st = apkDownloadState) {
                                         is ApkDownloadState.Preloading -> {
                                             Button(
                                                 onClick = {
-                                                    UpdateChecker.hideHomeUpdateBanner()
                                                     UpdateChecker.triggerUserUpdateAction(context)
                                                 },
                                                 colors = ButtonDefaults.buttonColors(
@@ -477,17 +489,40 @@ fun DashboardScreen(
                                                 ),
                                                 shape = RoundedCornerShape(12.dp),
                                                 modifier = Modifier
+                                                    .fillMaxWidth()
                                                     .height(48.dp)
                                                     .testTag("home_finish_preload_button")
                                             ) {
-                                                Text("FINISH NOW", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    text = "FINISH NOW",
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
                                             }
                                         }
-                                        ApkDownloadState.Verifying -> {}
+                                        is ApkDownloadState.Downloading -> {
+                                            OutlinedButton(
+                                                onClick = { UpdateChecker.cancelApkDownload(context) },
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(48.dp)
+                                                    .testTag("home_cancel_download_button")
+                                            ) {
+                                                Text(
+                                                    text = "CANCEL DOWNLOAD",
+                                                    fontSize = 11.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    softWrap = false
+                                                )
+                                            }
+                                        }
                                         is ApkDownloadState.ReadyToInstall -> {
                                             Button(
                                                 onClick = {
-                                                    UpdateChecker.hideHomeUpdateBanner()
                                                     UpdateChecker.triggerUserUpdateAction(context)
                                                 },
                                                 colors = ButtonDefaults.buttonColors(
@@ -496,20 +531,26 @@ fun DashboardScreen(
                                                 ),
                                                 shape = RoundedCornerShape(12.dp),
                                                 modifier = Modifier
+                                                    .fillMaxWidth()
                                                     .height(48.dp)
                                                     .testTag("home_install_ready_button")
                                             ) {
                                                 Text(
-                                                    text = if (st.preloadedReady) "INSTALL (0s)" else "INSTALL",
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold
+                                                    text = when {
+                                                        st.needsInstallPermission -> "ALLOW & INSTALL"
+                                                        st.preloadedReady -> "INSTALL (0s)"
+                                                        else -> "INSTALL UPDATE"
+                                                    },
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
                                             }
                                         }
                                         else -> {
                                             Button(
                                                 onClick = {
-                                                    UpdateChecker.hideHomeUpdateBanner()
                                                     UpdateChecker.triggerUserUpdateAction(context)
                                                 },
                                                 colors = ButtonDefaults.buttonColors(
@@ -518,31 +559,47 @@ fun DashboardScreen(
                                                 ),
                                                 shape = RoundedCornerShape(12.dp),
                                                 modifier = Modifier
+                                                    .fillMaxWidth()
                                                     .height(48.dp)
                                                     .testTag("home_download_update_button")
                                             ) {
                                                 Text(
-                                                    text = if (isConflict) "UPGRADE" else "UPDATE",
+                                                    text = when {
+                                                        isConflict -> "UPGRADE"
+                                                        st is ApkDownloadState.Failed -> "RETRY DOWNLOAD"
+                                                        else -> "DOWNLOAD & UPDATE"
+                                                    },
                                                     fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
                                             }
                                         }
                                     }
                                 }
 
-                                if (apkDownloadState is ApkDownloadState.Preloading || apkDownloadState is ApkDownloadState.Verifying) {
+                                if (apkDownloadState is ApkDownloadState.Preloading ||
+                                    apkDownloadState is ApkDownloadState.Downloading ||
+                                    apkDownloadState is ApkDownloadState.Verifying ||
+                                    apkDownloadState is ApkDownloadState.Installing
+                                ) {
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    val frac = (apkDownloadState as? ApkDownloadState.Preloading)?.progress
-                                    if (frac != null && apkDownloadState !is ApkDownloadState.Verifying) {
+                                    val frac = when (val st = apkDownloadState) {
+                                        is ApkDownloadState.Preloading -> st.progress
+                                        is ApkDownloadState.Downloading -> st.progress
+                                        else -> null
+                                    }
+                                    val barColor = if (apkDownloadState is ApkDownloadState.Downloading) AegisPrimaryCyan else AegisChampagneGold
+                                    if (frac != null) {
                                         LinearProgressIndicator(
                                             progress = { frac },
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .height(6.dp)
                                                 .clip(RoundedCornerShape(3.dp)),
-                                            color = AegisChampagneGold,
-                                            trackColor = AegisChampagneGold.copy(alpha = 0.2f),
+                                            color = barColor,
+                                            trackColor = barColor.copy(alpha = 0.2f),
                                             strokeCap = StrokeCap.Round
                                         )
                                     } else {
@@ -551,8 +608,8 @@ fun DashboardScreen(
                                                 .fillMaxWidth()
                                                 .height(6.dp)
                                                 .clip(RoundedCornerShape(3.dp)),
-                                            color = AegisChampagneGold,
-                                            trackColor = AegisChampagneGold.copy(alpha = 0.2f)
+                                            color = barColor,
+                                            trackColor = barColor.copy(alpha = 0.2f)
                                         )
                                     }
                                 }
@@ -582,9 +639,12 @@ fun DashboardScreen(
                         shape = heroShape,
                         color = Color.Transparent,
                         border = BorderStroke(
-                            width = 1.3.dp,
+                            width = 1.4.dp,
                             brush = Brush.linearGradient(
-                                colors = listOf(Color.White.copy(alpha = 0.96f), heroBorderEnd)
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.96f),
+                                    if (isOn) AegisElectricBlue.copy(alpha = 0.62f) else heroBorderEnd
+                                )
                             )
                         )
                     ) {
@@ -594,9 +654,9 @@ fun DashboardScreen(
                                 .background(
                                     brush = Brush.verticalGradient(
                                         colors = listOf(
-                                            Color(0xFFFCFEFF),
-                                            Color(0xFFF1F6FF),
-                                            Color(0xFFF4EFFE)
+                                            Color(0xFFAEE2FF), // Charming Luminous Sky Blue Top
+                                            Color(0xFFCDEEFF), // Radiant Soft Sky Mid
+                                            Color(0xFFEAF6FF)  // Airy Pearl Sky Base
                                         )
                                     )
                                 )
@@ -612,14 +672,11 @@ fun DashboardScreen(
                                 Row(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(50))
-                                        .background(
-                                            if (isOn) AegisPrimaryCyan.copy(alpha = 0.11f)
-                                            else AegisPurple.copy(alpha = 0.09f)
-                                        )
+                                        .background(Color.White.copy(alpha = 0.72f))
                                         .border(
                                             width = 1.dp,
-                                            color = if (isOn) AegisPrimaryCyan.copy(alpha = 0.30f)
-                                            else AegisLavenderBorder.copy(alpha = 0.58f),
+                                            color = if (isOn) AegisElectricBlue.copy(alpha = 0.45f)
+                                            else AegisLavenderBorder.copy(alpha = 0.68f),
                                             shape = RoundedCornerShape(50)
                                         )
                                         .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -1068,20 +1125,24 @@ fun DashboardScreen(
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Scheduled Guard Window",
                                             color = AegisTextPrimary,
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold,
-                                            fontFamily = ClassicalDisplayFont
+                                            fontFamily = ClassicalDisplayFont,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
                                             text = "${AegisPreferences.formatClockTime(scheduleStartMinutes)} – ${AegisPreferences.formatClockTime(scheduleEndMinutes)} active now",
                                             color = AegisPurple,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.SemiBold,
-                                            fontFamily = ClassicalBodyFont
+                                            fontFamily = ClassicalBodyFont,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
                                 }
@@ -1101,7 +1162,9 @@ fun DashboardScreen(
                                         text = "ARM",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        fontFamily = ClassicalBodyFont
+                                        fontFamily = ClassicalBodyFont,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }

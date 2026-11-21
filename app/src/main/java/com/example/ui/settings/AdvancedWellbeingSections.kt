@@ -148,111 +148,83 @@ internal fun SafeDnsAndBlocklistSection(
         }
     }
 
-    val summaryText = buildString {
-        append(if (safeDnsEnabled) "Safe DNS ON (${currentProvider.ratingBadge})" else "Safe DNS OFF")
-        append(" • ${blockedDomains.size} domains, ${blockedKeywords.size} keywords")
+    val summaryText = when {
+        safeDnsEnabled -> "${currentProvider.ratingBadge} • ${blockedDomains.size + blockedKeywords.size} custom rules"
+        else -> "Off • Tap to enable"
     }
 
-    CollapsibleEditsCard(
+    val toggleSafeDns: (Boolean) -> Unit = { enable ->
+        if (enable) {
+            val prepIntent = runCatching { VpnService.prepare(context) }.getOrNull()
+            if (prepIntent == null) {
+                AegisSoundEffects.playModeOn(context)
+                preferences.setSafeDnsEnabled(true)
+                AegisSafeDnsVpnService.start(context)
+            } else {
+                preferences.beginAuthorizedExternalFlow()
+                vpnPermissionLauncher.launch(prepIntent)
+            }
+        } else {
+            masterKeyGate.request("disable Safe DNS filter") {
+                preferences.setSafeDnsEnabled(false)
+                AegisSafeDnsVpnService.stop(context)
+            }
+        }
+    }
+
+    ToggleRevealEditsCard(
         title = stringResource(R.string.section_safe_dns),
         summary = summaryText,
         icon = Icons.Default.Dns,
         accentColor = AegisPrimaryCyan,
         tone = CyberCardTone.SKY,
         borderColor = if (safeDnsEnabled) AegisPrimaryCyan.copy(alpha = 0.6f) else AegisCardBorder,
-        testTag = "safe_dns_blocklist_card",
-        initiallyExpanded = initiallyExpanded
+        checked = safeDnsEnabled,
+        onCheckedChange = toggleSafeDns,
+        cardTestTag = "safe_dns_blocklist_card",
+        switchTestTag = "safe_dns_enabled_switch",
+        initiallyExpanded = initiallyExpanded || safeDnsEnabled
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+        if (blockedQueryCount > 0L) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AegisPrimaryCyan.copy(alpha = 0.10f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
                 Text(
-                    text = "System-Wide Safe DNS",
-                    color = AegisTextPrimary,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalDisplayFont
-                )
-                Text(
-                    text = "Zero-battery local DNS filter with strict anti-adult & anti-gambling protection.",
-                    color = AegisTextSecondary,
+                    text = "Blocked: $blockedQueryCount" + (lastBlockedDomain?.let { " • $it" } ?: ""),
+                    color = AegisPrimaryCyan,
                     fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    fontFamily = ClassicalBodyFont
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalBodyFont,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-            Switch(
-                checked = safeDnsEnabled,
-                onCheckedChange = { enable ->
-                    if (enable) {
-                        val prepIntent = runCatching { VpnService.prepare(context) }.getOrNull()
-                        if (prepIntent == null) {
-                            AegisSoundEffects.playModeOn(context)
-                            preferences.setSafeDnsEnabled(true)
-                            AegisSafeDnsVpnService.start(context)
-                        } else {
-                            preferences.beginAuthorizedExternalFlow()
-                            vpnPermissionLauncher.launch(prepIntent)
-                        }
-                    } else {
-                        masterKeyGate.request("disable Safe DNS filter") {
-                            preferences.setSafeDnsEnabled(false)
-                            AegisSafeDnsVpnService.stop(context)
-                        }
-                    }
-                },
-                modifier = Modifier.testTag("safe_dns_enabled_switch"),
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = AegisOnPrimaryWhite,
-                    checkedTrackColor = AegisPrimaryCyan,
-                    uncheckedThumbColor = AegisTextMuted,
-                    uncheckedTrackColor = AegisCardBorder
-                )
-            )
+            Spacer(modifier = Modifier.height(10.dp))
         }
-
-        if (safeDnsEnabled || blockedQueryCount > 0L) {
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "Blocked DNS queries: $blockedQueryCount" +
-                    (lastBlockedDomain?.let { " • Last: $it" } ?: ""),
-                color = AegisPrimaryCyan,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = ClassicalBodyFont
-            )
-        }
-
-        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 10.dp))
 
         Text(
-            text = "Safe DNS Upstream Provider",
+            text = "DNS Filter Provider",
             color = AegisTextPrimary,
-            fontSize = 13.sp,
+            fontSize = 12.5.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = ClassicalDisplayFont
         )
-        Text(
-            text = "Choose strict Deen halal filtering or high-speed family protection:",
-            color = AegisTextSecondary,
-            fontSize = 11.sp,
-            fontFamily = ClassicalBodyFont
-        )
         Spacer(modifier = Modifier.height(8.dp))
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SafeDnsProvider.entries.forEach { prov ->
                 val selected = currentProvider == prov
                 val borderColor = if (selected) AegisPrimaryCyan else AegisCardBorder
-                val containerColor = if (selected) AegisPrimaryCyan.copy(alpha = 0.08f) else AegisCardBackground
+                val containerColor = if (selected) AegisPrimaryCyan.copy(alpha = 0.10f) else AegisCardBackground
 
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable {
                             if (prov != currentProvider) {
                                 AegisSoundEffects.playModeOn(context)
@@ -261,7 +233,7 @@ internal fun SafeDnsAndBlocklistSection(
                             }
                         }
                         .testTag("dns_provider_${prov.id}"),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = containerColor,
                     border = BorderStroke(if (selected) 1.5.dp else 1.dp, borderColor)
                 ) {
@@ -273,7 +245,7 @@ internal fun SafeDnsAndBlocklistSection(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(20.dp)
+                                .size(18.dp)
                                 .clip(CircleShape)
                                 .border(1.5.dp, if (selected) AegisPrimaryCyan else AegisCardBorder, CircleShape)
                                 .background(if (selected) AegisPrimaryCyan else Color.Transparent),
@@ -282,7 +254,7 @@ internal fun SafeDnsAndBlocklistSection(
                             if (selected) {
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(7.dp)
                                         .clip(CircleShape)
                                         .background(Color.White)
                                 )
@@ -293,15 +265,19 @@ internal fun SafeDnsAndBlocklistSection(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = prov.displayName,
                                     color = AegisTextPrimary,
-                                    fontSize = 13.sp,
+                                    fontSize = 12.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = ClassicalDisplayFont
+                                    fontFamily = ClassicalDisplayFont,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f).padding(end = 6.dp)
                                 )
                                 val isStrictProvider = prov == SafeDnsProvider.DEEN_STRICT ||
                                     prov == SafeDnsProvider.CLEANBROWSING_ADULT ||
@@ -309,49 +285,47 @@ internal fun SafeDnsAndBlocklistSection(
                                     prov == SafeDnsProvider.CONTROLD_ADULT
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .clip(RoundedCornerShape(5.dp))
                                         .background(
-                                            if (isStrictProvider) AegisSuccessGreen.copy(alpha = 0.16f)
+                                            if (isStrictProvider) AegisSuccessGreen.copy(alpha = 0.14f)
                                             else AegisPurple.copy(alpha = 0.14f)
                                         )
-                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = prov.ratingBadge,
                                         color = if (isStrictProvider) AegisSuccessGreen else AegisPurple,
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        fontFamily = ClassicalBodyFont
+                                        fontFamily = ClassicalBodyFont,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = prov.description,
-                                color = AegisTextSecondary,
-                                fontSize = 10.5.sp,
-                                lineHeight = 14.5.sp,
-                                fontFamily = ClassicalBodyFont
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "DNS: ${prov.primaryIp} • ${prov.secondaryIp}",
-                                color = AegisTextMuted,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            if (selected) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "${prov.subtitle} • ${prov.primaryIp}",
+                                    color = AegisTextSecondary,
+                                    fontSize = 10.5.sp,
+                                    fontFamily = ClassicalBodyFont,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 10.dp))
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.45f), modifier = Modifier.padding(vertical = 10.dp))
 
         Text(
-            text = "Custom Blocked Websites",
+            text = "Blocked Domains",
             color = AegisTextPrimary,
-            fontSize = 12.5.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = ClassicalDisplayFont
         )
@@ -364,7 +338,7 @@ internal fun SafeDnsAndBlocklistSection(
             OutlinedTextField(
                 value = domainInput,
                 onValueChange = { domainInput = it },
-                placeholder = { Text("e.g. example.com", fontSize = 12.sp) },
+                placeholder = { Text("example.com", fontSize = 12.sp) },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
@@ -376,7 +350,7 @@ internal fun SafeDnsAndBlocklistSection(
                     if (preferences.addCustomBlockedDomain(domainInput)) {
                         domainInput = ""
                     } else {
-                        Toast.makeText(context, "Enter a valid domain (e.g. site.com)", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Enter a valid domain", Toast.LENGTH_SHORT).show()
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = AegisPrimaryCyan, contentColor = AegisOnPrimaryWhite),
@@ -411,9 +385,9 @@ internal fun SafeDnsAndBlocklistSection(
         Spacer(modifier = Modifier.height(10.dp))
 
         Text(
-            text = "Custom Blocked Keywords",
+            text = "Blocked Keywords",
             color = AegisTextPrimary,
-            fontSize = 12.5.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = ClassicalDisplayFont
         )
@@ -426,7 +400,7 @@ internal fun SafeDnsAndBlocklistSection(
             OutlinedTextField(
                 value = keywordInput,
                 onValueChange = { keywordInput = it },
-                placeholder = { Text("e.g. casino", fontSize = 12.sp) },
+                placeholder = { Text("casino", fontSize = 12.sp) },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
@@ -438,7 +412,7 @@ internal fun SafeDnsAndBlocklistSection(
                     if (preferences.addCustomBlockedKeyword(keywordInput)) {
                         keywordInput = ""
                     } else {
-                        Toast.makeText(context, "Keyword must be at least 2 characters", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Minimum 2 characters", Toast.LENGTH_SHORT).show()
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = AegisPurple, contentColor = AegisOnPrimaryWhite),
@@ -552,117 +526,83 @@ internal fun BedtimeAndBudgetsSection(
     val bedtimeWindowLabel =
         "${AegisPreferences.formatClockTime(bedtimeStart)} → ${AegisPreferences.formatClockTime(bedtimeEnd)}"
 
-    CollapsibleEditsCard(
+    ToggleRevealEditsCard(
         title = stringResource(R.string.section_bedtime_budgets),
-        summary = "${if (bedtimeEnabled) "Bedtime $bedtimeWindowLabel" else "Bedtime Off"} • ${appBudgets.size} app limits",
+        summary = "${if (bedtimeEnabled) bedtimeWindowLabel else "Off"} • ${appBudgets.size} app limits",
         icon = Icons.Default.Bedtime,
         accentColor = AegisChampagneGold,
         tone = CyberCardTone.GOLD,
         borderColor = AegisGoldBorder,
-        testTag = "bedtime_budgets_card",
-        initiallyExpanded = initiallyExpanded
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                Text(
-                    text = "Bedtime Device Lock",
-                    color = AegisTextPrimary,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalDisplayFont
-                )
-                Text(
-                    text = bedtimeWindowLabel,
-                    color = if (bedtimeEnabled) AegisChampagneGold else AegisTextMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = ClassicalBodyFont
-                )
+        checked = bedtimeEnabled,
+        onCheckedChange = { enable ->
+            if (!enable) {
+                masterKeyGate.request("disable Bedtime Lock") {
+                    preferences.setBedtimeEnabled(false)
+                }
+            } else {
+                AegisSoundEffects.playModeOn(context)
+                preferences.setBedtimeEnabled(true)
             }
-            Switch(
-                checked = bedtimeEnabled,
-                onCheckedChange = { enable ->
-                    if (!enable) {
-                        masterKeyGate.request("disable Bedtime Lock") {
-                            preferences.setBedtimeEnabled(false)
-                        }
-                    } else {
-                        AegisSoundEffects.playModeOn(context)
-                        preferences.setBedtimeEnabled(true)
+        },
+        cardTestTag = "bedtime_budgets_card",
+        switchTestTag = "bedtime_enabled_switch",
+        initiallyExpanded = initiallyExpanded || bedtimeEnabled,
+        allowExpandWhenOff = true
+    ) {
+        if (bedtimeEnabled) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(
+                    Triple("9P–7A", 21 * 60, 7 * 60),
+                    Triple("10P–6A", 22 * 60, 6 * 60),
+                    Triple("11P–7A", 23 * 60, 7 * 60)
+                ).forEach { (label, s, e) ->
+                    val isSelected = bedtimeStart == s && bedtimeEnd == e
+                    OutlinedButton(
+                        onClick = {
+                            preferences.setBedtimeWindow(s, e)
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (isSelected) AegisChampagneGold else AegisCardBackground,
+                            contentColor = if (isSelected) AegisOnPrimaryWhite else AegisTextPrimary
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                    ) {
+                        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                     }
-                },
-                modifier = Modifier.testTag("bedtime_enabled_switch"),
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = AegisOnPrimaryWhite,
-                    checkedTrackColor = AegisChampagneGold,
-                    uncheckedThumbColor = AegisTextMuted,
-                    uncheckedTrackColor = AegisCardBorder
-                )
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(
-                Triple("9P–7A", 21 * 60, 7 * 60),
-                Triple("10P–6A", 22 * 60, 6 * 60),
-                Triple("11P–7A", 23 * 60, 7 * 60)
-            ).forEach { (label, s, e) ->
-                val isSelected = bedtimeStart == s && bedtimeEnd == e
-                OutlinedButton(
-                    onClick = {
-                        preferences.setBedtimeWindow(s, e)
-                        if (!bedtimeEnabled) {
-                            AegisSoundEffects.playModeOn(context)
-                            preferences.setBedtimeEnabled(true)
-                        }
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (isSelected) AegisChampagneGold else AegisCardBackground,
-                        contentColor = if (isSelected) AegisOnPrimaryWhite else AegisTextPrimary
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                ) {
-                    Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                ScheduleHourStepper(
+                    label = "Bedtime",
+                    minuteOfDay = bedtimeStart,
+                    onMinusHour = { preferences.setBedtimeWindow((bedtimeStart - 60 + 1440) % 1440, bedtimeEnd) },
+                    onPlusHour = { preferences.setBedtimeWindow((bedtimeStart + 60) % 1440, bedtimeEnd) },
+                    modifier = Modifier.weight(1f)
+                )
+                ScheduleHourStepper(
+                    label = "Wake",
+                    minuteOfDay = bedtimeEnd,
+                    onMinusHour = { preferences.setBedtimeWindow(bedtimeStart, (bedtimeEnd - 60 + 1440) % 1440) },
+                    onPlusHour = { preferences.setBedtimeWindow(bedtimeStart, (bedtimeEnd + 60) % 1440) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.45f), modifier = Modifier.padding(vertical = 10.dp))
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            ScheduleHourStepper(
-                label = "Bedtime",
-                minuteOfDay = bedtimeStart,
-                onMinusHour = { preferences.setBedtimeWindow((bedtimeStart - 60 + 1440) % 1440, bedtimeEnd) },
-                onPlusHour = { preferences.setBedtimeWindow((bedtimeStart + 60) % 1440, bedtimeEnd) },
-                modifier = Modifier.weight(1f)
-            )
-            ScheduleHourStepper(
-                label = "Wake",
-                minuteOfDay = bedtimeEnd,
-                onMinusHour = { preferences.setBedtimeWindow(bedtimeStart, (bedtimeEnd - 60 + 1440) % 1440) },
-                onPlusHour = { preferences.setBedtimeWindow(bedtimeStart, (bedtimeEnd + 60) % 1440) },
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 10.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -671,14 +611,14 @@ internal fun BedtimeAndBudgetsSection(
         ) {
             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(
-                    text = "Daily App Time Budgets",
+                    text = "App Time Limits",
                     color = AegisTextPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalDisplayFont
                 )
                 Text(
-                    text = "Set per-app daily minute limits with PIN override.",
+                    text = if (appBudgets.isEmpty()) "No limits active" else "${appBudgets.size} apps limited",
                     color = AegisTextSecondary,
                     fontSize = 11.sp,
                     fontFamily = ClassicalBodyFont
@@ -905,13 +845,6 @@ internal fun LanguageSelectorSection(
         testTag = "language_selector_card",
         initiallyExpanded = initiallyExpanded
     ) {
-        Text(
-            text = "Choose interface language (applies immediately):",
-            color = AegisTextSecondary,
-            fontSize = 11.5.sp,
-            fontFamily = ClassicalBodyFont
-        )
-        Spacer(modifier = Modifier.height(8.dp))
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -955,9 +888,9 @@ internal fun WarningThresholdsSection(
     val context = LocalContext.current
     val warningThreshold by preferences.warningThresholdCount.collectAsState()
     val summary = if (warningThreshold == 0) {
-        "0 Warnings • Immediate Lockout"
+        "0 Warnings • Instant Lock"
     } else {
-        "$warningThreshold ${if (warningThreshold == 1) "Warning" else "Warnings"} Before Lockout"
+        "$warningThreshold ${if (warningThreshold == 1) "Warning" else "Warnings"}"
     }
 
     CollapsibleEditsCard(
@@ -970,14 +903,6 @@ internal fun WarningThresholdsSection(
         testTag = "warning_thresholds_card",
         initiallyExpanded = initiallyExpanded
     ) {
-        Text(
-            text = "Choose how many screen warnings appear before closing the app and engaging full device lockdown:",
-            color = AegisTextSecondary,
-            fontSize = 11.5.sp,
-            lineHeight = 16.sp,
-            fontFamily = ClassicalBodyFont
-        )
-        Spacer(modifier = Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1169,118 +1094,80 @@ internal fun GuardianRecoverySection(
     val challengeId by preferences.recoveryChallengeCode.collectAsState()
     var emailDraft by remember(guardianEmail) { mutableStateOf(guardianEmail) }
 
-    CyberCard(
-        borderColor = AegisGoldBorder,
+    CollapsibleEditsCard(
+        title = "Guardian Recovery & ID",
+        summary = if (guardianEmail.isBlank()) "ID $challengeId • Tap to set email" else "$guardianEmail • ID $challengeId",
+        icon = Icons.Default.Key,
+        accentColor = AegisChampagneGold,
         tone = CyberCardTone.GOLD,
-        modifier = Modifier.testTag("guardian_recovery_card")
+        borderColor = AegisGoldBorder,
+        testTag = "guardian_recovery_card"
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(AegisChampagneGold.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Key,
-                        contentDescription = null,
-                        tint = AegisChampagneGold,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "Guardian Recovery & ID",
-                        color = AegisTextPrimary,
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalDisplayFont
-                    )
-                    Text(
-                        text = if (guardianEmail.isBlank()) "Add recovery email for lockouts" else guardianEmail,
-                        color = AegisTextSecondary,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        fontFamily = ClassicalBodyFont
-                    )
-                }
-            }
-            OutlinedButton(
-                onClick = {
-                    masterKeyGate.request("generate new Challenge ID") {
-                        preferences.rotateRecoveryChallengeCode()
-                        Toast.makeText(context, "New Challenge ID generated", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                shape = RoundedCornerShape(10.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                modifier = Modifier
-                    .height(42.dp)
-                    .testTag("rotate_challenge_id_button")
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("NEW ID", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .testTag("recovery_challenge_badge"),
             color = AegisCardBackground,
-            border = BorderStroke(1.2.dp, AegisChampagneGold.copy(alpha = 0.75f))
+            border = BorderStroke(1.2.dp, AegisChampagneGold.copy(alpha = 0.7f))
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                     Text(
-                        text = "DEVICE CHALLENGE ID (AUTO-ROTATES)",
+                        text = "CHALLENGE ID",
                         color = AegisChampagneGold,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.sp,
                         fontFamily = ClassicalDisplayFont
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = challengeId,
                         color = AegisTextPrimary,
-                        fontSize = 22.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.ExtraBold,
                         fontFamily = FontFamily.Monospace,
-                        letterSpacing = 3.sp
+                        letterSpacing = 2.5.sp
                     )
                 }
 
-                OutlinedButton(
-                    onClick = {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                        cm?.setPrimaryClip(ClipData.newPlainText("Sheildlenz Challenge ID", challengeId))
-                        Toast.makeText(context, "Copied Challenge ID $challengeId", Toast.LENGTH_SHORT).show()
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.height(42.dp)
-                ) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("COPY", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            cm?.setPrimaryClip(ClipData.newPlainText("Sheildlenz Challenge ID", challengeId))
+                            Toast.makeText(context, "Copied ID $challengeId", Toast.LENGTH_SHORT).show()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        modifier = Modifier.height(42.dp)
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy ID", modifier = Modifier.size(14.dp))
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            masterKeyGate.request("generate new Challenge ID") {
+                                preferences.rotateRecoveryChallengeCode()
+                                Toast.makeText(context, "New Challenge ID generated", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        modifier = Modifier
+                            .height(42.dp)
+                            .testTag("rotate_challenge_id_button")
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("NEW", fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    }
                 }
             }
         }
@@ -1336,7 +1223,10 @@ internal fun DeviceOwnerSetupSection(
         modifier = Modifier.testTag("device_owner_card")
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(onClick = onOpenWizard),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1356,13 +1246,15 @@ internal fun DeviceOwnerSetupSection(
                     )
                 }
                 Spacer(modifier = Modifier.width(10.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Guided Device Owner Setup",
                         color = AegisTextPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalDisplayFont
+                        fontFamily = ClassicalDisplayFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = when {
@@ -1372,7 +1264,9 @@ internal fun DeviceOwnerSetupSection(
                         },
                         color = if (isDeviceOwner) AegisPrimaryCyan else AegisTextSecondary,
                         fontSize = 11.sp,
-                        fontFamily = ClassicalBodyFont
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -1384,6 +1278,7 @@ internal fun DeviceOwnerSetupSection(
                     contentColor = AegisOnPrimaryWhite
                 ),
                 shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                 modifier = Modifier
                     .height(48.dp)
                     .testTag("device_owner_wizard_button")
@@ -1391,7 +1286,9 @@ internal fun DeviceOwnerSetupSection(
                 Text(
                     text = if (isDeviceOwner) "STATUS" else "SETUP",
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
@@ -1443,7 +1340,7 @@ internal fun PolicyBackupRestoreSection(
 
     CollapsibleEditsCard(
         title = "Backup & Restore Policy",
-        summary = "Export or restore encrypted Guardian settings (.slzbackup)",
+        summary = "Export or restore settings",
         icon = Icons.Default.Backup,
         accentColor = AegisChampagneGold,
         tone = CyberCardTone.GOLD,
@@ -1451,13 +1348,6 @@ internal fun PolicyBackupRestoreSection(
         testTag = "policy_backup_restore_card",
         initiallyExpanded = initiallyExpanded
     ) {
-        Text(
-            text = "Export your sensitivity settings, blocked domains, time budgets, and schedules to a secure JSON file, or restore a saved policy.",
-            color = AegisTextSecondary,
-            fontSize = 11.5.sp,
-            fontFamily = ClassicalBodyFont
-        )
-        Spacer(modifier = Modifier.height(10.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1474,7 +1364,7 @@ internal fun PolicyBackupRestoreSection(
             ) {
                 Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("EXPORT", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("EXPORT", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
             }
 
             Button(
@@ -1489,7 +1379,7 @@ internal fun PolicyBackupRestoreSection(
             ) {
                 Icon(Icons.Default.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("RESTORE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("RESTORE", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
             }
         }
     }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.IndicationNodeFactory
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -12,8 +13,13 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.DelegatingNode
 import androidx.compose.ui.platform.LocalContext
@@ -90,13 +96,25 @@ private class WaterDropIndicationNode(
     override fun onAttach() {
         coroutineScope.launch {
             interactionSource.interactions.collect { interaction ->
-                if (interaction is PressInteraction.Release) {
+                if (interaction is PressInteraction.Press) {
                     AegisSoundEffects.playTap(context)
                 }
             }
         }
     }
 }
+
+internal fun Modifier.captureTactileButtonPress(context: Context): Modifier =
+    this.pointerInput(context) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Final)
+                if (event.changes.any { it.changedToDownIgnoreConsumed() && it.isConsumed }) {
+                    AegisSoundEffects.playTap(context)
+                }
+            }
+        }
+    }
 
 @Composable
 fun AegisShieldTheme(
@@ -106,6 +124,9 @@ fun AegisShieldTheme(
     val view = LocalView.current
     SideEffect {
         view.isSoundEffectsEnabled = false
+    }
+    LaunchedEffect(Unit) {
+        AegisSoundEffects.prewarm()
     }
     val waterDropIndication = remember(context) {
         WaterDropIndicationNodeFactory(context)
@@ -117,8 +138,11 @@ fun AegisShieldTheme(
         shapes = SheildlenzShapes
     ) {
         CompositionLocalProvider(
-            LocalIndication provides waterDropIndication,
-            content = content
-        )
+            LocalIndication provides waterDropIndication
+        ) {
+            Box(modifier = Modifier.captureTactileButtonPress(context)) {
+                content()
+            }
+        }
     }
 }

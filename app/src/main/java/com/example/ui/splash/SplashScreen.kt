@@ -1,23 +1,23 @@
 package com.example.ui.splash
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,12 +31,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,18 +42,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -63,29 +62,33 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.AhsanTcrBrandingPill
 import com.example.ui.components.SheildlenzBackdrop
+import com.example.ui.components.drawVolumetric3DSphere
+import com.example.ui.components.projectOrbitPoint3D
 import com.example.ui.navigation.AegisDestinations
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisElectricBlue
-import com.example.ui.theme.AegisLavenderBorder
-import com.example.ui.theme.AegisLavenderSoft
+import com.example.ui.theme.AegisGoldBright
+import com.example.ui.theme.AegisLavenderLight
+import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
-import com.example.ui.theme.AegisTextMuted
 import com.example.ui.theme.AegisTextPrimary
-import com.example.ui.theme.AegisTextSecondary
-import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
 import kotlinx.coroutines.delay
-import kotlin.math.cos
-import kotlin.math.sin
+import kotlinx.coroutines.launch
 
 private enum class SplashPhase {
     SHIELD_LOADING,
-    WHITE_FLASH,
-    TYPEWRITER_MESSAGE,
+    STATEMENT_REVEAL,
     NAVIGATE_OUT
 }
 
+private data class KineticWord(
+    val text: String,
+    val isClimax: Boolean
+)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SplashScreen(
     isOnboardingCompleted: Boolean,
@@ -93,105 +96,157 @@ fun SplashScreen(
 ) {
     var phase by remember { mutableStateOf(SplashPhase.SHIELD_LOADING) }
 
-    // Big shield animation controls
-    val shieldScale = remember { Animatable(0.72f) }
-    val shieldAlpha = remember { Animatable(0f) }
-    var initStatus by remember { mutableStateOf("Initializing Sheildlenz Security Core...") }
-    var progress by remember { mutableFloatStateOf(0.15f) }
+    // Instant energetic shield entrance (no dead fade wait)
+    val shieldScale = remember { Animatable(0.84f) }
+    val shieldAlpha = remember { Animatable(0.82f) }
+    val progressAnim = remember { Animatable(0.06f) }
 
-    // White flash transition opacity
-    val whiteFlashAlpha = remember { Animatable(0f) }
+    // Smooth pearl-sky reveal & kinetic statement choreography
+    val veilAlpha = remember { Animatable(0f) }
+    val badgeScale = remember { Animatable(0.65f) }
+    val ribbonProgress = remember { Animatable(0f) }
 
-    // Typewriter state
-    val fullSentence = "You can think you can bypass, but you can't."
-    var typedText by remember { mutableStateOf("") }
-    var showTypewriterCursor by remember { mutableStateOf(true) }
-    var showSubtitle by remember { mutableStateOf(false) }
+    val lineOneWords = remember {
+        listOf(
+            KineticWord("You", false),
+            KineticWord("think", false),
+            KineticWord("you", false),
+            KineticWord("can", false),
+            KineticWord("bypass,", false)
+        )
+    }
+    val lineTwoWords = remember {
+        listOf(
+            KineticWord("but", true),
+            KineticWord("you", true),
+            KineticWord("can't.", true)
+        )
+    }
+    val allWords = remember { lineOneWords + lineTwoWords }
+    val wordProgress = remember { List(allWords.size) { Animatable(0f) } }
 
-    // Continuous orbital halo animations for the big shield stage
-    val infiniteTransition = rememberInfiniteTransition(label = "SplashInfinite")
+    // Continuous lively orbital & pulse motion from frame 1
+    val infiniteTransition = rememberInfiniteTransition(label = "SplashEnergeticMotion")
     val sonarWave1 by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 1550, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "SonarWave1"
+        label = "SplashSonar1"
     )
     val sonarWave2 by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, delayMillis = 1000, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 1550, delayMillis = 520, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "SonarWave2"
+        label = "SplashSonar2"
     )
     val ringRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 5200, easing = LinearEasing),
+            animation = tween(durationMillis = 3600, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "RingRotation"
+        label = "SplashRingRotation"
     )
-    val cursorBlink by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0f,
+    val badgePulse by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 480, easing = LinearEasing),
+            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "CursorBlink"
+        label = "StatementBadgePulse"
     )
 
     LaunchedEffect(Unit) {
-        // Step 1: Big shield entrance
-        shieldScale.animateTo(
+        // Step 1: Parallel spring-pop emblem + smooth energetic progress fill
+        launch {
+            shieldAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            shieldScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            )
+        }
+        progressAnim.animateTo(
             targetValue = 1f,
-            animationSpec = tween(durationMillis = 750, easing = FastOutSlowInEasing)
-        )
-        shieldAlpha.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 450)
+            animationSpec = tween(durationMillis = 1050, easing = FastOutSlowInEasing)
         )
 
-        delay(320)
-        initStatus = "Verifying On-Device Vision Classifier..."
-        progress = 0.50f
+        delay(120)
 
-        delay(340)
-        initStatus = "Arming Zero-Bypass Guardian Shield..."
-        progress = 0.85f
+        // Step 2: Smooth luminous veil + kinetic word-by-word reveal
+        phase = SplashPhase.STATEMENT_REVEAL
+        launch {
+            veilAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 340, easing = FastOutSlowInEasing)
+            )
+        }
+        launch {
+            delay(80)
+            badgeScale.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
 
-        delay(340)
-        initStatus = "Sheildlenz Security Active • Ready"
-        progress = 1.0f
+        delay(160)
+        // Staggered Phrase 1 ("You think you can bypass,")
+        lineOneWords.indices.forEach { idx ->
+            launch {
+                wordProgress[idx].animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = 0.74f,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            delay(62)
+        }
 
-        delay(350)
+        delay(110)
+        // Staggered Climax Phrase 2 ("but you can't.")
+        for (idx in lineOneWords.size until allWords.size) {
+            launch {
+                wordProgress[idx].animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = 0.68f,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
+            }
+            delay(70)
+        }
 
-        // Step 2: Smooth transition into bright luminous white screen
-        phase = SplashPhase.WHITE_FLASH
-        whiteFlashAlpha.animateTo(
+        // Sweep luminous light ribbon beneath climax
+        ribbonProgress.animateTo(
             targetValue = 1f,
             animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
         )
 
-        // Step 3: Typewriter animation on the luminous white canvas
-        phase = SplashPhase.TYPEWRITER_MESSAGE
-        for (i in 1..fullSentence.length) {
-            typedText = fullSentence.substring(0, i)
-            delay(36)
-        }
-        delay(120)
-        showSubtitle = true
+        // Clean comfortable hold
+        delay(820)
 
-        // Keep reading pause
-        delay(950)
-
-        // Step 4: Direct navigation into Home (NO password prompt on launch!)
+        // Step 3: Navigate directly (no PIN gate on launch)
         phase = SplashPhase.NAVIGATE_OUT
         if (isOnboardingCompleted) {
             onNavigateNext(AegisDestinations.HOME)
@@ -205,62 +260,54 @@ fun SplashScreen(
             .fillMaxSize()
             .testTag("splash_screen_root")
     ) {
-        // ─── 1. Underlying Dark Luxury Cosmic Shield Layer ───
+        // ─── 1. Energetic Luminous Shield Boot Stage ───
         SheildlenzBackdrop(modifier = Modifier.fillMaxSize()) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = 28.dp)
             ) {
-                // Large living animated shield stage with celestial sweep rings
                 Box(
                     modifier = Modifier
-                        .size(240.dp)
-                        .scale(shieldScale.value)
-                        .alpha(shieldAlpha.value),
+                        .size(236.dp)
+                        .graphicsLayer {
+                            scaleX = shieldScale.value
+                            scaleY = shieldScale.value
+                            alpha = shieldAlpha.value
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Canvas(modifier = Modifier.size(240.dp)) {
+                    Canvas(modifier = Modifier.size(236.dp)) {
                         val c = Offset(size.width / 2f, size.height / 2f)
                         val maxR = size.minDimension * 0.48f
 
-                        // Pulsing outer sonar waves
-                        listOf(sonarWave1 to AegisElectricBlue, sonarWave2 to AegisPurple).forEach { (wave, color) ->
-                            val r = maxR * (0.50f + 0.48f * wave)
-                            val a = (1f - wave) * 0.42f
+                        // Rapid concentric sonar pulses
+                        listOf(
+                            sonarWave1 to AegisElectricBlue,
+                            sonarWave2 to AegisPurple
+                        ).forEach { (wave, color) ->
+                            val r = maxR * (0.54f + 0.45f * wave)
+                            val a = (1f - wave) * 0.48f
                             drawCircle(
                                 color = color.copy(alpha = a),
                                 radius = r,
                                 center = c,
-                                style = Stroke(width = 2.8.dp.toPx() * (1f - wave * 0.45f))
+                                style = Stroke(width = 2.6.dp.toPx() * (1f - wave * 0.4f))
                             )
                         }
 
-                        // Subtle dashed orbital track
-                        val trackR = maxR * 0.90f
-                        drawCircle(
-                            color = AegisLavenderBorder.copy(alpha = 0.35f),
-                            radius = trackR,
-                            center = c,
-                            style = Stroke(
-                                width = 1.4.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 12f), 0f)
-                            )
-                        )
-
-                        // Rotating orbital sweep glow ring
-                        val arcR = maxR * 0.86f
-                        val arcTopLeft = Offset(c.x - arcR, c.y - arcR)
-                        val arcSize = Size(arcR * 2f, arcR * 2f)
+                        // Energetic sweep ring
+                        val arcR = maxR * 0.87f
                         rotate(degrees = ringRotation, pivot = c) {
                             drawArc(
                                 brush = Brush.sweepGradient(
                                     colors = listOf(
                                         Color.Transparent,
-                                        AegisElectricBlue.copy(alpha = 0.40f),
-                                        AegisPrimaryCyan.copy(alpha = 0.90f),
+                                        AegisElectricBlue.copy(alpha = 0.45f),
+                                        AegisPrimaryCyan.copy(alpha = 0.92f),
+                                        Color.White.copy(alpha = 0.85f),
                                         Color.Transparent
                                     ),
                                     center = c
@@ -268,21 +315,39 @@ fun SplashScreen(
                                 startAngle = 0f,
                                 sweepAngle = 360f,
                                 useCenter = false,
-                                topLeft = arcTopLeft,
-                                size = arcSize,
-                                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                                topLeft = Offset(c.x - arcR, c.y - arcR),
+                                size = Size(arcR * 2f, arcR * 2f),
+                                style = Stroke(width = 2.8.dp.toPx(), cap = StrokeCap.Round)
                             )
                         }
 
-                        // Floating orbital light spark
+                        // Tilted 3D orbiting spheres around emblem
+                        val rx = maxR * 0.96f
+                        val ry = maxR * 0.56f
+                        val zAmp = maxR * 0.72f
+                        val camDist = size.width * 2.1f
                         for (i in 0..2) {
-                            val angleRad = ((ringRotation + i * 120f) * Math.PI / 180.0)
-                            val px = c.x + (trackR * cos(angleRad)).toFloat()
-                            val py = c.y + (trackR * sin(angleRad)).toFloat()
-                            drawCircle(
-                                color = AegisElectricBlue.copy(alpha = 0.90f),
-                                radius = 3.2.dp.toPx(),
-                                center = Offset(px, py)
+                            val pt = projectOrbitPoint3D(
+                                center = c,
+                                radiusX = rx,
+                                radiusY = ry,
+                                zAmplitude = zAmp,
+                                angleDeg = ringRotation + i * 120f,
+                                tiltDeg = -18f,
+                                cameraDistance = camDist
+                            )
+                            val orbHue = lerp(
+                                if (i % 2 == 0) AegisElectricBlue else AegisPurple,
+                                Color.White,
+                                0.22f
+                            )
+                            drawVolumetric3DSphere(
+                                center = pt.offset,
+                                radius = 4.5.dp.toPx() * pt.perspectiveScale,
+                                baseColor = orbHue,
+                                alpha = (0.68f + 0.32f * ((pt.zNormalized + 1f) * 0.5f)).coerceIn(0.6f, 1f),
+                                depthNormalized = pt.zNormalized,
+                                drawHaloAndShadow = true
                             )
                         }
                     }
@@ -290,95 +355,89 @@ fun SplashScreen(
                     AegisShieldGraphic(
                         isProtected = true,
                         isThreatActive = false,
-                        size = 190.dp
+                        size = 184.dp
                     )
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(22.dp))
 
                 Text(
                     text = "SHEILDLENZ",
                     color = AegisTextPrimary,
-                    fontSize = 32.sp,
+                    fontSize = 31.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 4.sp,
+                    letterSpacing = 4.2.sp,
                     fontFamily = ClassicalDisplayFont
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(26.dp))
 
+                // Sleek glowing energetic loading bar (zero noisy status clutter)
                 Box(
                     modifier = Modifier
-                        .width(76.dp)
-                        .height(2.5.dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(Color.Transparent, AegisChampagneGold, Color.Transparent)
+                        .width(204.dp)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(AegisPrimaryCyan.copy(alpha = 0.14f))
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val fillW = (size.width * progressAnim.value.coerceIn(0f, 1f))
+                        if (fillW > 0f) {
+                            drawRoundRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(AegisElectricBlue, AegisPrimaryCyan, AegisPurple)
+                                ),
+                                topLeft = Offset.Zero,
+                                size = Size(fillW, size.height),
+                                cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
                             )
-                        )
-                )
-
-                Text(
-                    text = "ON-DEVICE SCREEN & NETWORK GUARDIAN",
-                    color = AegisPrimaryCyan,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.0.sp,
-                    fontFamily = ClassicalBodyFont,
-                    modifier = Modifier.padding(top = 10.dp)
-                )
-
-                Spacer(modifier = Modifier.height(38.dp))
-
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier
-                        .width(220.dp)
-                        .height(5.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = AegisElectricBlue,
-                    trackColor = AegisPrimaryCyan.copy(alpha = 0.16f),
-                    strokeCap = StrokeCap.Round
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = initStatus,
-                    color = AegisTextMuted,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    textAlign = TextAlign.Center
-                )
+                        }
+                    }
+                }
             }
 
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(bottom = 16.dp)
+                    .padding(bottom = 18.dp)
             ) {
                 AhsanTcrBrandingPill()
             }
         }
 
-        // ─── 2. Luminous White Canvas with Kinetic Typewriter Reveal ───
+        // ─── 2. Radiant Luminous Veil + Kinetic Statement Reveal ───
         if (phase != SplashPhase.SHIELD_LOADING) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .alpha(whiteFlashAlpha.value)
+                    .alpha(veilAlpha.value)
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
                                 Color(0xFFFFFFFF),
-                                Color(0xFFF9FBFF),
-                                Color(0xFFF2F6FE)
+                                Color(0xFFF1F7FF),
+                                Color(0xFFF5F0FF)
                             )
                         )
                     )
-                    .padding(32.dp),
+                    .drawBehind {
+                        // Soft Sky-Azure + Orchid ambient aura behind typography
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    AegisElectricBlue.copy(alpha = 0.14f + 0.06f * badgePulse),
+                                    AegisPurple.copy(alpha = 0.08f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(size.width * 0.5f, size.height * 0.46f),
+                                radius = size.width * 0.72f
+                            ),
+                            radius = size.width * 0.72f,
+                            center = Offset(size.width * 0.5f, size.height * 0.46f)
+                        )
+                    }
+                    .padding(horizontal = 28.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -386,125 +445,125 @@ fun SplashScreen(
                     verticalArrangement = Arrangement.Center,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    // Small elegant shield emblem above the typewriter statement
+                    // Luminous Royal Sky-Orchid emblem crest (zero dark colors)
                     Box(
                         modifier = Modifier
-                            .size(54.dp)
+                            .size(62.dp)
+                            .graphicsLayer {
+                                val pulseScale = badgeScale.value * (1f + 0.04f * badgePulse)
+                                scaleX = pulseScale
+                                scaleY = pulseScale
+                            }
+                            .shadow(
+                                elevation = 12.dp,
+                                shape = CircleShape,
+                                ambientColor = AegisPrimaryCyan.copy(alpha = 0.30f),
+                                spotColor = AegisPurple.copy(alpha = 0.30f)
+                            )
                             .clip(CircleShape)
                             .background(
                                 brush = Brush.linearGradient(
                                     colors = listOf(
-                                        Color(0xFF0F172A),
-                                        Color(0xFF1E293B)
+                                        AegisElectricBlue,
+                                        AegisPrimaryCyan,
+                                        AegisPurple
                                     )
                                 )
                             )
                             .border(
-                                width = 1.5.dp,
-                                color = AegisChampagneGold.copy(alpha = 0.85f),
+                                width = 2.dp,
+                                brush = Brush.linearGradient(
+                                    colors = listOf(Color.White.copy(alpha = 0.9f), AegisGoldBright)
+                                ),
                                 shape = CircleShape
                             ),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Shield,
-                            contentDescription = "Sheildlenz Armed",
-                            tint = AegisChampagneGold,
-                            modifier = Modifier.size(26.dp)
+                            contentDescription = "Sheildlenz Protected",
+                            tint = AegisOnPrimaryWhite,
+                            modifier = Modifier.size(28.dp)
                         )
                     }
 
                     Spacer(modifier = Modifier.height(28.dp))
 
-                    // Typewriter Main Statement
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
+                    // Line 1: Kinetic rising spring words ("You think you can bypass,")
+                    FlowRow(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        lineOneWords.forEachIndexed { idx, word ->
+                            val p = wordProgress[idx].value
                             Text(
-                                text = typedText,
-                                color = Color(0xFF0B132B),
-                                fontSize = 23.sp,
+                                text = if (idx < lineOneWords.lastIndex) "${word.text} " else word.text,
+                                color = AegisTextPrimary,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = ClassicalDisplayFont,
+                                textAlign = TextAlign.Center,
+                                letterSpacing = 0.3.sp,
+                                modifier = Modifier.graphicsLayer {
+                                    alpha = p.coerceIn(0f, 1f)
+                                    translationY = (1f - p) * 20.dp.toPx()
+                                    val s = 0.88f + 0.12f * p
+                                    scaleX = s
+                                    scaleY = s
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Line 2: Climax kinetic phrase ("but you can't.")
+                    FlowRow(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        lineTwoWords.forEachIndexed { localIdx, word ->
+                            val idx = lineOneWords.size + localIdx
+                            val p = wordProgress[idx].value
+                            Text(
+                                text = if (localIdx < lineTwoWords.lastIndex) "${word.text} " else word.text,
+                                color = if (localIdx == lineTwoWords.lastIndex) AegisPrimaryCyan else AegisPurple,
+                                fontSize = 26.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 fontFamily = ClassicalDisplayFont,
-                                letterSpacing = 0.5.sp,
                                 textAlign = TextAlign.Center,
-                                lineHeight = 32.sp
+                                letterSpacing = 0.4.sp,
+                                modifier = Modifier.graphicsLayer {
+                                    alpha = p.coerceIn(0f, 1f)
+                                    translationY = (1f - p) * 24.dp.toPx()
+                                    val s = 0.85f + 0.15f * p
+                                    scaleX = s
+                                    scaleY = s
+                                }
                             )
-                            // Animated blinking typewriter cursor
-                            if (phase == SplashPhase.TYPEWRITER_MESSAGE) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(start = 2.dp)
-                                        .width(3.dp)
-                                        .height(24.dp)
-                                        .alpha(if (cursorBlink > 0.5f) 1f else 0f)
-                                        .background(Color(0xFF0B132B))
-                                )
-                            }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(22.dp))
 
-                    // Golden divider accent line
+                    // Expanding luminous Sky-Gold ribbon sweep
                     Box(
                         modifier = Modifier
-                            .width(80.dp)
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp))
+                            .width((124f * ribbonProgress.value.coerceIn(0f, 1f)).dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(50))
                             .background(
                                 brush = Brush.horizontalGradient(
                                     colors = listOf(
-                                        Color.Transparent,
-                                        AegisChampagneGold,
-                                        Color.Transparent
+                                        AegisElectricBlue,
+                                        AegisPurple,
+                                        AegisChampagneGold
                                     )
                                 )
                             )
                     )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subtitle & reassurance tags
-                    AnimatedVisibility(
-                        visible = showSubtitle,
-                        enter = fadeIn(tween(350))
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "SHEILDLENZ ON-DEVICE GUARDIAN",
-                                color = Color(0xFF1E3A8A),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 2.2.sp,
-                                fontFamily = ClassicalBodyFont
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "ZERO-BYPASS • FULL ON-DEVICE PRIVACY",
-                                color = Color(0xFF64748B),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 1.4.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
-
-                // Bottom Branding Pill on White Canvas
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(bottom = 16.dp)
-                ) {
-                    AhsanTcrBrandingPill()
                 }
             }
         }

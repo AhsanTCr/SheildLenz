@@ -4,6 +4,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,9 +39,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.annotation.StringRes
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +56,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.R
+import com.example.core.audio.AegisSoundEffects
 import com.example.di.AegisContainer
 import com.example.ui.about.AboutScreen
 import com.example.ui.auth.GuardianGateScreen
@@ -141,6 +146,8 @@ fun AegisNavHost(
         }
     }
 
+    val context = LocalContext.current
+
     val navigateToTab: (String) -> Unit = { targetRoute ->
         if (currentRoute != targetRoute) {
             navController.navigate(targetRoute) {
@@ -166,9 +173,21 @@ fun AegisNavHost(
                     MainTabItems.forEach { tab ->
                         val selected = currentRoute == tab.route
                         val tabLabel = stringResource(tab.labelRes)
+                        val tabInteractionSource = remember(tab.route) { MutableInteractionSource() }
+                        LaunchedEffect(tabInteractionSource) {
+                            tabInteractionSource.interactions.collect { interaction ->
+                                if (interaction is PressInteraction.Press) {
+                                    AegisSoundEffects.playTap(context)
+                                }
+                            }
+                        }
                         NavigationRailItem(
                             selected = selected,
-                            onClick = { navigateToTab(tab.route) },
+                            onClick = {
+                                AegisSoundEffects.playTap(context)
+                                navigateToTab(tab.route)
+                            },
+                            interactionSource = tabInteractionSource,
                             icon = {
                                 Icon(
                                     imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
@@ -229,9 +248,21 @@ fun AegisNavHost(
                                 MainTabItems.forEach { tab ->
                                     val selected = currentRoute == tab.route
                                     val tabLabel = stringResource(tab.labelRes)
+                                    val tabInteractionSource = remember(tab.route) { MutableInteractionSource() }
+                                    LaunchedEffect(tabInteractionSource) {
+                                        tabInteractionSource.interactions.collect { interaction ->
+                                            if (interaction is PressInteraction.Press) {
+                                                AegisSoundEffects.playTap(context)
+                                            }
+                                        }
+                                    }
                                     NavigationBarItem(
                                         selected = selected,
-                                        onClick = { navigateToTab(tab.route) },
+                                        onClick = {
+                                            AegisSoundEffects.playTap(context)
+                                            navigateToTab(tab.route)
+                                        },
+                                        interactionSource = tabInteractionSource,
                                         icon = {
                                             Icon(
                                                 imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,

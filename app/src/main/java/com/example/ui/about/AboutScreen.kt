@@ -87,6 +87,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
@@ -274,16 +275,21 @@ fun AboutScreen(
                             Spacer(modifier = Modifier.height(10.dp))
 
                             Row(
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.Center
                             ) {
                                 Text(
                                     text = "Sheildlenz",
                                     color = AegisTextPrimary,
                                     fontSize = 25.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = ClassicalDisplayFont
+                                    fontFamily = ClassicalDisplayFont,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Surface(
                                     shape = RoundedCornerShape(50),
                                     color = AegisPrimaryCyan.copy(alpha = 0.12f),
@@ -295,6 +301,8 @@ fun AboutScreen(
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace,
+                                        maxLines = 1,
+                                        softWrap = false,
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                     )
                                 }
@@ -699,7 +707,10 @@ private fun AppUpdateCheckerCard() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            ) {
                 Box(
                     modifier = Modifier
                         .size(40.dp)
@@ -723,19 +734,23 @@ private fun AppUpdateCheckerCard() {
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = if (hasUpdate) "Update Available ($latestLabel)" else "Release Channel",
                         color = AegisTextPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalDisplayFont
+                        fontFamily = ClassicalDisplayFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = if (hasUpdate) "Signed release ready to download" else "Verified over HTTPS with SHA-256",
                         color = if (hasUpdate) AegisChampagneGold else AegisTextSecondary,
                         fontSize = 11.5.sp,
-                        fontFamily = ClassicalBodyFont
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -774,14 +789,18 @@ private fun AppUpdateCheckerCard() {
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
-                        fontFamily = ClassicalBodyFont
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Text(
                         text = currentLabel,
                         color = AegisTextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -802,14 +821,19 @@ private fun AppUpdateCheckerCard() {
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
-                        fontFamily = ClassicalBodyFont
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = latestLabel,
                         color = if (hasUpdate) AegisChampagneGold else AegisPurple,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

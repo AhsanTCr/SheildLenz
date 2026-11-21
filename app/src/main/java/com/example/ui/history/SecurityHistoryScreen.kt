@@ -12,6 +12,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -296,7 +298,7 @@ fun SecurityHistoryScreen(
                                                 )
                                             }
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Column {
+                                            Column(modifier = Modifier.weight(1f)) {
                                                 Text(
                                                     text = item.appDisplayName,
                                                     color = AegisTextPrimary,
@@ -333,7 +335,9 @@ fun SecurityHistoryScreen(
                                                     color = AegisDangerRed,
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontFamily = FontFamily.Monospace
+                                                    fontFamily = FontFamily.Monospace,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
                                             }
                                         }
@@ -569,6 +573,7 @@ fun SecurityHistoryScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun IncidentItemCard(
     incident: SecurityIncident,
@@ -586,19 +591,23 @@ fun IncidentItemCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 Text(
                     text = incident.appDisplayName,
                     color = AegisTextPrimary,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalDisplayFont
+                    fontFamily = ClassicalDisplayFont,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = incident.packageName,
                     color = AegisTextMuted,
                     fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -607,10 +616,10 @@ fun IncidentItemCard(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             ThreatCategoryBadge(category = incident.category)
             Text(
@@ -618,7 +627,9 @@ fun IncidentItemCard(
                 color = AegisPrimaryCyan,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
             )
         }
 

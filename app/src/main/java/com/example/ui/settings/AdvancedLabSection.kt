@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
+import com.example.core.audio.AegisSoundEffects
 import com.example.data.preferences.AegisPreferences
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
@@ -844,9 +845,13 @@ private fun LabSwitchRow(
                 fontFamily = ClassicalBodyFont
             )
         }
+        val context = LocalContext.current
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = { next ->
+                AegisSoundEffects.playTap(context)
+                onCheckedChange(next)
+            },
             colors = SwitchDefaults.colors(
                 checkedThumbColor = AegisOnPrimaryWhite,
                 checkedTrackColor = AegisPrimaryCyan,

@@ -652,6 +652,51 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         composeRule.onNodeWithText("How does Strict Safe DNS block adult websites across apps?").assertIsDisplayed()
     }
 
+    @Test
+    fun `update checker extracts release apk urls reliably and never launches browser on update tap`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val bodyOnlyRelease = org.json.JSONObject().apply {
+            put("tag_name", "v99.0")
+            put("html_url", "https://github.com/Ahsanpcin/Sheild-Lenz/releases/tag/v99.0")
+            put("body", "Download directly: https://github.com/Ahsanpcin/Sheild-Lenz/releases/download/v99.0/Sheildlenz-release.apk")
+            put("assets", org.json.JSONArray())
+        }
+        val parsedBody = com.example.core.update.UpdateChecker.parseReleaseJson(bodyOnlyRelease, "15.57")
+        assertTrue(parsedBody.isUpdateAvailable)
+        assertEquals(
+            "https://github.com/Ahsanpcin/Sheild-Lenz/releases/download/v99.0/Sheildlenz-release.apk",
+            parsedBody.apkDownloadUrl
+        )
+
+        val multiAssetRelease = org.json.JSONObject().apply {
+            put("tag_name", "v99.1")
+            put("assets", org.json.JSONArray().apply {
+                put(org.json.JSONObject().apply {
+                    put("name", "app-debug.apk")
+                    put("browser_download_url", "https://github.com/Ahsanpcin/Sheild-Lenz/releases/download/v99.1/app-debug.apk")
+                    put("size", 1000L)
+                })
+                put(org.json.JSONObject().apply {
+                    put("name", "Sheildlenz-v99.1-release.apk")
+                    put("browser_download_url", "https://github.com/Ahsanpcin/Sheild-Lenz/releases/download/v99.1/Sheildlenz-v99.1-release.apk")
+                    put("size", 2000L)
+                })
+            })
+        }
+        val parsedMulti = com.example.core.update.UpdateChecker.parseReleaseJson(multiAssetRelease, "15.57")
+        assertEquals(
+            "https://github.com/Ahsanpcin/Sheild-Lenz/releases/download/v99.1/Sheildlenz-v99.1-release.apk",
+            parsedMulti.apkDownloadUrl
+        )
+
+        // Ensure triggerUserUpdateAction does not fire a browser ACTION_VIEW intent to GitHub releases
+        com.example.core.update.UpdateChecker.cancelApkDownload(context)
+        com.example.core.update.UpdateChecker.triggerUserUpdateAction(context)
+        val shadowApp = org.robolectric.Shadows.shadowOf(context as android.app.Application)
+        val started = shadowApp.nextStartedActivity
+        assertNull("Update action must stay inside app instead of opening browser", started)
+    }
+
     private fun buildSampleIpv4UdpDnsQueryPacket(domain: String): ByteArray {
         val labels = domain.split(".")
         val qnameBytes = mutableListOf<Byte>()

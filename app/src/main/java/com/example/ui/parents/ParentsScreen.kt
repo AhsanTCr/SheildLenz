@@ -102,6 +102,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.models.SecurityIncident
 import com.example.core.models.SensitivityLevel
 import com.example.data.preferences.AegisPreferences
@@ -971,7 +972,10 @@ fun ParentsScreen(
                                         text = "Monitoring: ${activeChild.childDisplayName} • Code ${activeChild.pairingCode}",
                                         color = AegisTextSecondary,
                                         fontSize = 11.5.sp,
-                                        fontFamily = ClassicalBodyFont
+                                        fontFamily = ClassicalBodyFont,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(end = 10.dp)
                                     )
                                     OutlinedButton(
                                         onClick = {
@@ -981,11 +985,18 @@ fun ParentsScreen(
                                             }
                                         },
                                         shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.height(36.dp)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(40.dp)
                                     ) {
                                         Icon(Icons.Default.LinkOff, contentDescription = "Unlink child", modifier = Modifier.size(14.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("UNLINK", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                        Text(
+                                            text = "UNLINK",
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
                                     }
                                 }
                             }
@@ -1546,9 +1557,13 @@ private fun ParentLiveSeeCard(
                 }
             }
 
+            val switchContext = androidx.compose.ui.platform.LocalContext.current
             Switch(
                 checked = liveSeeEnabled,
-                onCheckedChange = onToggleLiveSee,
+                onCheckedChange = { next ->
+                    AegisSoundEffects.playTap(switchContext)
+                    onToggleLiveSee(next)
+                },
                 colors = SwitchDefaults.colors(checkedThumbColor = AegisOnPrimaryWhite, checkedTrackColor = AegisPrimaryCyan)
             )
         }
@@ -1685,9 +1700,13 @@ private fun ParentRemoteActionsCard(
                     fontFamily = ClassicalBodyFont
                 )
             }
+            val uninstallSwitchContext = androidx.compose.ui.platform.LocalContext.current
             Switch(
                 checked = childUninstallLocked,
-                onCheckedChange = onToggleUninstallLock,
+                onCheckedChange = { next ->
+                    AegisSoundEffects.playTap(uninstallSwitchContext)
+                    onToggleUninstallLock(next)
+                },
                 colors = SwitchDefaults.colors(checkedThumbColor = AegisOnPrimaryWhite, checkedTrackColor = AegisPurple)
             )
         }
@@ -1979,6 +1998,7 @@ private fun RemoteSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1988,11 +2008,17 @@ private fun RemoteSwitchRow(
             text = label,
             color = AegisTextPrimary,
             fontSize = 13.sp,
-            fontFamily = ClassicalBodyFont
+            fontFamily = ClassicalBodyFont,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).padding(end = 10.dp)
         )
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = { next ->
+                AegisSoundEffects.playTap(context)
+                onCheckedChange(next)
+            },
             colors = SwitchDefaults.colors(checkedThumbColor = AegisOnPrimaryWhite, checkedTrackColor = AegisPrimaryCyan)
         )
     }
@@ -2050,7 +2076,10 @@ private fun PolicyStatusChip(label: String, color: Color) {
             color = color,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            fontFamily = ClassicalBodyFont
+            fontFamily = ClassicalBodyFont,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

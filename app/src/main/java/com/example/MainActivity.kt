@@ -19,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.permissions.PermissionHelper
 import com.example.core.update.UpdateChecker
 import com.example.data.preferences.AegisPreferences
@@ -69,6 +70,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handlePairingDeepLink(intent)
         container.parentChildSyncController.ensureStarted()
+        AegisSoundEffects.setEnabled(container.preferences.touchSoundsEnabled.value)
+        AegisSoundEffects.prewarm()
         // Silently check latest GitHub release vs current app version on startup & pre-download at 100 KB/s
         UpdateChecker.startCheckForUpdates(this, showUpToDatePopup = false)
         enableEdgeToEdge(

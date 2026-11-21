@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.models.ThreatCategory
@@ -123,7 +124,10 @@ fun StatusPill(
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.9.sp,
-                fontFamily = ClassicalBodyFont
+                fontFamily = ClassicalBodyFont,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -148,6 +152,9 @@ fun ThreatCategoryBadge(
         fontWeight = FontWeight.Bold,
         fontFamily = ClassicalBodyFont,
         letterSpacing = 0.7.sp,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .clip(RoundedCornerShape(50))
             .background(color.copy(alpha = 0.16f))
@@ -175,6 +182,9 @@ fun SeverityTag(
         fontWeight = FontWeight.Bold,
         fontFamily = ClassicalBodyFont,
         letterSpacing = 0.6.sp,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(color.copy(alpha = 0.16f))

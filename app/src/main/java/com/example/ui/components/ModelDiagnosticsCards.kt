@@ -154,7 +154,9 @@ fun HomeModelDownloadCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 10.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -177,20 +179,24 @@ fun HomeModelDownloadCard(
 
                     Spacer(modifier = Modifier.width(12.dp))
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "AI Model Engine",
                             color = AegisTextPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            fontFamily = ClassicalDisplayFont
+                            fontFamily = ClassicalDisplayFont,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = if (telemetry.isModelLoaded) "Model Active & Ready" else "Ready to download",
                             color = if (telemetry.isModelLoaded) AegisPrimaryCyan else AegisChampagneGold,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            fontFamily = ClassicalBodyFont
+                            fontFamily = ClassicalBodyFont,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -456,7 +462,9 @@ fun ModelManagerCard(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 10.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -477,13 +485,15 @@ fun ModelManagerCard(
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "AI Classification",
                         color = AegisTextPrimary,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalDisplayFont
+                        fontFamily = ClassicalDisplayFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = telemetry.loadedModelName ?: "No .tflite model attached",
@@ -1161,15 +1171,24 @@ private fun ModelMetaRow(label: String, value: String) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, color = AegisTextSecondary, fontSize = 12.sp, fontFamily = ClassicalBodyFont)
+        Text(
+            text = label,
+            color = AegisTextSecondary,
+            fontSize = 12.sp,
+            fontFamily = ClassicalBodyFont,
+            modifier = Modifier.padding(end = 10.dp)
+        )
         Text(
             text = value,
             color = AegisTextPrimary,
             fontSize = 12.sp,
             fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

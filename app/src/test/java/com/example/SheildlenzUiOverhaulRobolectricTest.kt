@@ -10,15 +10,28 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.models.SensitivityLevel
+import com.example.core.models.ThreatCategory
+import com.example.core.models.ThreatSeverity
 import com.example.data.repository.ParentChildRepository
 import com.example.di.AegisContainer
 import com.example.ui.components.CyberTopBar
 import com.example.ui.components.QrCodeGenerator
+import com.example.ui.components.SeverityTag
+import com.example.ui.components.StatusPill
+import com.example.ui.components.ThreatCategoryBadge
 import com.example.ui.dashboard.DashboardScreen
 import com.example.ui.history.SecurityHistoryScreen
 import com.example.ui.navigation.AegisDestinations
@@ -26,6 +39,7 @@ import com.example.ui.navigation.AegisNavHost
 import com.example.ui.parents.ParentsScreen
 import com.example.ui.protection.LiveProtectionScreen
 import com.example.ui.settings.SettingsScreen
+import com.example.ui.splash.SplashScreen
 import com.example.ui.theme.AegisShieldTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -141,9 +155,10 @@ class SheildlenzUiOverhaulRobolectricTest {
     }
 
     @Test
-    fun `edits screen shows AI Classification at top and expands Quiet Hours on one tap`() {
+    fun `edits screen shows AI Classification at top and enables Quiet Hours presets on one tap`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
+        container.preferences.setScheduleEnabled(false)
 
         composeRule.setContent {
             AegisShieldTheme {
@@ -156,14 +171,16 @@ class SheildlenzUiOverhaulRobolectricTest {
         }
 
         composeRule.onNodeWithText("AI Classification").assertIsDisplayed()
-        // Quiet Hours starts collapsed
-        assertEquals(0, composeRule.onAllNodesWithText("Enable Scheduled Guard").fetchSemanticsNodes().size)
+        // Quiet Hours starts collapsed when OFF
+        assertEquals(0, composeRule.onAllNodesWithText("10P–6A").fetchSemanticsNodes().size)
 
-        // Scroll to Quiet Hours card and expand with one tap
+        // Single tap on Quiet Hours card turns ON Scheduled Guard and reveals presets immediately
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("scheduled_protection_card_toggle"))
         composeRule.onNodeWithTag("scheduled_protection_card_toggle").performClick()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("Enable Scheduled Guard"))
-        composeRule.onNodeWithText("Enable Scheduled Guard").assertIsDisplayed()
+        composeRule.waitForIdle()
+        assertTrue(container.preferences.scheduleEnabled.value)
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("10P–6A"))
+        composeRule.onNodeWithText("10P–6A").assertIsDisplayed()
     }
 
     @Test
@@ -276,5 +293,189 @@ class SheildlenzUiOverhaulRobolectricTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("parents_screen_root").assertIsDisplayed()
         assertTrue(SensitivityLevel.BALANCED.displayName.isNotBlank())
+    }
+
+    @Test
+    fun `splash screen renders crisp immediate logo without cluttered status text`() {
+        var navigatedTo: String? = null
+        composeRule.setContent {
+            AegisShieldTheme {
+                SplashScreen(
+                    isOnboardingCompleted = true,
+                    onNavigateNext = { navigatedTo = it }
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("splash_screen_root").assertIsDisplayed()
+        composeRule.onNodeWithText("SHEILDLENZ").assertIsDisplayed()
+        assertEquals(0, composeRule.onAllNodesWithText("ON-DEVICE SCREEN & NETWORK GUARDIAN").fetchSemanticsNodes().size)
+        assertEquals(0, composeRule.onAllNodesWithText("Initializing Sheildlenz Security Core...").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `safe dns starts as single toggle switch and reveals options once turned on`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setSafeDnsEnabled(false)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                SettingsScreen(
+                    preferences = container.preferences,
+                    modelManager = container.modelManager,
+                    protectionRepo = container.protectionRepository
+                )
+            }
+        }
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("safe_dns_blocklist_card"))
+        composeRule.onNodeWithTag("safe_dns_enabled_switch").assertIsDisplayed()
+        assertEquals(0, composeRule.onAllNodesWithText("DNS Filter Provider").fetchSemanticsNodes().size)
+
+        // Enabling Safe DNS reveals all options in one clean panel
+        composeRule.runOnUiThread {
+            container.preferences.setSafeDnsEnabled(true)
+        }
+        composeRule.waitForIdle()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("DNS Filter Provider"))
+        composeRule.onNodeWithText("DNS Filter Provider").assertIsDisplayed()
+        composeRule.onNodeWithText("Blocked Domains").performScrollTo()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Blocked Domains").assertIsDisplayed()
+    }
+
+    @Test
+    fun `edits screen shows Touch Sounds toggle and persists state across clicks`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setTouchSoundsEnabled(true)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                SettingsScreen(
+                    preferences = container.preferences,
+                    modelManager = container.modelManager,
+                    protectionRepo = container.protectionRepository
+                )
+            }
+        }
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("touch_sounds_card"))
+        composeRule.onNodeWithTag("touch_sounds_card").assertIsDisplayed()
+        composeRule.onNodeWithText("Touch Sounds").assertIsDisplayed()
+        composeRule.onNodeWithTag("touch_sounds_switch").assertIsDisplayed()
+
+        // Toggle OFF
+        composeRule.onNodeWithTag("touch_sounds_switch").performClick()
+        composeRule.waitForIdle()
+        assertFalse(container.preferences.touchSoundsEnabled.value)
+        assertFalse(AegisSoundEffects.isEnabled())
+        composeRule.onNodeWithText("Muted").assertIsDisplayed()
+
+        // Toggle back ON via tapping the card text row itself (1-tap whole-row touch target)
+        composeRule.onNodeWithText("Touch Sounds").performClick()
+        composeRule.waitForIdle()
+        assertTrue(container.preferences.touchSoundsEnabled.value)
+        assertTrue(AegisSoundEffects.isEnabled())
+    }
+
+    @Test
+    fun `edits screen opens Excluded Apps picker directly on one tap when empty`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.whitelistedPackages.value.forEach { container.preferences.removeWhitelistedPackage(it) }
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                SettingsScreen(
+                    preferences = container.preferences,
+                    modelManager = container.modelManager,
+                    protectionRepo = container.protectionRepository
+                )
+            }
+        }
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("whitelisted_apps_card_toggle"))
+        composeRule.onNodeWithTag("whitelisted_apps_card_toggle").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("installed_apps_picker_dialog").assertIsDisplayed()
+        composeRule.onNodeWithText("DONE").performClick()
+    }
+
+    @Test
+    fun `status pill and threat badges keep unconstrained width inside tight horizontal row`() {
+        composeRule.setContent {
+            AegisShieldTheme {
+                androidx.compose.foundation.layout.Column {
+                    Row(modifier = Modifier.width(240.dp)) {
+                        Text(
+                            text = "Update Ready: v16.27 Verified Ready",
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
+                        )
+                        StatusPill(label = "READY 0s", isActive = true)
+                    }
+                    Row(modifier = Modifier.width(800.dp)) {
+                        Text(
+                            text = "Update Ready: v16.27 Verified Ready",
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
+                        )
+                        StatusPill(label = "READY 0s", isActive = true)
+                    }
+                    Row(modifier = Modifier.width(240.dp)) {
+                        Text(
+                            text = "Detected Application Package Name",
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
+                        )
+                        ThreatCategoryBadge(category = ThreatCategory.EXPLICIT_ADULT)
+                    }
+                    Row(modifier = Modifier.width(800.dp)) {
+                        Text(
+                            text = "Detected Application Package Name",
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
+                        )
+                        ThreatCategoryBadge(category = ThreatCategory.EXPLICIT_ADULT)
+                    }
+                    Row(modifier = Modifier.width(240.dp)) {
+                        Text(
+                            text = "Blocked Incident Header Title",
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
+                        )
+                        SeverityTag(severity = ThreatSeverity.CRITICAL)
+                    }
+                    Row(modifier = Modifier.width(800.dp)) {
+                        Text(
+                            text = "Blocked Incident Header Title",
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
+                        )
+                        SeverityTag(severity = ThreatSeverity.CRITICAL)
+                    }
+                }
+            }
+        }
+
+        val readyNodes = composeRule.onAllNodesWithText("READY 0s", ignoreCase = true)
+        val readyTight = readyNodes[0].getUnclippedBoundsInRoot()
+        val readyWide = readyNodes[1].getUnclippedBoundsInRoot()
+        assertEquals(readyWide.right - readyWide.left, readyTight.right - readyTight.left)
+        assertEquals(readyWide.bottom - readyWide.top, readyTight.bottom - readyTight.top)
+
+        val catNodes = composeRule.onAllNodesWithText("EXPLICIT ADULT")
+        val catTight = catNodes[0].getUnclippedBoundsInRoot()
+        val catWide = catNodes[1].getUnclippedBoundsInRoot()
+        assertEquals(catWide.right - catWide.left, catTight.right - catTight.left)
+        assertEquals(catWide.bottom - catWide.top, catTight.bottom - catTight.top)
+
+        val sevNodes = composeRule.onAllNodesWithText("CRITICAL")
+        val sevTight = sevNodes[0].getUnclippedBoundsInRoot()
+        val sevWide = sevNodes[1].getUnclippedBoundsInRoot()
+        assertEquals(sevWide.right - sevWide.left, sevTight.right - sevTight.left)
+        assertEquals(sevWide.bottom - sevWide.top, sevTight.bottom - sevTight.top)
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.SystemClock
 import androidx.annotation.VisibleForTesting
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.models.SensitivityLevel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -502,6 +503,16 @@ class AegisPreferences(context: Context) {
         prefs.getString(KEY_APP_LANGUAGE_CODE, "system") ?: "system"
     )
     val appLanguageCode: StateFlow<String> = _appLanguageCode.asStateFlow()
+
+    // Tactile UI Touch Sounds (soft bubbly pitch-drop pop on buttons, switches, nav tabs)
+    private val _touchSoundsEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_TOUCH_SOUNDS_ENABLED, true)
+    )
+    val touchSoundsEnabled: StateFlow<Boolean> = _touchSoundsEnabled.asStateFlow()
+
+    init {
+        AegisSoundEffects.setEnabled(_touchSoundsEnabled.value)
+    }
 
     @Volatile
     private var guardianSettingsBypassUntilRealtime: Long = 0L
@@ -1389,6 +1400,12 @@ class AegisPreferences(context: Context) {
         _appLanguageCode.value = safe
     }
 
+    fun setTouchSoundsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_TOUCH_SOUNDS_ENABLED, enabled).apply()
+        _touchSoundsEnabled.value = enabled
+        AegisSoundEffects.setEnabled(enabled)
+    }
+
     fun exportPolicyJson(): String {
         val json = JSONObject().apply {
             put("schemaVersion", 1)
@@ -1411,6 +1428,7 @@ class AegisPreferences(context: Context) {
             put("blockGamblingKeywords", _blockGamblingKeywords.value)
             put("guardianEmail", _guardianEmail.value)
             put("appLanguageCode", _appLanguageCode.value)
+            put("touchSoundsEnabled", _touchSoundsEnabled.value)
             put("whitelistedPackages", JSONArray(_whitelistedPackages.value.toList()))
             put("customBlockedDomains", JSONArray(_customBlockedDomains.value.toList()))
             put("customBlockedKeywords", JSONArray(_customBlockedKeywords.value.toList()))
@@ -1461,6 +1479,7 @@ class AegisPreferences(context: Context) {
             setBlockGamblingKeywords(payload.optBoolean("blockGamblingKeywords", true))
             setGuardianEmail(payload.optString("guardianEmail", ""))
             setAppLanguageCode(payload.optString("appLanguageCode", "system"))
+            setTouchSoundsEnabled(payload.optBoolean("touchSoundsEnabled", true))
 
             val whitelistArr = payload.optJSONArray("whitelistedPackages")
             if (whitelistArr != null) {
@@ -1756,5 +1775,6 @@ class AegisPreferences(context: Context) {
         private const val KEY_CUSTOM_BLOCKED_DOMAINS = "key_custom_blocked_domains"
         private const val KEY_CUSTOM_BLOCKED_KEYWORDS = "key_custom_blocked_keywords"
         private const val KEY_APP_LANGUAGE_CODE = "key_app_language_code"
+        private const val KEY_TOUCH_SOUNDS_ENABLED = "key_touch_sounds_enabled"
     }
 }

@@ -1,8 +1,11 @@
 package com.example.core.update
 
+import android.app.Activity
 import android.app.PendingIntent
+import android.content.ClipData
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInfo
@@ -20,6 +23,7 @@ import android.util.Log
 import androidx.core.content.FileProvider
 import com.example.BuildConfig
 import com.example.di.AegisContainer
+import java.lang.ref.WeakReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -154,8 +158,30 @@ object UpdateChecker {
     @Volatile
     private var pendingInstallApk: File? = null
 
+    @Volatile
+    private var lastActivityRef: WeakReference<Activity>? = null
+
     private val activeBandwidthLimitBps = AtomicLong(THROTTLED_PRELOAD_BPS)
     private val autoInstallOnComplete = AtomicBoolean(false)
+
+    private tailrec fun Context.findActivity(): Activity? = when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
+
+    private fun rememberUiActivity(context: Context?) {
+        val activity = context?.findActivity() ?: return
+        if (!activity.isFinishing && !activity.isDestroyed) {
+            lastActivityRef = WeakReference(activity)
+        }
+    }
+
+    private fun resolveLaunchContext(fallbackContext: Context): Context {
+        fallbackContext.findActivity()?.takeIf { !it.isFinishing && !it.isDestroyed }?.let { return it }
+        lastActivityRef?.get()?.takeIf { !it.isFinishing && !it.isDestroyed }?.let { return it }
+        return fallbackContext.applicationContext
+    }
 
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -247,6 +273,7 @@ object UpdateChecker {
             return
         }
 
+        rememberUiActivity(context)
         val appContext = context?.applicationContext
         if (appContext != null && !isNetworkAvailable(appContext)) {
             _isChecking.value = false
@@ -371,21 +398,23 @@ object UpdateChecker {
     }
 
     /**
-     * Primary user CTA handler:
-     * - If already verified/preloaded (100%) -> instant 1-tap install (0s download)
+     * Primary user CTA handler — strictly performs in-app download & install (never opens browser):
+     * - If already verified/preloaded (100%) -> instant 1-tap in-app install
      * - If silently preloading at 100 KB/s -> lifts throttle live to Unlimited (Turbo finish)
-     * - Otherwise -> resumes `.part` at full speed and auto-installs on completion
+     * - If release APK URL is present -> downloads directly inside the app and installs
+     * - If APK URL was missing/stale -> live re-queries release & expanded assets, then downloads in-app
      */
     fun triggerUserUpdateAction(context: Context) {
+        rememberUiActivity(context)
         val appContext = context.applicationContext
         try {
             val info = _updateInfo.value
             when (val state = _apkDownloadState.value) {
                 is ApkDownloadState.ReadyToInstall -> {
-                    autoInstallApk(appContext, state.apkFile)
+                    autoInstallApk(resolveLaunchContext(context), state.apkFile)
                 }
                 is ApkDownloadState.SignatureConflict -> {
-                    triggerCleanUninstallForUpgrade(appContext)
+                    triggerCleanUninstallForUpgrade(resolveLaunchContext(context))
                 }
                 is ApkDownloadState.Preloading -> {
                     boostActivePreloadToTurbo(appContext, state)
@@ -403,14 +432,77 @@ object UpdateChecker {
                             expectedTotalBytes = info.apkSizeBytes,
                             expectedSha256 = info.expectedSha256
                         )
-                    } else if (info != null) {
-                        openReleaseUrl(appContext, info.releaseUrl)
+                    } else {
+                        refreshReleaseAndStartInAppDownload(appContext)
                     }
                 }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Safe recovery from update action failure", t)
-            openReleaseUrl(appContext, GITHUB_RELEASES_WEB_URL)
+            _apkDownloadState.value = ApkDownloadState.Failed(
+                formatFriendlyUpdateError(
+                    context = appContext,
+                    err = t,
+                    fallback = "Unable to start update download right now. Please tap to retry."
+                )
+            )
+        }
+    }
+
+    private fun refreshReleaseAndStartInAppDownload(appContext: Context) {
+        if (!isNetworkAvailable(appContext)) {
+            _apkDownloadState.value = ApkDownloadState.Failed(
+                "You are offline. Please check your internet connection."
+            )
+            return
+        }
+        activeCheckJob?.cancel()
+        _apkDownloadState.value = ApkDownloadState.Downloading(
+            progress = null,
+            bytesDownloaded = 0L,
+            totalBytes = _updateInfo.value?.apkSizeBytes ?: 0L
+        )
+        AegisBackgroundDownloadService.notifyProgress(
+            context = appContext,
+            title = "Checking Sheildlenz Update",
+            subtitle = "Locating release package...",
+            progressPct = -1,
+            force = true,
+            useForegroundService = true
+        )
+        activeCheckJob = updateScope.launch {
+            val result = checkForUpdates(appContext)
+            result.onSuccess { latest ->
+                _updateInfo.value = latest
+                val resolvedApkUrl = latest.apkDownloadUrl
+                if (!latest.isUpdateAvailable) {
+                    AegisBackgroundDownloadService.stop(appContext)
+                    _apkDownloadState.value = ApkDownloadState.Installed
+                } else if (!resolvedApkUrl.isNullOrBlank()) {
+                    startApkTransfer(
+                        context = appContext,
+                        apkUrl = resolvedApkUrl,
+                        versionTag = cleanVersionTag(latest.latestVersion),
+                        expectedTotalBytes = latest.apkSizeBytes,
+                        expectedSha256 = latest.expectedSha256,
+                        silentPreload = false
+                    )
+                } else {
+                    AegisBackgroundDownloadService.stop(appContext)
+                    _apkDownloadState.value = ApkDownloadState.Failed(
+                        "Direct APK package was not found on this release. Tap Update to retry."
+                    )
+                }
+            }.onFailure { err ->
+                AegisBackgroundDownloadService.stop(appContext)
+                _apkDownloadState.value = ApkDownloadState.Failed(
+                    formatFriendlyUpdateError(
+                        context = appContext,
+                        err = err,
+                        fallback = "Unable to fetch release package right now. Tap to retry."
+                    )
+                )
+            }
         }
     }
 
@@ -538,12 +630,14 @@ object UpdateChecker {
                         AegisBackgroundDownloadService.notifyProgress(
                             context = appContext,
                             title = "Installing Sheildlenz Update",
-                            subtitle = "Auto-installing verified APK...",
+                            subtitle = "Launching package installer...",
                             progressPct = -1,
                             force = true,
                             useForegroundService = true
                         )
-                        autoInstallApk(appContext, verifiedApk)
+                        withContext(Dispatchers.Main) {
+                            autoInstallApk(resolveLaunchContext(appContext), verifiedApk)
+                        }
                     } else {
                         // Hold ready quietly with badge for instant 1-tap install
                         AegisBackgroundDownloadService.stop(appContext)
@@ -727,7 +821,14 @@ object UpdateChecker {
                 )
             } ?: candidates.first()
 
-            Result.success(parseReleaseJson(bestRelease, BuildConfig.VERSION_NAME))
+            var parsed = parseReleaseJson(bestRelease, BuildConfig.VERSION_NAME)
+            if (parsed.apkDownloadUrl.isNullOrBlank()) {
+                val expandedApkUrl = fetchExpandedAssetsApkUrl(parsed.latestVersion)
+                if (!expandedApkUrl.isNullOrBlank()) {
+                    parsed = parsed.copy(apkDownloadUrl = expandedApkUrl)
+                }
+            }
+            Result.success(parsed)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to check for updates", e)
             val friendly = formatFriendlyUpdateError(
@@ -739,17 +840,57 @@ object UpdateChecker {
         }
     }
 
+    private fun isApkAssetJson(asset: JSONObject): Boolean {
+        val assetName = asset.optString("name", "")
+        val downloadUrl = asset.optString("browser_download_url", "")
+        val contentType = asset.optString("content_type", "")
+        if (downloadUrl.isBlank()) return false
+        return assetName.endsWith(".apk", ignoreCase = true) ||
+            downloadUrl.substringBefore('?').endsWith(".apk", ignoreCase = true) ||
+            contentType.equals("application/vnd.android.package-archive", ignoreCase = true)
+    }
+
     private fun hasApkAsset(json: JSONObject): Boolean {
-        val assets = json.optJSONArray("assets") ?: return false
-        for (i in 0 until assets.length()) {
-            val asset = assets.optJSONObject(i) ?: continue
-            val assetName = asset.optString("name", "")
-            val downloadUrl = asset.optString("browser_download_url", "")
-            if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotBlank()) {
-                return true
+        val assets = json.optJSONArray("assets")
+        if (assets != null) {
+            for (i in 0 until assets.length()) {
+                val asset = assets.optJSONObject(i) ?: continue
+                if (isApkAssetJson(asset)) return true
             }
         }
-        return false
+        return extractApkUrlFromReleaseBody(json.optString("body", "")) != null
+    }
+
+    private fun extractApkUrlFromReleaseBody(body: String?): String? {
+        if (body.isNullOrBlank()) return null
+        return Regex("https://[^\\s)\"'<>]+\\.apk(?:\\?[^\\s)\"'<>]*)?", RegexOption.IGNORE_CASE)
+            .find(body)
+            ?.value
+    }
+
+    private fun fetchExpandedAssetsApkUrl(tagName: String): String? {
+        val cleanTag = tagName.trim()
+        if (cleanTag.isBlank()) return null
+        return try {
+            val req = Request.Builder()
+                .url("https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/expanded_assets/$cleanTag")
+                .header("User-Agent", "Sheildlenz-Android-App")
+                .header("Cache-Control", "no-cache")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val html = resp.body?.string().orEmpty()
+                val hrefMatch = Regex(
+                    "href=[\"'](/[^\"']*releases/download/[^\"']*\\.apk(?:\\?[^\"']*)?)[\"']",
+                    RegexOption.IGNORE_CASE
+                ).find(html)
+                hrefMatch?.groupValues?.getOrNull(1)?.let { rel ->
+                    "https://github.com$rel"
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     internal fun cleanVersionTag(raw: String): String {
@@ -778,17 +919,26 @@ object UpdateChecker {
         var assetDigest: String? = null
         val assets = json.optJSONArray("assets")
         if (assets != null) {
+            var bestScore = Int.MIN_VALUE
             for (i in 0 until assets.length()) {
                 val asset = assets.optJSONObject(i) ?: continue
+                if (!isApkAssetJson(asset)) continue
                 val assetName = asset.optString("name", "")
                 val downloadUrl = asset.optString("browser_download_url", "")
-                if (assetName.endsWith(".apk", ignoreCase = true) && downloadUrl.isNotBlank()) {
+                var score = 10
+                if (assetName.contains("release", ignoreCase = true)) score += 20
+                if (assetName.contains("sheild", ignoreCase = true) || assetName.contains("shield", ignoreCase = true)) score += 5
+                if (assetName.contains("debug", ignoreCase = true)) score -= 15
+                if (score > bestScore) {
+                    bestScore = score
                     apkUrl = downloadUrl
                     apkSize = asset.optLong("size", 0L)
                     assetDigest = extractSha256FromText(asset.optString("digest", ""))
-                    break
                 }
             }
+        }
+        if (apkUrl.isNullOrBlank()) {
+            apkUrl = extractApkUrlFromReleaseBody(body)
         }
 
         val resolvedSha256 = assetDigest ?: extractSha256FromText(body)
@@ -1265,9 +1415,9 @@ object UpdateChecker {
     }
 
     private fun getUpdatesDir(context: Context): File {
-        return context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-            ?.apply { if (!exists()) mkdirs() }
-            ?: File(context.cacheDir, "updates").apply { if (!exists()) mkdirs() }
+        // Use app-internal filesDir ("updates") mapped by <files-path> in file_paths.xml
+        // so Scoped Storage or external volumes never block FileProvider APK installs.
+        return File(context.filesDir, "updates").apply { if (!exists()) mkdirs() }
     }
 
     internal fun getPartApkFile(context: Context, cleanVersion: String): File =
@@ -1284,6 +1434,13 @@ object UpdateChecker {
             if (f.name.startsWith("Sheildlenz-") && f.name != keepPart && f.name != keepApk) {
                 f.delete()
             }
+        }
+        // Clean up any older APKs from legacy external downloads directory
+        try {
+            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.listFiles()?.forEach { f ->
+                if (f.name.startsWith("Sheildlenz-")) f.delete()
+            }
+        } catch (_: Exception) {
         }
     }
 
@@ -1316,6 +1473,7 @@ object UpdateChecker {
     }
 
     fun autoInstallApk(context: Context, apkFile: File): Boolean {
+        rememberUiActivity(context)
         val appContext = context.applicationContext
         pendingInstallApk = apkFile
 
@@ -1327,7 +1485,7 @@ object UpdateChecker {
 
         // Standard Intent.ACTION_VIEW via FileProvider guarantees 100% crash-free install
         // without process termination from PackageInstaller session.commit()
-        return installApk(appContext, apkFile)
+        return installApk(resolveLaunchContext(context), apkFile)
     }
 
     fun onPackageInstallConflict(context: Context, customReason: String? = null) {
@@ -1351,7 +1509,9 @@ object UpdateChecker {
     }
 
     fun triggerCleanUninstallForUpgrade(context: Context) {
+        rememberUiActivity(context)
         val appContext = context.applicationContext
+        val launchCtx = resolveLaunchContext(context)
         val conflict = _apkDownloadState.value as? ApkDownloadState.SignatureConflict
         val file = conflict?.apkFile ?: pendingInstallApk
         if (file != null && file.exists() && conflict?.savedPublicPath == null) {
@@ -1360,15 +1520,16 @@ object UpdateChecker {
         try {
             AegisContainer.getInstance(appContext).preferences.grantTemporarySettingsAuthorization()
             val uninstallIntent = Intent(Intent.ACTION_DELETE, Uri.parse("package:${appContext.packageName}")).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (launchCtx !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            appContext.startActivity(uninstallIntent)
+            launchCtx.startActivity(uninstallIntent)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch clean uninstall", e)
         }
     }
 
     fun retryPendingInstallIfAuthorized(context: Context) {
+        rememberUiActivity(context)
         val state = _apkDownloadState.value
         val file = pendingInstallApk ?: (state as? ApkDownloadState.ReadyToInstall)?.apkFile ?: return
         if (!file.exists()) return
@@ -1397,10 +1558,15 @@ object UpdateChecker {
     }
 
     fun installApk(context: Context, apkFile: File): Boolean {
+        rememberUiActivity(context)
         val appContext = context.applicationContext
+        val launchCtx = resolveLaunchContext(context)
         pendingInstallApk = apkFile
         return try {
-            AegisContainer.getInstance(appContext).preferences.grantTemporarySettingsAuthorization()
+            try {
+                AegisContainer.getInstance(appContext).preferences.grantTemporarySettingsAuthorization()
+            } catch (_: Throwable) {
+            }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !appContext.packageManager.canRequestPackageInstalls()) {
                 val prev = _apkDownloadState.value as? ApkDownloadState.ReadyToInstall
@@ -1413,9 +1579,9 @@ object UpdateChecker {
                 AegisBackgroundDownloadService.stop(appContext)
                 val permIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
                     data = Uri.parse("package:${appContext.packageName}")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (launchCtx !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                appContext.startActivity(permIntent)
+                launchCtx.startActivity(permIntent)
                 return false
             }
 
@@ -1424,20 +1590,41 @@ object UpdateChecker {
                 "${appContext.packageName}.fileprovider",
                 apkFile
             )
-            val installIntent = Intent(Intent.ACTION_VIEW).apply {
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = ClipData.newRawUri("Sheildlenz Update", apkUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (launchCtx !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            appContext.startActivity(installIntent)
+            val launched = try {
+                launchCtx.startActivity(viewIntent)
+                true
+            } catch (primaryErr: Throwable) {
+                Log.w(TAG, "ACTION_VIEW installer fallback to ACTION_INSTALL_PACKAGE: ${primaryErr.message}")
+                @Suppress("DEPRECATION")
+                val installPkgIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                    data = apkUri
+                    clipData = ClipData.newRawUri("Sheildlenz Update", apkUri)
+                    putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (launchCtx !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                launchCtx.startActivity(installPkgIntent)
+                true
+            }
             AegisBackgroundDownloadService.stop(appContext)
-            true
+            launched
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to launch APK installer", e)
+            val exported = exportApkToPublicDownloads(appContext, apkFile)
             AegisBackgroundDownloadService.stop(appContext)
             _apkDownloadState.value = ApkDownloadState.Failed(
-                "Unable to open package installer directly. Opening GitHub Releases..."
+                if (exported != null) {
+                    "APK ready in $exported. Tap Update to retry install."
+                } else {
+                    "Unable to open package installer. Tap Update to retry."
+                }
             )
-            openReleaseUrl(appContext, GITHUB_RELEASES_WEB_URL)
             false
         }
     }

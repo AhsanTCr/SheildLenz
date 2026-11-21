@@ -1345,9 +1345,40 @@ class ExampleRobolectricTest {
         assertTrue("Mode-on chime should have stronger voice peak than subtle tap", modePeak > tapPeak)
         assertTrue("Tap amplitude must stay soft (no harsh clip)", tapPeak < 9000)
 
+        // Smooth attack & fast exponential decay: starts at 0 and fades cleanly to near-silence at tail
+        assertEquals(0, tapSamples.first().toInt())
+        val tailMax = tapSamples.takeLast(120).maxOf { kotlin.math.abs(it.toInt()) }
+        assertTrue("Tap tail should fade smoothly without abrupt click (tailMax=$tailMax, peak=$tapPeak)", tailMax < tapPeak / 4)
+
         // Safe execution even on headless Robolectric audio environment
+        AegisSoundEffects.prewarm()
+        AegisSoundEffects.setEnabled(false)
+        assertFalse(AegisSoundEffects.isEnabled())
+        AegisSoundEffects.playTap(context)
+        AegisSoundEffects.setEnabled(true)
+        assertTrue(AegisSoundEffects.isEnabled())
         AegisSoundEffects.playTap(context)
         AegisSoundEffects.playModeOn(context)
+    }
+
+    @Test
+    fun `touchSoundsEnabled defaults true persists and syncs with AegisSoundEffects`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+        prefs.setTouchSoundsEnabled(true)
+        assertTrue(prefs.touchSoundsEnabled.value)
+        assertTrue(AegisSoundEffects.isEnabled())
+
+        prefs.setTouchSoundsEnabled(false)
+        assertFalse(prefs.touchSoundsEnabled.value)
+        assertFalse(AegisSoundEffects.isEnabled())
+
+        val reloaded = AegisPreferences(context)
+        assertFalse(reloaded.touchSoundsEnabled.value)
+        assertFalse(AegisSoundEffects.isEnabled())
+
+        // Restore default cleanly for subsequent tests
+        reloaded.setTouchSoundsEnabled(true)
     }
 }
 
