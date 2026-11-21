@@ -40,7 +40,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,10 +69,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.models.ThreatCategory
 import com.example.data.preferences.AegisPreferences
+import com.example.data.preferences.RecoveryQrMode
 import com.example.services.protection.AegisLockdownService
 import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
+import com.example.ui.components.QrCodeImage
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
@@ -101,8 +105,13 @@ fun BlockOverlayScreen(
     val context = LocalContext.current
     val doubleTimeMinutes = remember(preferences) { preferences.getDoubleTimeDurationMinutes() }
     val doubleTimeLabel = remember(doubleTimeMinutes) { AegisPreferences.formatMinutesLabel(doubleTimeMinutes) }
+    val challengeCode by preferences.recoveryChallengeCode.collectAsState()
+    val savedEmail by preferences.guardianEmail.collectAsState()
     var showPinDialog by remember { mutableStateOf(false) }
+    var showForgotPinQr by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
+    var recoveryCodeInput by remember { mutableStateOf("") }
+    var newPinInput by remember { mutableStateOf("") }
     var pinError by remember { mutableStateOf<String?>(null) }
 
     BackHandler {
@@ -303,104 +312,214 @@ fun BlockOverlayScreen(
 
         if (showPinDialog) {
             val verifyMasterCode: () -> Unit = {
-                if (preferences.verifyGuardianPin(pinInput)) {
-                    preferences.clearLockdown()
-                    preferences.setShieldDesiredActive(true)
-                    showPinDialog = false
-                    onDismiss()
+                if (showForgotPinQr) {
+                    val cleanNewPin = newPinInput.trim()
+                    if (cleanNewPin.length !in 4..8 || !cleanNewPin.all { it.isDigit() }) {
+                        pinError = "Enter a new 4–8 digit PIN."
+                    } else if (preferences.resetPinWithRecoveryToken(recoveryCodeInput, cleanNewPin)) {
+                        preferences.setShieldDesiredActive(true)
+                        showPinDialog = false
+                        showForgotPinQr = false
+                        onDismiss()
+                    } else {
+                        pinError = "Invalid code for Challenge ID $challengeCode."
+                    }
                 } else {
-                    pinError = "Incorrect Master Code. Use Double-Time Wait if unknown."
-                    pinInput = ""
+                    if (preferences.verifyGuardianPin(pinInput)) {
+                        preferences.clearLockdown()
+                        preferences.setShieldDesiredActive(true)
+                        showPinDialog = false
+                        onDismiss()
+                    } else {
+                        pinError = "Incorrect Master Code. Use Double-Time Wait if unknown."
+                        pinInput = ""
+                    }
                 }
             }
             AlertDialog(
-                onDismissRequest = { showPinDialog = false },
+                onDismissRequest = {
+                    showPinDialog = false
+                    showForgotPinQr = false
+                },
                 containerColor = AegisLavenderSoft,
                 titleContentColor = AegisTextPrimary,
-                title = { Text("Master Code Verification", fontFamily = ClassicalDisplayFont, fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        text = if (showForgotPinQr) "Forgot PIN • QR Reset" else "Master Code Verification",
+                        fontFamily = ClassicalDisplayFont,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 text = {
-                    Column {
-                        Text(
-                            text = "Enter the Guardian Master Code to continue. If you do not know the Master Code, start a $doubleTimeLabel Double-Time Wait. Sheildlenz Shield remains ON after both.",
-                            color = AegisTextSecondary,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp,
-                            fontFamily = ClassicalBodyFont
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = pinInput,
-                            onValueChange = {
-                                if (it.length <= 8 && it.all { c -> c.isDigit() }) {
-                                    pinInput = it
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (showForgotPinQr) {
+                            val pinQrPayload = remember(challengeCode, savedEmail) {
+                                preferences.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
+                            }
+                            Text(
+                                text = "Scan with Sheildlenz on a parent device signed in with ${savedEmail.ifBlank { "your Guardian email" }}.",
+                                color = AegisTextSecondary,
+                                fontSize = 12.sp,
+                                lineHeight = 17.sp,
+                                textAlign = TextAlign.Center,
+                                fontFamily = ClassicalBodyFont
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            QrCodeImage(
+                                payload = pinQrPayload,
+                                padding = 10.dp,
+                                modifier = Modifier
+                                    .size(152.dp)
+                                    .border(1.2.dp, AegisGoldBorder, RoundedCornerShape(14.dp))
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Challenge ID: $challengeCode",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp,
+                                color = AegisTextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = recoveryCodeInput,
+                                onValueChange = {
+                                    recoveryCodeInput = it.uppercase()
                                     pinError = null
-                                }
-                            },
-                            label = { Text("Master Code / PIN") },
-                            visualTransformation = PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.NumberPassword,
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(onDone = { verifyMasterCode() }),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            isError = pinError != null,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = AegisPrimaryCyan,
-                                unfocusedBorderColor = AegisCardBorder,
-                                focusedTextColor = AegisTextPrimary,
-                                unfocusedTextColor = AegisTextPrimary
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .onPreviewKeyEvent { event ->
-                                    if (event.key == Key.Enter || event.key == Key.NumPadEnter) {
-                                        if (event.type == KeyEventType.KeyDown) {
-                                            verifyMasterCode()
-                                        }
-                                        true
-                                    } else {
-                                        false
+                                },
+                                label = { Text("8-Char One-Time Code") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = newPinInput,
+                                onValueChange = {
+                                    if (it.length <= 8 && it.all { c -> c.isDigit() }) {
+                                        newPinInput = it
+                                        pinError = null
                                     }
-                                }
-                        )
+                                },
+                                label = { Text("New PIN (4–8 digits)") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.NumberPassword,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(onDone = { verifyMasterCode() }),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            TextButton(
+                                onClick = {
+                                    showForgotPinQr = false
+                                    pinError = null
+                                },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("Back to PIN entry", fontSize = 11.5.sp)
+                            }
+                        } else {
+                            Text(
+                                text = "Enter the Guardian Master Code to continue. If you do not know the Master Code, start a $doubleTimeLabel Double-Time Wait. Sheildlenz Shield remains ON after both.",
+                                color = AegisTextSecondary,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                fontFamily = ClassicalBodyFont
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = pinInput,
+                                onValueChange = {
+                                    if (it.length <= 8 && it.all { c -> c.isDigit() }) {
+                                        pinInput = it
+                                        pinError = null
+                                    }
+                                },
+                                label = { Text("Master Code / PIN") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.NumberPassword,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(onDone = { verifyMasterCode() }),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                isError = pinError != null,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = AegisPrimaryCyan,
+                                    unfocusedBorderColor = AegisCardBorder,
+                                    focusedTextColor = AegisTextPrimary,
+                                    unfocusedTextColor = AegisTextPrimary
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onPreviewKeyEvent { event ->
+                                        if (event.key == Key.Enter || event.key == Key.NumPadEnter) {
+                                            if (event.type == KeyEventType.KeyDown) {
+                                                verifyMasterCode()
+                                            }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                            )
+                            TextButton(
+                                onClick = {
+                                    showForgotPinQr = true
+                                    pinError = null
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.End)
+                                    .testTag("block_screen_forgot_pin_button")
+                            ) {
+                                Text("Forgot PIN?", color = AegisPurple, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    preferences.engageFullDeviceLockdown(
+                                        appName = targetAppName,
+                                        packageName = "",
+                                        categoryName = category.displayName,
+                                        details = "Double-Time Wait ($doubleTimeLabel) selected because Master Code was unknown."
+                                    )
+                                    preferences.engageDoubleTimeLockdown()
+                                    AegisLockdownService.start(context)
+                                    showPinDialog = false
+                                    onDismiss()
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = AegisChampagneGold.copy(alpha = 0.12f),
+                                    contentColor = AegisWarningAmber
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("block_screen_double_time_button")
+                            ) {
+                                Text(
+                                    text = "DON'T KNOW CODE? WAIT DOUBLE TIME (${doubleTimeLabel.uppercase()})",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
                         if (pinError != null) {
                             Text(
                                 text = pinError!!,
                                 color = AegisDangerRed,
                                 fontSize = 12.sp,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = {
-                                preferences.engageFullDeviceLockdown(
-                                    appName = targetAppName,
-                                    packageName = "",
-                                    categoryName = category.displayName,
-                                    details = "Double-Time Wait ($doubleTimeLabel) selected because Master Code was unknown."
-                                )
-                                preferences.engageDoubleTimeLockdown()
-                                AegisLockdownService.start(context)
-                                showPinDialog = false
-                                onDismiss()
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = AegisChampagneGold.copy(alpha = 0.12f),
-                                contentColor = AegisWarningAmber
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("block_screen_double_time_button")
-                        ) {
-                            Text(
-                                text = "DON'T KNOW CODE? WAIT DOUBLE TIME (${doubleTimeLabel.uppercase()})",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp)
                             )
                         }
                     }
@@ -413,12 +532,18 @@ fun BlockOverlayScreen(
                             contentColor = AegisOnPrimaryWhite
                         )
                     ) {
-                        Text("VERIFY (SHIELD ON)", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (showForgotPinQr) "RESET & CONTINUE" else "VERIFY (SHIELD ON)",
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 },
                 dismissButton = {
                     OutlinedButton(
-                        onClick = { showPinDialog = false },
+                        onClick = {
+                            showPinDialog = false
+                            showForgotPinQr = false
+                        },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = AegisTextSecondary)
                     ) {
                         Text("CANCEL")

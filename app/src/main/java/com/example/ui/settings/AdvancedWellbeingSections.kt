@@ -89,6 +89,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.core.audio.AegisSoundEffects
 import com.example.data.preferences.AegisPreferences
 import com.example.data.preferences.InferenceAccelerationMode
 import com.example.security.deviceowner.AegisDeviceAdminReceiver
@@ -137,6 +138,7 @@ internal fun SafeDnsAndBlocklistSection(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
+            AegisSoundEffects.playModeOn(context)
             preferences.setSafeDnsEnabled(true)
             AegisSafeDnsVpnService.start(context)
             Toast.makeText(context, "Safe DNS VPN active", Toast.LENGTH_SHORT).show()
@@ -188,6 +190,7 @@ internal fun SafeDnsAndBlocklistSection(
                     if (enable) {
                         val prepIntent = runCatching { VpnService.prepare(context) }.getOrNull()
                         if (prepIntent == null) {
+                            AegisSoundEffects.playModeOn(context)
                             preferences.setSafeDnsEnabled(true)
                             AegisSafeDnsVpnService.start(context)
                         } else {
@@ -251,8 +254,11 @@ internal fun SafeDnsAndBlocklistSection(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
                         .clickable {
-                            preferences.setSafeDnsProvider(prov)
-                            Toast.makeText(context, "${prov.displayName} activated", Toast.LENGTH_SHORT).show()
+                            if (prov != currentProvider) {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setSafeDnsProvider(prov)
+                                Toast.makeText(context, "${prov.displayName} activated", Toast.LENGTH_SHORT).show()
+                            }
                         }
                         .testTag("dns_provider_${prov.id}"),
                     shape = RoundedCornerShape(14.dp),
@@ -297,18 +303,22 @@ internal fun SafeDnsAndBlocklistSection(
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = ClassicalDisplayFont
                                 )
+                                val isStrictProvider = prov == SafeDnsProvider.DEEN_STRICT ||
+                                    prov == SafeDnsProvider.CLEANBROWSING_ADULT ||
+                                    prov == SafeDnsProvider.OPENDNS_FAMILY ||
+                                    prov == SafeDnsProvider.CONTROLD_ADULT
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(
-                                            if (prov == SafeDnsProvider.DEEN_STRICT) AegisSuccessGreen.copy(alpha = 0.16f)
+                                            if (isStrictProvider) AegisSuccessGreen.copy(alpha = 0.16f)
                                             else AegisPurple.copy(alpha = 0.14f)
                                         )
                                         .padding(horizontal = 5.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = prov.ratingBadge,
-                                        color = if (prov == SafeDnsProvider.DEEN_STRICT) AegisSuccessGreen else AegisPurple,
+                                        color = if (isStrictProvider) AegisSuccessGreen else AegisPurple,
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = ClassicalBodyFont
@@ -581,6 +591,7 @@ internal fun BedtimeAndBudgetsSection(
                             preferences.setBedtimeEnabled(false)
                         }
                     } else {
+                        AegisSoundEffects.playModeOn(context)
                         preferences.setBedtimeEnabled(true)
                     }
                 },
@@ -609,7 +620,10 @@ internal fun BedtimeAndBudgetsSection(
                 OutlinedButton(
                     onClick = {
                         preferences.setBedtimeWindow(s, e)
-                        if (!bedtimeEnabled) preferences.setBedtimeEnabled(true)
+                        if (!bedtimeEnabled) {
+                            AegisSoundEffects.playModeOn(context)
+                            preferences.setBedtimeEnabled(true)
+                        }
                     },
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
@@ -938,6 +952,7 @@ internal fun WarningThresholdsSection(
     masterKeyGate: MasterKeyGateState,
     initiallyExpanded: Boolean = false
 ) {
+    val context = LocalContext.current
     val warningThreshold by preferences.warningThresholdCount.collectAsState()
     val summary = if (warningThreshold == 0) {
         "0 Warnings • Immediate Lockout"
@@ -977,7 +992,12 @@ internal fun WarningThresholdsSection(
                         .background(if (selected) AegisChampagneGold else AegisCardBackground.copy(alpha = 0.85f))
                         .border(1.dp, if (selected) AegisChampagneGold else AegisCardBorder, RoundedCornerShape(10.dp))
                         .clickable {
-                            masterKeyGate.request("change warning threshold") {
+                            if (count > warningThreshold) {
+                                masterKeyGate.request("increase warnings before lock to $count") {
+                                    preferences.setWarningThresholdCount(count)
+                                }
+                            } else if (count < warningThreshold) {
+                                AegisSoundEffects.playModeOn(context)
                                 preferences.setWarningThresholdCount(count)
                             }
                         }
@@ -1003,6 +1023,7 @@ internal fun AiAcceleratorAndCategoriesSection(
     masterKeyGate: MasterKeyGateState,
     initiallyExpanded: Boolean = false
 ) {
+    val context = LocalContext.current
     val accelerationMode by preferences.inferenceAccelerationMode.collectAsState()
     val blockExplicitAdult by preferences.blockExplicitAdult.collectAsState()
     val blockSuggestiveContent by preferences.blockSuggestiveContent.collectAsState()
@@ -1079,8 +1100,13 @@ internal fun AiAcceleratorAndCategoriesSection(
             title = "Explicit Adult Content",
             checked = blockExplicitAdult,
             onCheckedChange = { enabled ->
-                masterKeyGate.request("toggle explicit adult filter") {
-                    preferences.setBlockExplicitAdult(enabled)
+                if (enabled) {
+                    AegisSoundEffects.playModeOn(context)
+                    preferences.setBlockExplicitAdult(true)
+                } else {
+                    masterKeyGate.request("disable explicit adult filter") {
+                        preferences.setBlockExplicitAdult(false)
+                    }
                 }
             },
             testTag = "category_explicit_switch"
@@ -1089,8 +1115,13 @@ internal fun AiAcceleratorAndCategoriesSection(
             title = "Suggestive Visuals",
             checked = blockSuggestiveContent,
             onCheckedChange = { enabled ->
-                masterKeyGate.request("toggle suggestive visuals filter") {
-                    preferences.setBlockSuggestiveContent(enabled)
+                if (enabled) {
+                    AegisSoundEffects.playModeOn(context)
+                    preferences.setBlockSuggestiveContent(true)
+                } else {
+                    masterKeyGate.request("disable suggestive visuals filter") {
+                        preferences.setBlockSuggestiveContent(false)
+                    }
                 }
             },
             testTag = "category_suggestive_switch"
@@ -1099,8 +1130,13 @@ internal fun AiAcceleratorAndCategoriesSection(
             title = "Sensitive / Graphic Media",
             checked = blockSensitiveGraphic,
             onCheckedChange = { enabled ->
-                masterKeyGate.request("toggle sensitive graphic filter") {
-                    preferences.setBlockSensitiveGraphic(enabled)
+                if (enabled) {
+                    AegisSoundEffects.playModeOn(context)
+                    preferences.setBlockSensitiveGraphic(true)
+                } else {
+                    masterKeyGate.request("disable sensitive graphic filter") {
+                        preferences.setBlockSensitiveGraphic(false)
+                    }
                 }
             },
             testTag = "category_graphic_switch"
@@ -1109,8 +1145,13 @@ internal fun AiAcceleratorAndCategoriesSection(
             title = "Gambling Websites & Search",
             checked = blockGamblingKeywords,
             onCheckedChange = { enabled ->
-                masterKeyGate.request("toggle gambling filter") {
-                    preferences.setBlockGamblingKeywords(enabled)
+                if (enabled) {
+                    AegisSoundEffects.playModeOn(context)
+                    preferences.setBlockGamblingKeywords(true)
+                } else {
+                    masterKeyGate.request("disable gambling filter") {
+                        preferences.setBlockGamblingKeywords(false)
+                    }
                 }
             },
             testTag = "category_gambling_switch"

@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -20,8 +22,8 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
 /**
- * Pure-Kotlin ISO-18004 QR Code encoder (Versions 1–3, Byte Mode, ECC Level L)
- * supporting scannable pairing URIs such as `sheildlenz://pair?code=123456`.
+ * Pure-Kotlin ISO-18004 QR Code encoder (Versions 1–4, Byte Mode, ECC Level L)
+ * supporting scannable pairing and guardian recovery URIs.
  */
 object QrCodeGenerator {
 
@@ -83,7 +85,8 @@ object QrCodeGenerator {
     private val SPECS = listOf(
         VersionSpec(version = 1, size = 21, totalDataCodewords = 19, eccCodewords = 7, alignmentCenter = null),
         VersionSpec(version = 2, size = 25, totalDataCodewords = 34, eccCodewords = 10, alignmentCenter = 18),
-        VersionSpec(version = 3, size = 29, totalDataCodewords = 55, eccCodewords = 15, alignmentCenter = 22)
+        VersionSpec(version = 3, size = 29, totalDataCodewords = 55, eccCodewords = 15, alignmentCenter = 22),
+        VersionSpec(version = 4, size = 33, totalDataCodewords = 80, eccCodewords = 20, alignmentCenter = 26)
     )
 
     fun encode(content: String): Array<BooleanArray> {
@@ -299,6 +302,41 @@ object QrCodeGenerator {
             if (runLen >= 5) penalty += 3 + (runLen - 5)
         }
         return penalty
+    }
+
+    /**
+     * Renders [content] to a crisp ARGB_8888 Bitmap with a quiet-zone margin for Android View overlays.
+     */
+    fun encodeBitmap(
+        content: String,
+        sizePx: Int = 420,
+        darkColor: Int = AndroidColor.parseColor("#141824"),
+        lightColor: Int = AndroidColor.WHITE
+    ): Bitmap {
+        val matrix = encode(content)
+        val count = matrix.size
+        val quietModules = 2
+        val totalModules = count + quietModules * 2
+        val safeSize = sizePx.coerceAtLeast(totalModules * 4)
+        val cellPx = (safeSize / totalModules).coerceAtLeast(1)
+        val bitmapSize = totalModules * cellPx
+        val pixels = IntArray(bitmapSize * bitmapSize) { lightColor }
+
+        for (r in 0 until count) {
+            for (c in 0 until count) {
+                if (matrix[r][c]) {
+                    val startY = (r + quietModules) * cellPx
+                    val startX = (c + quietModules) * cellPx
+                    for (y in startY until startY + cellPx) {
+                        val rowOffset = y * bitmapSize
+                        for (x in startX until startX + cellPx) {
+                            pixels[rowOffset + x] = darkColor
+                        }
+                    }
+                }
+            }
+        }
+        return Bitmap.createBitmap(pixels, bitmapSize, bitmapSize, Bitmap.Config.ARGB_8888)
     }
 }
 

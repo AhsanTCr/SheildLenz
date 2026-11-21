@@ -31,16 +31,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisCyanGlow
 import com.example.ui.theme.AegisDangerRed
 import com.example.ui.theme.AegisElectricBlue
+import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisLavenderLight
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
@@ -50,10 +53,164 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
+private val DeepRoyalShadow = Color(0xFF152A5E)
+
+/**
+ * Projects a point on a tilted 3D circular/elliptical orbit into 2D screen coordinates + depth Z.
+ *
+ * @param center Orbit pivot in Canvas pixels.
+ * @param radiusX Horizontal semi-axis in pixels.
+ * @param radiusY Foreshortened vertical semi-axis in pixels (smaller = steeper 3D tilt).
+ * @param zAmplitude Depth reach in pixels along the Z axis (+Z is toward viewer, -Z is away).
+ * @param angleDeg Orbital angle in degrees.
+ * @param tiltDeg Screen-plane roll of the orbital plane in degrees.
+ * @param cameraDistance Perspective focal distance in pixels.
+ */
+data class ProjectedOrbitPoint(
+    val offset: Offset,
+    val zNormalized: Float, // -1f (farthest back) .. +1f (closest front)
+    val perspectiveScale: Float
+)
+
+fun projectOrbitPoint3D(
+    center: Offset,
+    radiusX: Float,
+    radiusY: Float,
+    zAmplitude: Float,
+    angleDeg: Float,
+    tiltDeg: Float,
+    cameraDistance: Float
+): ProjectedOrbitPoint {
+    val rad = angleDeg * (PI / 180.0)
+    val cosA = cos(rad).toFloat()
+    val sinA = sin(rad).toFloat()
+
+    // Local orbital coordinates before roll
+    val lx = radiusX * cosA
+    val ly = radiusY * sinA
+    val lz = zAmplitude * sinA
+
+    // Apply perspective foreshortening so foreground orbs swell and background orbs recede
+    val safeDenom = (cameraDistance - lz).coerceAtLeast(cameraDistance * 0.35f)
+    val persp = cameraDistance / safeDenom
+
+    // Rotate (lx, ly) by orbital plane roll angle
+    val tiltRad = tiltDeg * (PI / 180.0)
+    val cosT = cos(tiltRad).toFloat()
+    val sinT = sin(tiltRad).toFloat()
+    val rx = (lx * cosT - ly * sinT) * persp
+    val ry = (lx * sinT + ly * cosT) * persp
+
+    val zNorm = if (zAmplitude > 0f) (lz / zAmplitude).coerceIn(-1f, 1f) else 0f
+    return ProjectedOrbitPoint(
+        offset = Offset(center.x + rx, center.y + ry),
+        zNormalized = zNorm,
+        perspectiveScale = persp
+    )
+}
+
+/**
+ * Renders a volumetric 3D glossy sphere with soft cast depth shadow, luminous halo,
+ * multi-stop spherical shading (upper-left key light -> core hue -> deep terminator -> rim bounce),
+ * and crisp specular catchlight.
+ */
+fun DrawScope.drawVolumetric3DSphere(
+    center: Offset,
+    radius: Float,
+    baseColor: Color,
+    alpha: Float = 1f,
+    depthNormalized: Float = 0f,
+    drawHaloAndShadow: Boolean = true
+) {
+    if (radius <= 0.4f || alpha <= 0.01f) return
+    val clampedAlpha = alpha.coerceIn(0f, 1f)
+    val frontBoost = ((depthNormalized + 1f) * 0.5f).coerceIn(0f, 1f)
+
+    if (drawHaloAndShadow) {
+        // Soft colored ambient glow around foreground/active spheres
+        val haloRadius = radius * (2.25f + 0.35f * frontBoost)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    baseColor.copy(alpha = (0.28f + 0.18f * frontBoost) * clampedAlpha),
+                    baseColor.copy(alpha = 0.07f * clampedAlpha),
+                    Color.Transparent
+                ),
+                center = center,
+                radius = haloRadius
+            ),
+            radius = haloRadius,
+            center = center
+        )
+
+        // Subtle cool drop shadow anchored beneath-right to heighten floating 3D separation
+        if (depthNormalized > -0.25f) {
+            val shadowOffset = Offset(radius * 0.22f, radius * 0.34f)
+            val shadowAlpha = (0.14f + 0.16f * frontBoost) * clampedAlpha
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        DeepRoyalShadow.copy(alpha = shadowAlpha),
+                        Color.Transparent
+                    ),
+                    center = center + shadowOffset,
+                    radius = radius * 1.18f
+                ),
+                radius = radius * 1.18f,
+                center = center + shadowOffset
+            )
+        }
+    }
+
+    // Off-center spherical shading from upper-left key light while preserving bright base hue
+    val highlightCenter = Offset(
+        x = center.x - radius * 0.36f,
+        y = center.y - radius * 0.36f
+    )
+    val brightSpec = lerp(baseColor, Color.White, 0.92f).copy(alpha = clampedAlpha)
+    val litTone = lerp(baseColor, Color.White, 0.48f).copy(alpha = clampedAlpha)
+    val coreTone = baseColor.copy(alpha = clampedAlpha)
+    val terminatorShadow = lerp(baseColor, DeepRoyalShadow, 0.32f).copy(alpha = clampedAlpha)
+    val rimBounce = lerp(baseColor, Color.White, 0.28f).copy(alpha = clampedAlpha)
+
+    drawCircle(
+        brush = Brush.radialGradient(
+            colorStops = arrayOf(
+                0.00f to brightSpec,
+                0.24f to litTone,
+                0.56f to coreTone,
+                0.86f to terminatorShadow,
+                1.00f to rimBounce
+            ),
+            center = highlightCenter,
+            radius = radius * 1.48f
+        ),
+        radius = radius,
+        center = center
+    )
+
+    // Delicate top-left glass specular glint
+    val glintCenter = Offset(center.x - radius * 0.33f, center.y - radius * 0.34f)
+    val glintRadius = radius * 0.34f
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.96f * clampedAlpha),
+                Color.White.copy(alpha = 0.40f * clampedAlpha),
+                Color.Transparent
+            ),
+            center = glintCenter,
+            radius = glintRadius
+        ),
+        radius = glintRadius,
+        center = glintCenter
+    )
+}
+
 /**
  * Pure VIP layered crystal shield crest with continuous smooth levitation,
- * rotating aurora sweep halo, orbiting constellation nodes, specular glass sheen,
- * and spring-animated shockwave activation.
+ * rotating aurora sweep halo, 3D inclined orbiting spheres with Z-occlusion,
+ * specular glass sheen, and spring-animated shockwave activation.
  */
 @Composable
 fun AegisShieldGraphic(
@@ -75,7 +232,7 @@ fun AegisShieldGraphic(
         label = "AuroraSweepAngle"
     )
 
-    // Counter-rotating inner orbital phase
+    // Counter-rotating 3D orbital sphere phase
     val orbitAngle by infiniteTransition.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
@@ -263,22 +420,76 @@ fun AegisShieldGraphic(
                 )
             }
 
-            // 4. Counter-rotating orbiting pearl nodes on outer ring
+            // Prepare tilted 3D orbital spheres with perspective Z-sorting (preserving original shieldPrimary / haloAccent colors)
+            val innerRx = w * 0.44f
+            val innerRy = w * 0.26f
+            val innerZ = w * 0.35f
+            val camDist = w * 2.15f
+            val tiltDeg = -22f
             val orbCount = 3
-            for (i in 0 until orbCount) {
-                val theta = ((orbitAngle + i * (360f / orbCount)) * PI / 180.0)
-                val ox = center.x + (ringRadius * cos(theta)).toFloat()
-                val oy = center.y + (ringRadius * sin(theta)).toFloat()
-                val orbColor = if (i % 2 == 0) shieldPrimary else haloAccent
-                drawCircle(
-                    color = orbColor.copy(alpha = 0.28f + 0.25f * breathPhase),
-                    radius = 5.5.dp.toPx(),
-                    center = Offset(ox, oy)
+            data class SphereRenderItem(
+                val pt: ProjectedOrbitPoint,
+                val color: Color,
+                val baseRadius: Float,
+                val trail: List<Pair<ProjectedOrbitPoint, Float>>
+            )
+            val spheres3D = (0 until orbCount).map { i ->
+                val theta = orbitAngle + i * (360f / orbCount)
+                val pt = projectOrbitPoint3D(
+                    center = center,
+                    radiusX = innerRx,
+                    radiusY = innerRy,
+                    zAmplitude = innerZ,
+                    angleDeg = theta,
+                    tiltDeg = tiltDeg,
+                    cameraDistance = camDist
                 )
-                drawCircle(
-                    color = Color.White,
-                    radius = 2.8.dp.toPx(),
-                    center = Offset(ox, oy)
+                val trail = (1..3).map { step ->
+                    // Counter-clockwise sweep (-orbitAngle direction): trail sits +step * 9 deg behind
+                    val tPt = projectOrbitPoint3D(
+                        center = center,
+                        radiusX = innerRx,
+                        radiusY = innerRy,
+                        zAmplitude = innerZ,
+                        angleDeg = theta + step * 9f,
+                        tiltDeg = tiltDeg,
+                        cameraDistance = camDist
+                    )
+                    tPt to (1f - step * 0.24f)
+                }
+                val originalOrbTint = lerp(
+                    if (i % 2 == 0) shieldPrimary else haloAccent,
+                    Color.White,
+                    0.22f
+                )
+                SphereRenderItem(
+                    pt = pt,
+                    color = originalOrbTint,
+                    baseRadius = 4.2.dp.toPx(),
+                    trail = trail
+                )
+            }.sortedBy { it.pt.zNormalized }
+
+            // 4a. Back-hemisphere 3D orbital spheres (pass behind crystal shield)
+            spheres3D.filter { it.pt.zNormalized < 0f }.forEach { item ->
+                val depthAlpha = (0.58f + 0.30f * (item.pt.zNormalized + 1f)).coerceIn(0.45f, 0.90f)
+                item.trail.asReversed().forEach { (tPt, decay) ->
+                    drawVolumetric3DSphere(
+                        center = tPt.offset,
+                        radius = item.baseRadius * tPt.perspectiveScale * 0.56f * decay,
+                        baseColor = item.color,
+                        alpha = depthAlpha * 0.45f * decay,
+                        depthNormalized = tPt.zNormalized,
+                        drawHaloAndShadow = false
+                    )
+                }
+                drawVolumetric3DSphere(
+                    center = item.pt.offset,
+                    radius = item.baseRadius * item.pt.perspectiveScale,
+                    baseColor = item.color,
+                    alpha = depthAlpha,
+                    depthNormalized = item.pt.zNormalized,
+                    drawHaloAndShadow = true
                 )
             }
 
@@ -360,7 +571,7 @@ fun AegisShieldGraphic(
                 style = Stroke(width = 3.6.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
 
-            // 6. Center floating medallion orb with breathing halo
+            // 6. Center floating 3D medallion orb keeping original multi-color gradient + spherical 3D dome lighting
             val coreRadius = w * (0.155f + 0.012f * breathPhase)
             drawCircle(
                 color = shieldPrimary.copy(alpha = 0.20f + 0.18f * activationProgress),
@@ -380,8 +591,23 @@ fun AegisShieldGraphic(
                 radius = coreRadius,
                 center = center
             )
+            // Subtle 3D spherical lighting overlay so the medallion keeps its gradient while gaining volume
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0.00f to Color.White.copy(alpha = 0.42f),
+                        0.40f to Color.Transparent,
+                        0.85f to DeepRoyalShadow.copy(alpha = 0.22f),
+                        1.00f to Color.White.copy(alpha = 0.16f)
+                    ),
+                    center = Offset(center.x - coreRadius * 0.34f, center.y - coreRadius * 0.34f),
+                    radius = coreRadius * 1.45f
+                ),
+                radius = coreRadius,
+                center = center
+            )
 
-            // Crisp inner emblem (Checkmark when active, clean protective shield-check when standby)
+            // Crisp inner checkmark emblem
             val checkPath = Path().apply {
                 moveTo(center.x - coreRadius * 0.38f, center.y + coreRadius * 0.04f)
                 lineTo(center.x - coreRadius * 0.08f, center.y + coreRadius * 0.34f)
@@ -392,6 +618,29 @@ fun AegisShieldGraphic(
                 color = Color.White,
                 style = Stroke(width = 3.0.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
             )
+
+            // 4b. Front-hemisphere 3D orbital spheres (sweep gracefully across front of shield bezel)
+            spheres3D.filter { it.pt.zNormalized >= 0f }.forEach { item ->
+                val depthAlpha = (0.86f + 0.14f * item.pt.zNormalized).coerceIn(0.84f, 1f)
+                item.trail.asReversed().forEach { (tPt, decay) ->
+                    drawVolumetric3DSphere(
+                        center = tPt.offset,
+                        radius = item.baseRadius * tPt.perspectiveScale * 0.56f * decay,
+                        baseColor = item.color,
+                        alpha = depthAlpha * 0.52f * decay,
+                        depthNormalized = tPt.zNormalized,
+                        drawHaloAndShadow = false
+                    )
+                }
+                drawVolumetric3DSphere(
+                    center = item.pt.offset,
+                    radius = item.baseRadius * item.pt.perspectiveScale,
+                    baseColor = item.color,
+                    alpha = depthAlpha,
+                    depthNormalized = item.pt.zNormalized,
+                    drawHaloAndShadow = true
+                )
+            }
         }
     }
 }

@@ -293,6 +293,7 @@ fun AegisNavHost(
 
                     composable(AegisDestinations.ONBOARDING) {
                         OnboardingScreen(
+                            preferences = container.preferences,
                             onComplete = {
                                 container.preferences.setOnboardingCompleted(true)
                                 navController.navigate(AegisDestinations.HOME) {

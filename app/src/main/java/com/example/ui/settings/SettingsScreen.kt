@@ -104,6 +104,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.models.SensitivityLevel
 import com.example.data.preferences.AegisPreferences
 import com.example.data.preferences.PowerMode
@@ -347,6 +348,19 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
+                        val selectPowerMode: (PowerMode) -> Unit = { targetMode ->
+                            if (targetMode != powerMode) {
+                                if (targetMode.scanIntervalMs > powerMode.scanIntervalMs) {
+                                    masterKeyGate.request("switch to ${targetMode.displayName}") {
+                                        preferences.setPowerMode(targetMode)
+                                    }
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setPowerMode(targetMode)
+                                }
+                            }
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -356,7 +370,7 @@ fun SettingsScreen(
                                 icon = Icons.Default.AutoAwesome,
                                 accentColor = AegisPrimaryCyan,
                                 selected = powerMode == PowerMode.ADAPTIVE_ECO,
-                                onClick = { preferences.setPowerMode(PowerMode.ADAPTIVE_ECO) },
+                                onClick = { selectPowerMode(PowerMode.ADAPTIVE_ECO) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("power_mode_adaptive_eco")
@@ -366,7 +380,7 @@ fun SettingsScreen(
                                 icon = Icons.Default.BatterySaver,
                                 accentColor = AegisPurple,
                                 selected = powerMode == PowerMode.POWER_SAVING,
-                                onClick = { preferences.setPowerMode(PowerMode.POWER_SAVING) },
+                                onClick = { selectPowerMode(PowerMode.POWER_SAVING) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("power_mode_power_saving")
@@ -382,7 +396,7 @@ fun SettingsScreen(
                                 icon = Icons.Default.Tune,
                                 accentColor = AegisPurple,
                                 selected = powerMode == PowerMode.BALANCED,
-                                onClick = { preferences.setPowerMode(PowerMode.BALANCED) },
+                                onClick = { selectPowerMode(PowerMode.BALANCED) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("power_mode_balanced")
@@ -392,7 +406,7 @@ fun SettingsScreen(
                                 icon = Icons.Default.Bolt,
                                 accentColor = AegisChampagneGold,
                                 selected = powerMode == PowerMode.EXTREME,
-                                onClick = { preferences.setPowerMode(PowerMode.EXTREME) },
+                                onClick = { selectPowerMode(PowerMode.EXTREME) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("power_mode_extreme")
@@ -407,31 +421,76 @@ fun SettingsScreen(
                         CompactSwitchRow(
                             title = "Auto-Throttle (<20% Battery)",
                             checked = autoThrottleLowBattery,
-                            onCheckedChange = { preferences.setAutoThrottleLowBattery(it) },
+                            onCheckedChange = { throttle ->
+                                if (throttle) {
+                                    masterKeyGate.request("enable low-battery throttling") {
+                                        preferences.setAutoThrottleLowBattery(true)
+                                    }
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setAutoThrottleLowBattery(false)
+                                }
+                            },
                             testTag = "power_opt_low_battery_throttle"
                         )
                         CompactSwitchRow(
                             title = "Adaptive Idle Backoff",
                             checked = adaptiveCadenceEnabled,
-                            onCheckedChange = { preferences.setAdaptiveCadenceEnabled(it) },
+                            onCheckedChange = { backoff ->
+                                if (backoff) {
+                                    masterKeyGate.request("enable idle scan backoff") {
+                                        preferences.setAdaptiveCadenceEnabled(true)
+                                    }
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setAdaptiveCadenceEnabled(false)
+                                }
+                            },
                             testTag = "power_opt_adaptive_cadence"
                         )
                         CompactSwitchRow(
                             title = "Skip Static Frames",
                             checked = skipDuplicateFrames,
-                            onCheckedChange = { preferences.setSkipDuplicateFrames(it) },
+                            onCheckedChange = { skip ->
+                                if (skip) {
+                                    masterKeyGate.request("skip static frames") {
+                                        preferences.setSkipDuplicateFrames(true)
+                                    }
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setSkipDuplicateFrames(false)
+                                }
+                            },
                             testTag = "power_opt_skip_duplicates"
                         )
                         CompactSwitchRow(
                             title = "Compact Capture (256px)",
                             checked = captureWidthPx <= 320,
-                            onCheckedChange = { preferences.setCompactPowerResolution(it) },
+                            onCheckedChange = { compact ->
+                                if (compact) {
+                                    masterKeyGate.request("lower capture resolution to 256px") {
+                                        preferences.setCompactPowerResolution(true)
+                                    }
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setCompactPowerResolution(false)
+                                }
+                            },
                             testTag = "power_opt_compact_capture"
                         )
                         CompactSwitchRow(
                             title = "Pause on Screen Off",
                             checked = pauseWhenScreenOff,
-                            onCheckedChange = { preferences.setPauseWhenScreenOff(it) },
+                            onCheckedChange = { pauseOff ->
+                                if (pauseOff) {
+                                    masterKeyGate.request("pause scanning on screen off") {
+                                        preferences.setPauseWhenScreenOff(true)
+                                    }
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setPauseWhenScreenOff(false)
+                                }
+                            },
                             testTag = "power_opt_pause_screen_off"
                         )
                     }
@@ -498,8 +557,15 @@ fun SettingsScreen(
                                             shape = RoundedCornerShape(12.dp)
                                         )
                                         .clickable {
-                                            masterKeyGate.request("change sensitivity to ${level.displayName}") {
-                                                preferences.setSensitivity(level)
+                                            if (level != sensitivity) {
+                                                if (level.ordinal > sensitivity.ordinal) {
+                                                    masterKeyGate.request("relax sensitivity to ${level.displayName}") {
+                                                        preferences.setSensitivity(level)
+                                                    }
+                                                } else {
+                                                    AegisSoundEffects.playModeOn(context)
+                                                    preferences.setSensitivity(level)
+                                                }
                                             }
                                         },
                                     contentAlignment = Alignment.Center
@@ -522,8 +588,13 @@ fun SettingsScreen(
                             title = "Strict Everything Mode",
                             checked = isStrictEverything,
                             onCheckedChange = { enabled ->
-                                masterKeyGate.request("${if (enabled) "enable" else "disable"} Strict Everything") {
-                                    preferences.setStrictEverything(enabled)
+                                if (enabled) {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setStrictEverything(true)
+                                } else {
+                                    masterKeyGate.request("disable Strict Everything") {
+                                        preferences.setStrictEverything(false)
+                                    }
                                 }
                             },
                             testTag = "strict_everything_switch"
@@ -611,7 +682,13 @@ fun SettingsScreen(
                                 val selected = (lockdownDurationMinutes == hrs * 60)
                                 OutlinedButton(
                                     onClick = {
-                                        masterKeyGate.request("set lockdown to ${hrs}H") {
+                                        val targetMinutes = hrs * 60
+                                        if (targetMinutes < lockdownDurationMinutes) {
+                                            masterKeyGate.request("lower lockdown penalty to ${hrs}H") {
+                                                preferences.setLockdownHours(hrs)
+                                            }
+                                        } else if (targetMinutes > lockdownDurationMinutes) {
+                                            AegisSoundEffects.playModeOn(context)
                                             preferences.setLockdownHours(hrs)
                                         }
                                     },
@@ -635,9 +712,14 @@ fun SettingsScreen(
                         CompactSwitchRow(
                             title = "Cooldown Before PIN",
                             checked = waitCooldownBeforePin,
-                            onCheckedChange = {
-                                masterKeyGate.request("change cooldown policy") {
-                                    preferences.setWaitCooldownBeforePassword(it)
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setWaitCooldownBeforePassword(true)
+                                } else {
+                                    masterKeyGate.request("disable cooldown before PIN") {
+                                        preferences.setWaitCooldownBeforePassword(false)
+                                    }
                                 }
                             },
                             testTag = "cooldown_before_pin_switch"
@@ -645,9 +727,14 @@ fun SettingsScreen(
                         CompactSwitchRow(
                             title = "Anti-Tamper Lock",
                             checked = antiTamperEnabled,
-                            onCheckedChange = {
-                                masterKeyGate.request("change anti-tamper policy") {
-                                    preferences.setAntiTamperEnabled(it)
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setAntiTamperEnabled(true)
+                                } else {
+                                    masterKeyGate.request("disable anti-tamper lock") {
+                                        preferences.setAntiTamperEnabled(false)
+                                    }
                                 }
                             },
                             testTag = "anti_tamper_switch"
@@ -655,9 +742,14 @@ fun SettingsScreen(
                         CompactSwitchRow(
                             title = "Auto-Start on Boot",
                             checked = isAutoStart,
-                            onCheckedChange = {
-                                masterKeyGate.request("change boot auto-start") {
-                                    preferences.setAutoStart(it)
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setAutoStart(true)
+                                } else {
+                                    masterKeyGate.request("disable boot auto-start") {
+                                        preferences.setAutoStart(false)
+                                    }
                                 }
                             },
                             testTag = "auto_start_boot_switch"
@@ -668,8 +760,13 @@ fun SettingsScreen(
                             titleColor = AegisDangerRed,
                             activeColor = AegisDangerRed,
                             onCheckedChange = { isChecked ->
-                                masterKeyGate.request("${if (isChecked) "enable" else "disable"} Maintenance Mode") {
-                                    preferences.setMaintenanceMode(isChecked)
+                                if (isChecked) {
+                                    masterKeyGate.request("enable Maintenance Mode") {
+                                        preferences.setMaintenanceMode(true)
+                                    }
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setMaintenanceMode(false)
                                 }
                             },
                             testTag = "maintenance_mode_switch"
@@ -1420,6 +1517,7 @@ private fun ScheduledProtectionSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState
 ) {
+    val context = LocalContext.current
     val scheduleEnabled by preferences.scheduleEnabled.collectAsState()
     val startMinutes by preferences.scheduleStartMinutes.collectAsState()
     val endMinutes by preferences.scheduleEndMinutes.collectAsState()
@@ -1465,6 +1563,7 @@ private fun ScheduledProtectionSection(
                             preferences.setScheduleEnabled(false)
                         }
                     } else {
+                        AegisSoundEffects.playModeOn(context)
                         preferences.setScheduleEnabled(true)
                     }
                 },
@@ -1494,7 +1593,10 @@ private fun ScheduledProtectionSection(
                 OutlinedButton(
                     onClick = {
                         preferences.setScheduleWindow(pStart, pEnd)
-                        if (!scheduleEnabled) preferences.setScheduleEnabled(true)
+                        if (!scheduleEnabled) {
+                            AegisSoundEffects.playModeOn(context)
+                            preferences.setScheduleEnabled(true)
+                        }
                     },
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),

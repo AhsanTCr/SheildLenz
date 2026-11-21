@@ -95,6 +95,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.permissions.PermissionHelper
 import com.example.core.update.ApkDownloadState
 import com.example.core.update.UpdateChecker
@@ -109,7 +110,10 @@ import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
 import com.example.ui.components.HomeModelDownloadCard
 import com.example.ui.components.ModelManagerCard
+import com.example.ui.components.ProjectedOrbitPoint
 import com.example.ui.components.SheildlenzBackdrop
+import com.example.ui.components.drawVolumetric3DSphere
+import com.example.ui.components.projectOrbitPoint3D
 import com.example.ui.components.rememberMasterKeyGate
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
@@ -117,6 +121,7 @@ import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisElectricBlue
 import com.example.ui.theme.AegisGoldBorder
+import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisLavenderBorder
 import com.example.ui.theme.AegisLavenderLight
 import com.example.ui.theme.AegisLavenderSoft
@@ -200,6 +205,7 @@ fun DashboardScreen(
             )
         }
         if (targetActive) {
+            AegisSoundEffects.playModeOn(context)
             attemptStartProtection()
         } else {
             masterKeyGate.request("turn Shield OFF") {
@@ -651,7 +657,7 @@ fun DashboardScreen(
 
                             Spacer(modifier = Modifier.height(14.dp))
 
-                            // Pure VIP Orbital Shield Stage with continuous fluid ripples & sweep halo
+                            // Pure VIP Orbital Shield Stage with continuous fluid ripples & 3D orbiting spheres
                             Box(
                                 modifier = Modifier
                                     .size(216.dp)
@@ -660,6 +666,13 @@ fun DashboardScreen(
                                     .testTag("shield_graphic_toggle"),
                                 contentAlignment = Alignment.Center
                             ) {
+                                val outerOrbColors = if (isOn) {
+                                    listOf(AegisElectricBlue)
+                                } else {
+                                    listOf(AegisPurple)
+                                }
+
+                                // Back hemisphere canvas (ripples, halo track, and z < 0 distant 3D spheres)
                                 Canvas(modifier = Modifier.size(216.dp)) {
                                     val c = Offset(this.size.width / 2f, this.size.height / 2f)
                                     val maxR = this.size.minDimension * 0.48f
@@ -679,7 +692,7 @@ fun DashboardScreen(
                                     // Subtle dotted celestial track + smooth sweep glow ring
                                     val trackR = maxR * 0.90f
                                     drawCircle(
-                                        color = (if (isOn) AegisPrimaryCyan else AegisLavenderBorder).copy(alpha = 0.28f),
+                                        color = (if (isOn) AegisPrimaryCyan else AegisLavenderBorder).copy(alpha = 0.26f),
                                         radius = trackR,
                                         center = c,
                                         style = Stroke(
@@ -711,17 +724,73 @@ fun DashboardScreen(
                                         )
                                     }
 
-                                    // Floating orbital light sparks
-                                    for (i in 0..2) {
-                                        val angleRad = ((ringRotation + i * 120f) * Math.PI / 180.0)
-                                        val px = c.x + (trackR * cos(angleRad)).toFloat()
-                                        val py = c.y + (trackR * sin(angleRad)).toFloat()
-                                        drawCircle(
-                                            color = if (isOn) AegisElectricBlue.copy(alpha = 0.85f) else AegisPurple.copy(alpha = 0.65f),
-                                            radius = 3.dp.toPx(),
-                                            center = Offset(px, py)
+                                    // Subtle tilted 3D orbital ellipse back arc
+                                    rotate(degrees = 16f, pivot = c) {
+                                        val orbRx = maxR * 0.90f
+                                        val orbRy = maxR * 0.54f
+                                        drawOval(
+                                            color = (if (isOn) AegisPrimaryCyan else AegisPurple).copy(alpha = 0.14f),
+                                            topLeft = Offset(c.x - orbRx, c.y - orbRy),
+                                            size = Size(orbRx * 2f, orbRy * 2f),
+                                            style = Stroke(width = 1.1.dp.toPx())
                                         )
                                     }
+
+                                    // Distant back-hemisphere 3D spheres (z < 0, pass behind shield)
+                                    val orbRx = maxR * 0.90f
+                                    val orbRy = maxR * 0.54f
+                                    val orbZ = maxR * 0.66f
+                                    val camDist = this.size.minDimension * 2.15f
+                                    val baseRadiusPx = 5.0.dp.toPx()
+
+                                    (0 until 4)
+                                        .map { i ->
+                                            val deg = ringRotation + i * 90f
+                                            val pt = projectOrbitPoint3D(
+                                                center = c,
+                                                radiusX = orbRx,
+                                                radiusY = orbRy,
+                                                zAmplitude = orbZ,
+                                                angleDeg = deg,
+                                                tiltDeg = 16f,
+                                                cameraDistance = camDist
+                                            )
+                                            Triple(i, deg, pt)
+                                        }
+                                        .filter { (_, _, pt) -> pt.zNormalized < 0f }
+                                        .sortedBy { (_, _, pt) -> pt.zNormalized }
+                                        .forEach { (i, deg, pt) ->
+                                            val orbColor = outerOrbColors[i % outerOrbColors.size]
+                                            val depthAlpha = (0.56f + 0.34f * (pt.zNormalized + 1f)).coerceIn(0.45f, 0.90f)
+                                            for (step in 3 downTo 1) {
+                                                val tPt = projectOrbitPoint3D(
+                                                    center = c,
+                                                    radiusX = orbRx,
+                                                    radiusY = orbRy,
+                                                    zAmplitude = orbZ,
+                                                    angleDeg = deg - step * 8.5f,
+                                                    tiltDeg = 16f,
+                                                    cameraDistance = camDist
+                                                )
+                                                val decay = 1f - step * 0.24f
+                                                drawVolumetric3DSphere(
+                                                    center = tPt.offset,
+                                                    radius = baseRadiusPx * tPt.perspectiveScale * 0.56f * decay,
+                                                    baseColor = orbColor,
+                                                    alpha = depthAlpha * 0.44f * decay,
+                                                    depthNormalized = tPt.zNormalized,
+                                                    drawHaloAndShadow = false
+                                                )
+                                            }
+                                            drawVolumetric3DSphere(
+                                                center = pt.offset,
+                                                radius = baseRadiusPx * pt.perspectiveScale,
+                                                baseColor = orbColor,
+                                                alpha = depthAlpha,
+                                                depthNormalized = pt.zNormalized,
+                                                drawHaloAndShadow = true
+                                            )
+                                        }
                                 }
 
                                 AegisShieldGraphic(
@@ -729,6 +798,66 @@ fun DashboardScreen(
                                     isThreatActive = false,
                                     size = 160.dp
                                 )
+
+                                // Front hemisphere canvas (z >= 0 foreground 3D spheres passing in front of outer stage)
+                                Canvas(modifier = Modifier.size(216.dp)) {
+                                    val c = Offset(this.size.width / 2f, this.size.height / 2f)
+                                    val maxR = this.size.minDimension * 0.48f
+                                    val orbRx = maxR * 0.90f
+                                    val orbRy = maxR * 0.54f
+                                    val orbZ = maxR * 0.66f
+                                    val camDist = this.size.minDimension * 2.15f
+                                    val baseRadiusPx = 5.0.dp.toPx()
+
+                                    (0 until 4)
+                                        .map { i ->
+                                            val deg = ringRotation + i * 90f
+                                            val pt: ProjectedOrbitPoint = projectOrbitPoint3D(
+                                                center = c,
+                                                radiusX = orbRx,
+                                                radiusY = orbRy,
+                                                zAmplitude = orbZ,
+                                                angleDeg = deg,
+                                                tiltDeg = 16f,
+                                                cameraDistance = camDist
+                                            )
+                                            Triple(i, deg, pt)
+                                        }
+                                        .filter { (_, _, pt) -> pt.zNormalized >= 0f }
+                                        .sortedBy { (_, _, pt) -> pt.zNormalized }
+                                        .forEach { (i, deg, pt) ->
+                                            val orbColor = outerOrbColors[i % outerOrbColors.size]
+                                            val depthAlpha = (0.88f + 0.12f * pt.zNormalized).coerceIn(0.86f, 1f)
+                                            for (step in 3 downTo 1) {
+                                                val tPt = projectOrbitPoint3D(
+                                                    center = c,
+                                                    radiusX = orbRx,
+                                                    radiusY = orbRy,
+                                                    zAmplitude = orbZ,
+                                                    angleDeg = deg - step * 8.5f,
+                                                    tiltDeg = 16f,
+                                                    cameraDistance = camDist
+                                                )
+                                                val decay = 1f - step * 0.24f
+                                                drawVolumetric3DSphere(
+                                                    center = tPt.offset,
+                                                    radius = baseRadiusPx * tPt.perspectiveScale * 0.56f * decay,
+                                                    baseColor = orbColor,
+                                                    alpha = depthAlpha * 0.54f * decay,
+                                                    depthNormalized = tPt.zNormalized,
+                                                    drawHaloAndShadow = false
+                                                )
+                                            }
+                                            drawVolumetric3DSphere(
+                                                center = pt.offset,
+                                                radius = baseRadiusPx * pt.perspectiveScale,
+                                                baseColor = orbColor,
+                                                alpha = depthAlpha,
+                                                depthNormalized = pt.zNormalized,
+                                                drawHaloAndShadow = true
+                                            )
+                                        }
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(10.dp))
@@ -1032,7 +1161,7 @@ fun DashboardScreen(
 
                         HomeDestinationGatewayCard(
                             title = "Wellbeing & Safe DNS",
-                            subtitle = "Safe DNS, Bedtime, App Budgets, Categories & Recovery",
+                            subtitle = "Strict Deen Safe DNS, Bedtime & App Budgets",
                             icon = Icons.Default.Dns,
                             gradientColors = listOf(AegisChampagneGold, AegisPrimaryCyan),
                             surfaceTint = listOf(Color(0xFFFFFBF2), Color(0xFFF0F9FF)),

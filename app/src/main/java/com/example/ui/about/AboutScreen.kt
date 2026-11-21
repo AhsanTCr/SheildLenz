@@ -1,16 +1,21 @@
 package com.example.ui.about
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,18 +28,30 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.InstallMobile
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Update
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,6 +62,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -55,13 +73,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
@@ -69,6 +94,7 @@ import com.example.R
 import com.example.core.update.ApkDownloadState
 import com.example.core.update.UpdateChecker
 import com.example.data.preferences.AegisPreferences
+import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.AhsanTcrBrandingPill
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
@@ -77,14 +103,22 @@ import com.example.ui.components.LuxurySectionHeader
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.settings.AdvancedPrecisionLabSection
 import com.example.ui.settings.AppVersionSecretCard
+import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
+import com.example.ui.theme.AegisChampagneSoft
+import com.example.ui.theme.AegisElectricBlue
 import com.example.ui.theme.AegisGoldBorder
+import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisLavenderBorder
+import com.example.ui.theme.AegisLavenderLight
 import com.example.ui.theme.AegisLavenderSoft
+import com.example.ui.theme.AegisLavenderSurface
 import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
+import com.example.ui.theme.AegisSkySoft
+import com.example.ui.theme.AegisSuccessGreen
 import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.AegisTextSecondary
 import com.example.ui.theme.AegisWarningAmber
@@ -93,76 +127,54 @@ import com.example.ui.theme.ClassicalDisplayFont
 
 private data class FaqEntry(
     val question: String,
-    val answer: String
+    val answer: String,
+    val icon: ImageVector
 )
 
 private val SheildlenzFaqs = listOf(
     FaqEntry(
-        question = "Does Sheildlenz ever record or save my screen?",
-        answer = "Never. Each frame is scored in volatile RAM (~20ms) and discarded instantly—zero screenshots or videos are ever stored on disk."
-    ),
-    FaqEntry(
-        question = "Is anything sent to cloud servers or tracked?",
-        answer = "No. Inference runs 100% offline using your local .tflite file with zero analytics, ad SDKs, or telemetry. Internet only fetches app/model downloads you trigger."
-    ),
-    FaqEntry(
-        question = "Why does it ask for Accessibility & Overlay?",
-        answer = "Overlay draws the protective shield; Accessibility checks only the active app package name so Excluded Apps stay untouched. Typed passwords, chats, and text are never read."
-    ),
-    FaqEntry(
-        question = "What data is stored in Progress history?",
-        answer = "Only lightweight text logs (app name, time, category score) stay inside private on-device SQLite storage—no images—and can be cleared with one tap."
-    ),
-    FaqEntry(
-        question = "How do Excluded Apps protect private apps?",
-        answer = "Excluded package names stay strictly on your phone. Whenever you open an excluded app, screen capture and AI scanning pause immediately."
-    ),
-    FaqEntry(
-        question = "Why can't Protection be stopped without my PIN?",
-        answer = "Anti-Tamper and Master Code prevent impulsive bypasses. After Stage 1 lockdown ends, entering your PIN or choosing Double-Time Wait keeps Shield armed."
-    ),
-    FaqEntry(
-        question = "Will continuous scanning drain my battery?",
-        answer = "Compact 256px tensors, static frame skipping, Adaptive Eco backoff, and automatic screen-off sleep keep CPU and battery usage minimal."
-    ),
-    FaqEntry(
-        question = "How do I change the model or exact timers?",
-        answer = "Tap CUSTOM under Edits to load any 2, 3, or 5-class .tflite file, or tap the Version card above 7 times to unlock Precision Lab."
-    ),
-    FaqEntry(
         question = "How does Guardian Recovery work if I forget my PIN?",
-        answer = "Set a Guardian Recovery Email during setup or under Edits. On both the App Lock screen and Lockdown overlay, your active Challenge ID (SLZ-XXXXXX) is displayed prominently. Send that Challenge ID to AhsanTCr to receive an 8-character offline recovery code, enter it to unlock and set a new PIN, and the app automatically generates a fresh Challenge ID on every new block or recovery."
+        answer = "Set your Master Key PIN and Guardian Email during initial setup. Tap \"Forgot PIN?\" on any PIN prompt or scan the QR on a timed-out lockdown screen from another phone running Sheildlenz signed in with that same Guardian email. Timed-out QR codes generate a one-time code that ends only the timer while Shield stays ON; Forgot-PIN QR codes authorize resetting the Master Key. Challenge IDs rotate automatically after every use.",
+        icon = Icons.Default.QrCode2
     ),
     FaqEntry(
-        question = "What are Warning Thresholds before lockdown?",
-        answer = "Under Edits or Wellbeing & Safe DNS → Warning Thresholds, you can choose 0 to 3 screen warnings before an offending app triggers full device lockdown."
+        question = "Does Sheildlenz store screenshots or send screen frames off-device?",
+        answer = "No. Captured screen frames are resized into 256px tensors in volatile memory, evaluated locally by TensorFlow Lite, and discarded immediately with zero disk writes or remote frame uploads.",
+        icon = Icons.Default.VisibilityOff
     ),
     FaqEntry(
-        question = "How do System-Wide Safe DNS & Custom Blocklists work?",
-        answer = "Safe DNS runs a zero-battery local loopback VPN using Cloudflare Family (1.1.1.3) to block adult and malware domains system-wide, combined with your custom blocked websites and search keywords."
+        question = "How does Strict Safe DNS block adult websites across apps?",
+        answer = "The local loopback VPN enforces strict adult-filtering upstream DNS providers (CleanBrowsing Family 185.228.168.168, CleanBrowsing Adult 185.228.168.10, OpenDNS FamilyShield 208.67.222.123, Control D Adult 76.76.2.4, Cloudflare Family 1.1.1.3) combined with on-device adult TLD/domain rules and DoH bypass blocking.",
+        icon = Icons.Default.Public
     ),
     FaqEntry(
-        question = "How do Bedtime Lock & Daily App Time Budgets work?",
-        answer = "Configure overnight Bedtime schedules and daily per-app minute caps. When a child's app budget runs out or bedtime starts, the app blocks cleanly until bedtime ends or a Guardian grants a +15m PIN extension."
+        question = "Why are Accessibility and System Overlay permissions required?",
+        answer = "System Overlay presents intervention and lockdown screens above active apps. Accessibility monitors only the foreground package name and browser address bar hostnames to enforce excluded app pauses and anti-tamper rules.",
+        icon = Icons.Default.Layers
     ),
     FaqEntry(
-        question = "How do QR Scanning & Multi-Child Family Dashboard work?",
-        answer = "On the Parents tab, tap Scan Child QR to pair using the in-app camera or enter a 6-digit code. Manage multiple child devices, view live screen status, threat logs, and sync all limits remotely."
+        question = "When is the Master Key PIN requested?",
+        answer = "Increasing protection or turning features up never blocks on a PIN prompt. Actions that weaken or disable defenses—turning Shield OFF, switching to lower power cadence, opening Guardian Settings, or shortening lockdown rules—require Master Key verification once per app session.",
+        icon = Icons.Default.Lock
     ),
     FaqEntry(
-        question = "What does Guided Device Owner Setup do?",
-        answer = "Follow the 3-step Device Owner wizard under Wellbeing & Safe DNS or Edits to enable tamper-resistant Device Owner status, blocking unauthorized uninstalls and Safe Mode bypasses."
+        question = "How do Bedtime schedules and app time budgets behave?",
+        answer = "Configure overnight quiet hours or daily per-app minute caps under Edits or Wellbeing. Exceeded apps are blocked cleanly until the schedule resets or a Guardian authorizes a 15-minute extension.",
+        icon = Icons.Default.Bedtime
     ),
     FaqEntry(
-        question = "Can I use NPU/GPU acceleration or toggle content categories?",
-        answer = "Yes. Under AI Hardware & Categories, select Auto, CPU XNNPACK, or NNAPI NPU/GPU acceleration, and independently toggle Explicit Adult, Suggestive Visuals, Sensitive/Graphic, and Gambling filters."
+        question = "What does Device Administrator / Device Owner add?",
+        answer = "Activating Device Admin blocks impulsive uninstallation and force-stop bypass attempts. Device Owner mode further locks package suspension and safe-mode circumvention.",
+        icon = Icons.Default.AdminPanelSettings
     ),
     FaqEntry(
-        question = "What languages and open-source license does Sheildlenz support?",
-        answer = "Sheildlenz supports instant runtime switching across English, Urdu, Arabic, Spanish, Hindi, and French, and is 100% open-source under GNU GPL v3.0."
+        question = "Which open-source license covers Sheildlenz?",
+        answer = "Sheildlenz is licensed under the GNU General Public License v3.0 (GPL-3.0) with runtime localization across English, Urdu, Arabic, Spanish, Hindi, and French.",
+        icon = Icons.Default.Gavel
     )
 )
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AboutScreen(
     preferences: AegisPreferences
@@ -182,139 +194,355 @@ fun AboutScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
                     .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(top = 8.dp, bottom = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(top = 10.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 1. Version Card (with 7-Tap Precision Lab unlock)
+                // 1. Charming Luminous Hero Showcase Card
                 item {
-                    LuxurySectionHeader(title = "Version")
-                    Spacer(modifier = Modifier.height(6.dp))
-                    AppVersionSecretCard(preferences = preferences)
-                }
-
-                // Precision Lab expands directly below when 7-tap unlocked
-                item {
-                    AdvancedPrecisionLabSection(preferences = preferences)
-                }
-
-                // 2. Compact App Update Checker Widget
-                item {
-                    LuxurySectionHeader(title = "Updates", accentColor = AegisPrimaryCyan)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    AppUpdateCheckerCard()
-                }
-
-                // 3. Compact Developer Widget
-                item {
-                    LuxurySectionHeader(title = "Developer", accentColor = AegisChampagneGold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    CyberCard(
-                        borderColor = AegisGoldBorder,
-                        tone = CyberCardTone.HERO
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        brush = Brush.linearGradient(
-                                            colors = listOf(AegisChampagneGold, AegisPurple)
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = AegisOnPrimaryWhite,
-                                    modifier = Modifier.size(18.dp)
+                    val heroShape = RoundedCornerShape(30.dp)
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 560.dp)
+                            .shadow(
+                                elevation = 12.dp,
+                                shape = heroShape,
+                                ambientColor = AegisPrimaryCyan.copy(alpha = 0.18f),
+                                spotColor = AegisPurple.copy(alpha = 0.18f)
+                            ),
+                        shape = heroShape,
+                        color = Color.Transparent,
+                        border = BorderStroke(
+                            width = 1.25.dp,
+                            brush = Brush.linearGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.96f),
+                                    AegisCardBorder.copy(alpha = 0.85f),
+                                    AegisLavenderBorder.copy(alpha = 0.80f)
                                 )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            )
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFFFCFEFF),
+                                            Color(0xFFF0F6FF),
+                                            AegisLavenderSoft
+                                        )
+                                    )
+                                )
+                                .drawBehind {
+                                    drawCircle(
+                                        brush = Brush.radialGradient(
+                                            colors = listOf(
+                                                AegisElectricBlue.copy(alpha = 0.14f),
+                                                Color.Transparent
+                                            ),
+                                            center = Offset(size.width * 0.18f, size.height * 0.22f),
+                                            radius = size.width * 0.55f
+                                        ),
+                                        radius = size.width * 0.55f,
+                                        center = Offset(size.width * 0.18f, size.height * 0.22f)
+                                    )
+                                    drawCircle(
+                                        brush = Brush.radialGradient(
+                                            colors = listOf(
+                                                AegisGoldBright.copy(alpha = 0.16f),
+                                                Color.Transparent
+                                            ),
+                                            center = Offset(size.width * 0.86f, size.height * 0.78f),
+                                            radius = size.width * 0.48f
+                                        ),
+                                        radius = size.width * 0.48f,
+                                        center = Offset(size.width * 0.86f, size.height * 0.78f)
+                                    )
+                                }
+                                .padding(horizontal = 22.dp, vertical = 22.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            AegisShieldGraphic(
+                                isProtected = true,
+                                isThreatActive = false,
+                                size = 104.dp
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Text(
-                                    text = "AhsanTCr",
+                                    text = "Sheildlenz",
                                     color = AegisTextPrimary,
-                                    fontSize = 15.sp,
+                                    fontSize = 25.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = ClassicalDisplayFont
                                 )
-                                Text(
-                                    text = "Creator • 100% Offline Privacy Guard",
-                                    color = AegisChampagneGold,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontFamily = ClassicalBodyFont
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = AegisPrimaryCyan.copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, AegisPrimaryCyan.copy(alpha = 0.30f))
+                                ) {
+                                    Text(
+                                        text = "v${BuildConfig.VERSION_NAME}",
+                                        color = AegisPrimaryCyan,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(5.dp))
+
+                            Text(
+                                text = "Real-Time On-Device Visual Shield & Family Safety",
+                                color = AegisTextSecondary,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                textAlign = TextAlign.Center,
+                                fontFamily = ClassicalBodyFont
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                AboutFeaturePill(
+                                    icon = Icons.Default.Memory,
+                                    label = "On-Device AI",
+                                    accent = AegisPrimaryCyan,
+                                    containerColor = AegisCardBackground
+                                )
+                                AboutFeaturePill(
+                                    icon = Icons.Default.Dns,
+                                    label = "Strict Safe DNS",
+                                    accent = AegisPurple,
+                                    containerColor = AegisLavenderSoft
+                                )
+                                AboutFeaturePill(
+                                    icon = Icons.Default.QrCode2,
+                                    label = "QR Guardian Lock",
+                                    accent = AegisChampagneGold,
+                                    containerColor = AegisChampagneSoft
                                 )
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(
+                                color = AegisCardBorder.copy(alpha = 0.55f),
+                                modifier = Modifier.padding(vertical = 14.dp)
+                            )
 
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
                             AhsanTcrBrandingPill()
                         }
                     }
                 }
 
-                // 3b. Open-Source License Notice (GPL v3)
+                // 2. Build, Precision Lab & Live Release Channel
                 item {
-                    CyberCard(
-                        borderColor = AegisLavenderBorder,
-                        tone = CyberCardTone.LAVENDER,
-                        modifier = Modifier.testTag("about_gpl_license_card")
-                    ) {
-                        Text(
-                            text = stringResource(R.string.about_gpl_title),
-                            color = AegisTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = ClassicalDisplayFont
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Sheildlenz is free and open-source software licensed under the GNU General Public License v3.0 (GPL-3.0). Source code and releases: github.com/ahsantcr/SheildLenz.",
-                            color = AegisTextSecondary,
-                            fontSize = 11.5.sp,
-                            lineHeight = 16.sp,
-                            fontFamily = ClassicalBodyFont
-                        )
+                    Column(modifier = Modifier.widthIn(max = 560.dp)) {
+                        LuxurySectionHeader(title = "Build & Live Updates", accentColor = AegisPurple)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AppVersionSecretCard(preferences = preferences)
                     }
                 }
 
-                // 4. Privacy & Logic FAQs
                 item {
-                    LuxurySectionHeader(title = "Privacy & Logic Q/A", accentColor = AegisPurple)
+                    Box(modifier = Modifier.widthIn(max = 560.dp)) {
+                        AdvancedPrecisionLabSection(preferences = preferences)
+                    }
+                }
+
+                item {
+                    Box(modifier = Modifier.widthIn(max = 560.dp)) {
+                        AppUpdateCheckerCard()
+                    }
+                }
+
+                // 3. Open-Source License & Languages
+                item {
+                    Column(modifier = Modifier.widthIn(max = 560.dp)) {
+                        LuxurySectionHeader(title = "Open Source & Languages", accentColor = AegisChampagneGold)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CyberCard(
+                            borderColor = AegisLavenderBorder,
+                            tone = CyberCardTone.LAVENDER,
+                            modifier = Modifier.testTag("about_gpl_license_card")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(
+                                                brush = Brush.linearGradient(
+                                                    colors = listOf(AegisPurple, AegisLavenderLight)
+                                                )
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Gavel,
+                                            contentDescription = null,
+                                            tint = AegisOnPrimaryWhite,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = stringResource(R.string.about_gpl_title),
+                                            color = AegisTextPrimary,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = ClassicalDisplayFont
+                                        )
+                                        Text(
+                                            text = "Free, inspectable family protection",
+                                            color = AegisTextSecondary,
+                                            fontSize = 11.5.sp,
+                                            fontFamily = ClassicalBodyFont
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = AegisPurple.copy(alpha = 0.14f),
+                                    border = BorderStroke(1.dp, AegisLavenderBorder)
+                                ) {
+                                    Text(
+                                        text = "GPL-3.0",
+                                        color = AegisPurple,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Text(
+                                text = "Licensed under the GNU General Public License v3.0. All detection, DNS filtering, and QR recovery cryptography run transparently on device.",
+                                color = AegisTextSecondary,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp,
+                                fontFamily = ClassicalBodyFont
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                AboutFeaturePill(
+                                    icon = Icons.Default.Code,
+                                    label = "github.com/ahsantcr/SheildLenz",
+                                    accent = AegisPrimaryCyan,
+                                    containerColor = Color.White.copy(alpha = 0.72f)
+                                )
+                                AboutFeaturePill(
+                                    icon = Icons.Default.Translate,
+                                    label = "EN • UR • AR • ES • HI • FR",
+                                    accent = AegisPurple,
+                                    containerColor = Color.White.copy(alpha = 0.72f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 4. Interactive Guide & Common Questions
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 560.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            LuxurySectionHeader(
+                                title = "Common Questions & Guide",
+                                accentColor = AegisPrimaryCyan
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = AegisCardBackground,
+                            border = BorderStroke(1.dp, AegisCardBorder)
+                        ) {
+                            Text(
+                                text = "${SheildlenzFaqs.size} Topics",
+                                color = AegisPrimaryCyan,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = ClassicalBodyFont,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
 
                 itemsIndexed(SheildlenzFaqs) { index, faq ->
                     val isExpanded = expandedFaqIndex == index
-                    val faqTone = when {
-                        index % 3 == 0 -> CyberCardTone.LAVENDER
-                        index % 3 == 1 -> CyberCardTone.SKY
-                        else -> CyberCardTone.GOLD
+                    val (cardTone, borderTint, gradientColors, accentColor) = when (index % 3) {
+                        0 -> QuadStyle(
+                            CyberCardTone.SKY,
+                            AegisCardBorder,
+                            listOf(AegisPrimaryCyan, AegisElectricBlue),
+                            AegisPrimaryCyan
+                        )
+                        1 -> QuadStyle(
+                            CyberCardTone.LAVENDER,
+                            AegisLavenderBorder,
+                            listOf(AegisPurple, AegisLavenderLight),
+                            AegisPurple
+                        )
+                        else -> QuadStyle(
+                            CyberCardTone.GOLD,
+                            AegisGoldBorder,
+                            listOf(AegisChampagneGold, AegisGoldBright),
+                            AegisChampagneGold
+                        )
                     }
-                    val faqAccent = when (faqTone) {
-                        CyberCardTone.LAVENDER -> AegisPurple
-                        CyberCardTone.GOLD -> AegisChampagneGold
-                        else -> AegisPrimaryCyan
-                    }
+                    val chevronRotation by animateFloatAsState(
+                        targetValue = if (isExpanded) 180f else 0f,
+                        animationSpec = tween(240),
+                        label = "FaqChevronRotation_$index"
+                    )
+
                     CyberCard(
-                        borderColor = when (faqTone) {
-                            CyberCardTone.LAVENDER -> AegisLavenderBorder
-                            CyberCardTone.GOLD -> AegisGoldBorder
-                            else -> AegisCardBorder
-                        },
-                        tone = faqTone,
-                        modifier = Modifier.testTag("about_faq_item_$index")
+                        borderColor = borderTint,
+                        tone = cardTone,
+                        modifier = Modifier
+                            .widthIn(max = 560.dp)
+                            .testTag("about_faq_item_$index")
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
                                 .clickable {
                                     expandedFaqIndex = if (isExpanded) -1 else index
                                 }
@@ -322,65 +550,76 @@ fun AboutScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(min = 44.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                    .heightIn(min = 48.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
+                                Box(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .padding(end = 6.dp)
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(11.dp))
+                                        .background(brush = Brush.linearGradient(colors = gradientColors)),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(26.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(faqAccent),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.HelpOutline,
-                                            contentDescription = null,
-                                            tint = AegisOnPrimaryWhite,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = faq.question,
-                                        color = AegisTextPrimary,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = ClassicalDisplayFont,
-                                        lineHeight = 16.sp
+                                    Icon(
+                                        imageVector = faq.icon,
+                                        contentDescription = null,
+                                        tint = AegisOnPrimaryWhite,
+                                        modifier = Modifier.size(19.dp)
                                     )
                                 }
 
-                                Icon(
-                                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                    contentDescription = if (isExpanded) "Collapse answer" else "Expand answer",
-                                    tint = faqAccent,
-                                    modifier = Modifier.size(20.dp)
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Text(
+                                    text = faq.question,
+                                    color = AegisTextPrimary,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalDisplayFont,
+                                    lineHeight = 18.sp,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
                                 )
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(accentColor.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ExpandMore,
+                                        contentDescription = if (isExpanded) "Collapse section" else "Expand section",
+                                        tint = accentColor,
+                                        modifier = Modifier
+                                            .size(19.dp)
+                                            .rotate(chevronRotation)
+                                    )
+                                }
                             }
 
                             AnimatedVisibility(
                                 visible = isExpanded,
-                                enter = fadeIn() + expandVertically(),
-                                exit = fadeOut() + shrinkVertically()
+                                enter = fadeIn(tween(220)) + expandVertically(),
+                                exit = fadeOut(tween(180)) + shrinkVertically()
                             ) {
-                                Column {
-                                    HorizontalDivider(
-                                        color = faqAccent.copy(alpha = 0.28f),
-                                        modifier = Modifier.padding(vertical = 5.dp)
-                                    )
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color.White.copy(alpha = 0.62f),
+                                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.22f))
+                                ) {
                                     Text(
                                         text = faq.answer,
                                         color = AegisTextSecondary,
-                                        fontSize = 11.5.sp,
-                                        lineHeight = 16.sp,
-                                        fontFamily = ClassicalBodyFont
+                                        fontSize = 12.5.sp,
+                                        lineHeight = 18.5.sp,
+                                        fontFamily = ClassicalBodyFont,
+                                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp)
                                     )
                                 }
                             }
@@ -389,6 +628,45 @@ fun AboutScreen(
                 }
             }
         }
+    }
+}
+
+private data class QuadStyle(
+    val tone: CyberCardTone,
+    val border: Color,
+    val gradient: List<Color>,
+    val accent: Color
+)
+
+@Composable
+private fun AboutFeaturePill(
+    icon: ImageVector,
+    label: String,
+    accent: Color,
+    containerColor: Color
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(containerColor)
+            .border(1.dp, accent.copy(alpha = 0.30f), RoundedCornerShape(50))
+            .padding(horizontal = 11.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = accent,
+            modifier = Modifier.size(14.dp)
+        )
+        Text(
+            text = label,
+            color = AegisTextPrimary,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = ClassicalBodyFont
+        )
     }
 }
 
@@ -404,25 +682,16 @@ private fun AppUpdateCheckerCard() {
     val currentLabel = "v${UpdateChecker.cleanVersionTag(BuildConfig.VERSION_NAME)}"
     val latestLabel = updateInfo?.let { info ->
         "v${UpdateChecker.cleanVersionTag(info.latestVersion)}"
-    } ?: "Checking..."
+    } ?: "Not checked"
     val hasUpdate = updateInfo?.isUpdateAvailable == true
-    val isReadyPreloaded = (apkDownloadState as? ApkDownloadState.ReadyToInstall)?.preloadedReady == true
     val isBusyDownloading = apkDownloadState is ApkDownloadState.Downloading ||
         apkDownloadState is ApkDownloadState.Preloading ||
         apkDownloadState is ApkDownloadState.Verifying ||
         apkDownloadState is ApkDownloadState.Installing
 
     CyberCard(
-        borderColor = when {
-            isReadyPreloaded -> AegisLavenderBorder
-            hasUpdate -> AegisGoldBorder
-            else -> AegisLavenderBorder
-        },
-        tone = when {
-            isReadyPreloaded -> CyberCardTone.LAVENDER
-            hasUpdate -> CyberCardTone.GOLD
-            else -> CyberCardTone.SKY
-        },
+        borderColor = if (hasUpdate) AegisGoldBorder else AegisLavenderBorder,
+        tone = if (hasUpdate) CyberCardTone.GOLD else CyberCardTone.SKY,
         modifier = Modifier.testTag("app_update_checker_card")
     ) {
         Row(
@@ -433,11 +702,15 @@ private fun AppUpdateCheckerCard() {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(
                             brush = Brush.linearGradient(
-                                colors = if (hasUpdate) listOf(AegisChampagneGold, AegisPurple) else listOf(AegisPrimaryCyan, AegisPurple)
+                                colors = if (hasUpdate) {
+                                    listOf(AegisChampagneGold, AegisGoldBright)
+                                } else {
+                                    listOf(AegisPrimaryCyan, AegisElectricBlue)
+                                }
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -446,45 +719,22 @@ private fun AppUpdateCheckerCard() {
                         imageVector = if (hasUpdate) Icons.Default.Download else Icons.Default.Update,
                         contentDescription = null,
                         tint = AegisOnPrimaryWhite,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = if (hasUpdate) "Update Ready ($latestLabel)" else "App Updates",
-                            color = AegisTextPrimary,
-                            fontSize = 14.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = ClassicalDisplayFont
-                        )
-                        if (isReadyPreloaded) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(AegisPurple.copy(alpha = 0.16f))
-                                    .border(1.dp, AegisLavenderBorder, RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 5.dp, vertical = 1.dp)
-                            ) {
-                                Text(
-                                    text = "0s",
-                                    color = AegisPurple,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = ClassicalBodyFont
-                                )
-                            }
-                        }
-                    }
                     Text(
-                        text = "$currentLabel → $latestLabel",
+                        text = if (hasUpdate) "Update Available ($latestLabel)" else "Release Channel",
+                        color = AegisTextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Text(
+                        text = if (hasUpdate) "Signed release ready to download" else "Verified over HTTPS with SHA-256",
                         color = if (hasUpdate) AegisChampagneGold else AegisTextSecondary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.5.sp,
                         fontFamily = ClassicalBodyFont
                     )
                 }
@@ -504,26 +754,86 @@ private fun AppUpdateCheckerCard() {
             }
         }
 
-        // Inline Preload / Download / Verification status
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Clean side-by-side version comparison capsules
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.White.copy(alpha = 0.65f),
+                border = BorderStroke(1.dp, AegisCardBorder.copy(alpha = 0.7f))
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                    Text(
+                        text = "INSTALLED",
+                        color = AegisTextSecondary,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        fontFamily = ClassicalBodyFont
+                    )
+                    Text(
+                        text = currentLabel,
+                        color = AegisTextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp),
+                color = if (hasUpdate) AegisChampagneSoft else Color.White.copy(alpha = 0.65f),
+                border = BorderStroke(
+                    1.dp,
+                    if (hasUpdate) AegisGoldBorder else AegisLavenderBorder.copy(alpha = 0.7f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                    Text(
+                        text = "LATEST RELEASE",
+                        color = if (hasUpdate) AegisChampagneGold else AegisTextSecondary,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                        fontFamily = ClassicalBodyFont
+                    )
+                    Text(
+                        text = latestLabel,
+                        color = if (hasUpdate) AegisChampagneGold else AegisPurple,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+        }
+
         when (val state = apkDownloadState) {
             is ApkDownloadState.Preloading -> {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 val pct = state.progress?.let { "${(it * 100).toInt()}%" } ?: "..."
                 Text(
-                    text = "Preloading (100 KB/s) • $pct",
+                    text = "Background preload • $pct",
                     color = AegisChampagneGold,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
                 if (state.progress != null) {
                     LinearProgressIndicator(
                         progress = { state.progress },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(4.dp)),
                         color = AegisChampagneGold,
                         trackColor = AegisChampagneGold.copy(alpha = 0.2f),
                         strokeCap = StrokeCap.Round
@@ -532,8 +842,8 @@ private fun AppUpdateCheckerCard() {
                     LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(4.dp)),
                         color = AegisChampagneGold,
                         trackColor = AegisChampagneGold.copy(alpha = 0.2f)
                     )
@@ -542,31 +852,31 @@ private fun AppUpdateCheckerCard() {
             is ApkDownloadState.PausedLowBattery -> {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Paused (<= 20% batt) • ${UpdateChecker.formatBytesMb(state.bytesDownloaded)} saved",
+                    text = "Paused (low battery) • ${UpdateChecker.formatBytesMb(state.bytesDownloaded)} saved",
                     color = AegisChampagneGold,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = ClassicalBodyFont
                 )
             }
             is ApkDownloadState.Downloading -> {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 val pct = state.progress?.let { "${(it * 100).toInt()}%" } ?: "..."
                 Text(
-                    text = "Downloading • $pct",
+                    text = "Downloading package • $pct",
                     color = AegisPrimaryCyan,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
                 if (state.progress != null) {
                     LinearProgressIndicator(
                         progress = { state.progress },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(4.dp)),
                         color = AegisPrimaryCyan,
                         trackColor = AegisPrimaryCyan.copy(alpha = 0.2f),
                         strokeCap = StrokeCap.Round
@@ -575,89 +885,100 @@ private fun AppUpdateCheckerCard() {
                     LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
+                            .height(7.dp)
+                            .clip(RoundedCornerShape(4.dp)),
                         color = AegisPrimaryCyan,
                         trackColor = AegisPrimaryCyan.copy(alpha = 0.2f)
                     )
                 }
             }
             ApkDownloadState.Verifying -> {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Verifying SHA-256...",
+                    text = "Verifying SHA-256 signature...",
                     color = AegisPurple,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
                 LinearProgressIndicator(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
+                        .height(7.dp)
+                        .clip(RoundedCornerShape(4.dp)),
                     color = AegisPurple,
                     trackColor = AegisPurple.copy(alpha = 0.2f)
                 )
             }
             ApkDownloadState.Installing -> {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Installing update...",
+                    text = "Installing release package...",
                     color = AegisPurple,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(5.dp))
                 LinearProgressIndicator(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
+                        .height(7.dp)
+                        .clip(RoundedCornerShape(4.dp)),
                     color = AegisPurple,
                     trackColor = AegisPurple.copy(alpha = 0.2f)
                 )
             }
             is ApkDownloadState.ReadyToInstall -> {
                 if (state.needsInstallPermission) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Allow 'Install unknown apps' to auto-install.",
+                        text = "Allow 'Install unknown apps' to apply update.",
                         color = AegisChampagneGold,
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = ClassicalBodyFont
                     )
                 }
             }
             is ApkDownloadState.SignatureConflict -> {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = state.reason,
                     color = AegisChampagneGold,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = ClassicalBodyFont
                 )
             }
             ApkDownloadState.Installed -> {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Up to date!",
-                    color = AegisPrimaryCyan,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalBodyFont
-                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VerifiedUser,
+                        contentDescription = null,
+                        tint = AegisSuccessGreen,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "Version current",
+                        color = AegisSuccessGreen,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
             }
             is ApkDownloadState.Failed -> {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = state.message,
                     color = AegisWarningAmber,
-                    fontSize = 11.sp,
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = ClassicalBodyFont
                 )
@@ -665,19 +986,19 @@ private fun AppUpdateCheckerCard() {
             ApkDownloadState.Idle -> {}
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         when {
             apkDownloadState is ApkDownloadState.Downloading -> {
                 OutlinedButton(
                     onClick = { UpdateChecker.cancelApkDownload(context) },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                         .testTag("cancel_update_download_button")
                 ) {
-                    Text("CANCEL DOWNLOAD", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    Text("CANCEL DOWNLOAD", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             apkDownloadState is ApkDownloadState.Preloading -> {
@@ -687,15 +1008,15 @@ private fun AppUpdateCheckerCard() {
                         containerColor = AegisPrimaryCyan,
                         contentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                         .testTag("boost_preload_turbo_button")
                 ) {
-                    Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("FINISH NOW", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text("DOWNLOAD NOW", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             apkDownloadState is ApkDownloadState.Verifying -> {
@@ -706,12 +1027,12 @@ private fun AppUpdateCheckerCard() {
                         disabledContainerColor = AegisPurple.copy(alpha = 0.65f),
                         disabledContentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AegisOnPrimaryWhite, strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("VERIFYING...", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    CircularProgressIndicator(modifier = Modifier.size(17.dp), color = AegisOnPrimaryWhite, strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text("VERIFYING...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             apkDownloadState is ApkDownloadState.Installing -> {
@@ -722,12 +1043,12 @@ private fun AppUpdateCheckerCard() {
                         disabledContainerColor = AegisPurple.copy(alpha = 0.65f),
                         disabledContentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(50.dp)
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AegisOnPrimaryWhite, strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("INSTALLING...", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    CircularProgressIndicator(modifier = Modifier.size(17.dp), color = AegisOnPrimaryWhite, strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text("INSTALLING...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             (apkDownloadState as? ApkDownloadState.ReadyToInstall)?.needsInstallPermission == true -> {
@@ -737,15 +1058,15 @@ private fun AppUpdateCheckerCard() {
                         containerColor = AegisPurple,
                         contentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                         .testTag("grant_install_permission_button")
                 ) {
-                    Icon(imageVector = Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("ALLOW & INSTALL", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    Icon(imageVector = Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text("ALLOW & INSTALL", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             (apkDownloadState as? ApkDownloadState.ReadyToInstall)?.preloadedReady == true -> {
@@ -755,15 +1076,15 @@ private fun AppUpdateCheckerCard() {
                         containerColor = AegisPurple,
                         contentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                         .testTag("install_ready_update_button")
                 ) {
-                    Icon(imageVector = Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("INSTALL NOW (0s)", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    Icon(imageVector = Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text("INSTALL READY UPDATE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             apkDownloadState is ApkDownloadState.SignatureConflict -> {
@@ -773,15 +1094,15 @@ private fun AppUpdateCheckerCard() {
                         containerColor = AegisChampagneGold,
                         contentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                         .testTag("clean_upgrade_uninstall_button")
                 ) {
-                    Icon(imageVector = Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("CLEAN UPGRADE", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    Icon(imageVector = Icons.Default.InstallMobile, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Text("CLEAN UPGRADE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             hasUpdate -> {
@@ -792,16 +1113,16 @@ private fun AppUpdateCheckerCard() {
                         containerColor = AegisChampagneGold,
                         contentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                         .testTag("download_install_update_button")
                 ) {
-                    Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.width(7.dp))
                     val sizeHint = if (info.apkSizeBytes > 0L) " (${UpdateChecker.formatBytesMb(info.apkSizeBytes)})" else ""
-                    Text("UPDATE TO $latestLabel$sizeHint", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                    Text("UPDATE TO $latestLabel$sizeHint", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             else -> {
@@ -812,20 +1133,20 @@ private fun AppUpdateCheckerCard() {
                         containerColor = AegisPrimaryCyan,
                         contentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(50.dp)
                         .testTag("check_updates_button")
                 ) {
                     if (isChecking) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AegisOnPrimaryWhite, strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("CHECKING...", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                        CircularProgressIndicator(modifier = Modifier.size(17.dp), color = AegisOnPrimaryWhite, strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(7.dp))
+                        Text("CHECKING...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     } else {
-                        Icon(imageVector = Icons.Default.Update, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("CHECK UPDATES", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                        Icon(imageVector = Icons.Default.Update, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(modifier = Modifier.width(7.dp))
+                        Text("CHECK FOR UPDATES", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
             }
@@ -835,8 +1156,8 @@ private fun AppUpdateCheckerCard() {
             Text(
                 text = checkError!!,
                 color = AegisWarningAmber,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 6.dp)
+                fontSize = 11.5.sp,
+                modifier = Modifier.padding(top = 8.dp)
             )
         }
     }
@@ -845,10 +1166,10 @@ private fun AppUpdateCheckerCard() {
         AlertDialog(
             onDismissRequest = { UpdateChecker.dismissUpToDateDialog() },
             containerColor = AegisLavenderSoft,
-            title = { Text("App is Up to Date", fontFamily = ClassicalDisplayFont, fontWeight = FontWeight.Bold) },
+            title = { Text("Version Current", fontFamily = ClassicalDisplayFont, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "App: $currentLabel • Latest: $latestLabel\nYou are on the newest version.",
+                    "Installed: $currentLabel • Remote: $latestLabel\nCurrent build matches the latest release.",
                     fontFamily = ClassicalBodyFont
                 )
             },

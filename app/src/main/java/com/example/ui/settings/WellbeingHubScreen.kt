@@ -32,10 +32,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -52,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -62,9 +59,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.core.audio.AegisSoundEffects
 import com.example.data.preferences.AegisPreferences
-import com.example.data.preferences.SafeDnsProvider
 import com.example.data.repository.BlockedDnsLogRepository
+import com.example.security.deviceowner.AegisDeviceAdminReceiver
 import com.example.services.dns.AegisSafeDnsVpnService
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
@@ -77,9 +75,7 @@ import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisDangerRed
-import com.example.ui.theme.AegisGoldBorder
 import com.example.ui.theme.AegisLavenderBorder
-import com.example.ui.theme.AegisLavenderSoft
 import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
@@ -89,9 +85,6 @@ import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.AegisTextSecondary
 import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun WellbeingHubScreen(
@@ -107,11 +100,14 @@ fun WellbeingHubScreen(
     val warningThreshold by preferences.warningThresholdCount.collectAsState()
     val blockedQueryCount by AegisSafeDnsVpnService.blockedQueryCount.collectAsState()
     val liveDnsLogs by (blockedDnsLogRepo?.liveLogs?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
+    var isDeviceOwner by remember { mutableStateOf(AegisDeviceAdminReceiver.isDeviceOwner(context)) }
+    var showDeviceOwnerWizard by remember { mutableStateOf(false) }
 
     val vpnLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
+            AegisSoundEffects.playModeOn(context)
             preferences.setSafeDnsEnabled(true)
             AegisSafeDnsVpnService.start(context)
             Toast.makeText(context, "Safe DNS VPN active", Toast.LENGTH_SHORT).show()
@@ -166,6 +162,7 @@ fun WellbeingHubScreen(
                                     if (!safeDnsEnabled) {
                                         val prep = runCatching { VpnService.prepare(context) }.getOrNull()
                                         if (prep == null) {
+                                            AegisSoundEffects.playModeOn(context)
                                             preferences.setSafeDnsEnabled(true)
                                             AegisSafeDnsVpnService.start(context)
                                         } else {
@@ -195,6 +192,7 @@ fun WellbeingHubScreen(
                                             preferences.setBedtimeEnabled(false)
                                         }
                                     } else {
+                                        AegisSoundEffects.playModeOn(context)
                                         preferences.setBedtimeEnabled(true)
                                     }
                                 },
@@ -209,20 +207,36 @@ fun WellbeingHubScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             HubQuickActionButton(
-                                title = "Warnings Before Lock",
-                                status = if (warningThreshold == 0) "0 (INSTANT LOCK)" else "$warningThreshold SCREEN WARNINGS",
+                                title = "Warnings",
+                                status = if (warningThreshold == 0) "0 (INSTANT)" else "$warningThreshold SCREEN",
                                 icon = Icons.Default.NotificationsActive,
                                 accentColor = AegisPurple,
                                 active = warningThreshold > 0,
                                 onClick = {
-                                    masterKeyGate.request("cycle warning threshold") {
-                                        val next = (warningThreshold + 1) % 4
+                                    val next = (warningThreshold + 1) % 4
+                                    if (next > warningThreshold) {
+                                        masterKeyGate.request("increase warnings before lock") {
+                                            preferences.setWarningThresholdCount(next)
+                                        }
+                                    } else {
+                                        AegisSoundEffects.playModeOn(context)
                                         preferences.setWarningThresholdCount(next)
                                     }
                                 },
                                 modifier = Modifier
-                                    .fillMaxWidth()
+                                    .weight(1f)
                                     .testTag("hub_warnings_button")
+                            )
+                            HubQuickActionButton(
+                                title = "Device Owner",
+                                status = if (isDeviceOwner) "LOCKED IN" else "SETUP GUARD",
+                                icon = Icons.Default.AdminPanelSettings,
+                                accentColor = AegisSuccessGreen,
+                                active = isDeviceOwner,
+                                onClick = { showDeviceOwnerWizard = true },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("hub_device_owner_button")
                             )
                         }
                     }
@@ -377,6 +391,14 @@ fun WellbeingHubScreen(
                         initiallyExpanded = true
                     )
                 }
+            }
+
+            if (showDeviceOwnerWizard) {
+                DeviceOwnerWizardDialog(
+                    preferences = preferences,
+                    onDismiss = { showDeviceOwnerWizard = false },
+                    onStatusChanged = { isDeviceOwner = AegisDeviceAdminReceiver.isDeviceOwner(context) }
+                )
             }
         }
     }

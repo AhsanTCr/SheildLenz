@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -58,11 +59,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.preferences.AegisPreferences
+import com.example.data.preferences.RecoveryQrMode
 import com.example.data.repository.ProtectionRepository
 import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
+import com.example.ui.components.QrCodeImage
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.AegisCardBackground
@@ -339,7 +342,7 @@ fun GuardianGateScreen(
                                 .testTag("guardian_gate_email_input")
                         )
                         Text(
-                            text = "Challenge ID: $challengeCode • Contact AhsanTCr if PIN is forgotten during a lockdown.",
+                            text = "Challenge ID: $challengeCode • Register this email for parent QR PIN reset & lockdown timer recovery.",
                             color = AegisTextSecondary,
                             fontSize = 11.sp,
                             fontFamily = ClassicalBodyFont,
@@ -389,36 +392,38 @@ fun GuardianGateScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
+                                .clip(RoundedCornerShape(16.dp))
                                 .background(AegisChampagneGold.copy(alpha = 0.14f))
-                                .border(1.dp, AegisChampagneGold.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .border(1.2.dp, AegisChampagneGold.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
+                                .padding(horizontal = 16.dp, vertical = 14.dp)
                                 .testTag("guardian_gate_challenge_badge")
                         ) {
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = "RECOVERY CHALLENGE ID",
+                                    text = "DEVICE CHALLENGE ID",
                                     color = AegisChampagneGold,
-                                    fontSize = 10.sp,
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp,
+                                    letterSpacing = 1.2.sp,
                                     fontFamily = ClassicalBodyFont
                                 )
                                 Text(
                                     text = challengeCode,
                                     color = AegisTextPrimary,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = 3.sp
                                 )
                                 if (savedEmail.isNotBlank()) {
                                     Text(
                                         text = "Guardian Email: $savedEmail",
                                         color = AegisTextSecondary,
-                                        fontSize = 10.5.sp,
+                                        fontSize = 11.sp,
                                         fontFamily = ClassicalBodyFont
                                     )
                                 }
@@ -444,17 +449,30 @@ fun GuardianGateScreen(
                         }
 
                         AnimatedVisibility(visible = showRecoveryForm) {
+                            val pinResetQrPayload = remember(challengeCode, savedEmail) {
+                                preferences.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = "Send Challenge ID ($challengeCode) to AhsanTCr to obtain an 8-char recovery unlock code.",
+                                    text = "Scan this QR with Sheildlenz on another phone signed in with ${savedEmail.ifBlank { "your Guardian email" }} to generate the 8-char reset code for $challengeCode.",
                                     color = AegisTextSecondary,
                                     fontSize = 11.sp,
+                                    textAlign = TextAlign.Center,
                                     fontFamily = ClassicalBodyFont
+                                )
+                                QrCodeImage(
+                                    payload = pinResetQrPayload,
+                                    padding = 10.dp,
+                                    modifier = Modifier
+                                        .size(164.dp)
+                                        .border(1.2.dp, AegisChampagneGold.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
+                                        .testTag("guardian_gate_recovery_qr_matrix")
                                 )
                                 OutlinedTextField(
                                     value = recoveryTokenInput,
@@ -462,7 +480,7 @@ fun GuardianGateScreen(
                                         recoveryTokenInput = it.uppercase()
                                         recoveryError = null
                                     },
-                                    label = { Text("8-Char AhsanTCr Recovery Code", fontFamily = ClassicalBodyFont) },
+                                    label = { Text("8-Char One-Time Recovery Code", fontFamily = ClassicalBodyFont) },
                                     leadingIcon = {
                                         Icon(imageVector = Icons.Default.Key, contentDescription = null, tint = AegisChampagneGold)
                                     },

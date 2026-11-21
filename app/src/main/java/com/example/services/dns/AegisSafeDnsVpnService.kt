@@ -168,7 +168,8 @@ class AegisSafeDnsVpnService : VpnService() {
                     customKeywords = prefs.customBlockedKeywords.value,
                     blockExplicitAdult = prefs.blockExplicitAdult.value,
                     blockGambling = prefs.blockGamblingKeywords.value,
-                    whitelistedDomains = emptySet()
+                    whitelistedDomains = emptySet(),
+                    blockDohBypass = true
                 )
 
                 if (blockMatch != null) {
@@ -220,6 +221,9 @@ class AegisSafeDnsVpnService : VpnService() {
             selectedProvider.primaryIp,
             selectedProvider.secondaryIp,
             "185.228.168.168",
+            "185.228.168.10",
+            "208.67.222.123",
+            "76.76.2.4",
             "1.1.1.3"
         ).distinct()
 

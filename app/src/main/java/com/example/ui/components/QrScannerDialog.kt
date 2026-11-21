@@ -86,7 +86,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun QrScannerDialog(
     onDismiss: () -> Unit,
     onCodeScanned: (String) -> Unit,
-    onBeforePermissionRequest: () -> Unit = {}
+    onBeforePermissionRequest: () -> Unit = {},
+    title: String = "Scan Child QR Code",
+    subtitle: String = "Align pairing QR inside the frame"
 ) {
     val context = LocalContext.current
     var hasCameraPermission by remember {
@@ -157,14 +159,14 @@ fun QrScannerDialog(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "Scan Child QR Code",
+                                text = title,
                                 color = AegisTextPrimary,
                                 fontSize = 15.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = ClassicalDisplayFont
                             )
                             Text(
-                                text = "Align pairing QR inside the frame",
+                                text = subtitle,
                                 color = AegisTextSecondary,
                                 fontSize = 11.5.sp,
                                 fontFamily = ClassicalBodyFont

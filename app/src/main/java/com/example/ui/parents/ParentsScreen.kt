@@ -91,6 +91,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,6 +105,8 @@ import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.example.core.models.SecurityIncident
 import com.example.core.models.SensitivityLevel
 import com.example.data.preferences.AegisPreferences
+import com.example.data.preferences.RecoveryQrMode
+import com.example.data.preferences.RecoveryScanResult
 import com.example.data.repository.ChildLiveThumbnail
 import com.example.data.repository.PairedChildSummary
 import com.example.data.repository.ParentChildRepository
@@ -197,6 +200,8 @@ fun ParentsScreen(
     var pairingInput by remember { mutableStateOf("") }
     var selectedChildUid by remember { mutableStateOf<String?>(null) }
     var showQrScanner by remember { mutableStateOf(false) }
+    var qrScanMode by remember { mutableStateOf("pairing") }
+    var recoveryScanOutcome by remember { mutableStateOf<RecoveryScanResult?>(null) }
 
     LaunchedEffect(pendingPairingCode) {
         if (!pendingPairingCode.isNullOrBlank()) {
@@ -207,14 +212,36 @@ fun ParentsScreen(
     }
 
     if (showQrScanner) {
+        val isRecoveryScanner = qrScanMode == "recovery"
         QrScannerDialog(
             onDismiss = { showQrScanner = false },
             onBeforePermissionRequest = { preferences.beginAuthorizedExternalFlow() },
+            title = if (isRecoveryScanner) "Scan Recovery QR Code" else "Scan Child QR Code",
+            subtitle = if (isRecoveryScanner) {
+                "Point camera at the timed-out or Forgot-PIN screen"
+            } else {
+                "Align pairing QR inside the frame"
+            },
             onCodeScanned = { scanned ->
                 showQrScanner = false
-                val parsed = ParentChildRepository.extractPairingCode(scanned) ?: scanned
-                pairingInput = parsed
-                Toast.makeText(context, "QR Scanned: $parsed", Toast.LENGTH_SHORT).show()
+                if (isRecoveryScanner || AegisPreferences.parseRecoveryQrUri(scanned) != null) {
+                    val outcome = AegisPreferences.resolveRecoveryTokenForGuardianScan(
+                        rawQrInput = scanned,
+                        signedInEmail = currentUser?.email
+                    )
+                    recoveryScanOutcome = outcome
+                    if (outcome is RecoveryScanResult.Success) {
+                        Toast.makeText(
+                            context,
+                            "One-time code ready: ${outcome.oneTimeCode}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } else {
+                    val parsed = ParentChildRepository.extractPairingCode(scanned) ?: scanned
+                    pairingInput = parsed
+                    Toast.makeText(context, "QR Scanned: $parsed", Toast.LENGTH_SHORT).show()
+                }
             }
         )
     }
@@ -536,6 +563,155 @@ fun ParentsScreen(
                     }
                 }
 
+                // 1b. Self-Service Guardian QR Recovery Scanner (Timer End & Forgot PIN)
+                item {
+                    LuxurySectionHeader(title = "QR Recovery Scanner", accentColor = AegisChampagneGold)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    CyberCard(
+                        borderColor = AegisGoldBorder,
+                        tone = CyberCardTone.GOLD,
+                        modifier = Modifier.testTag("guardian_qr_recovery_card")
+                    ) {
+                        Text(
+                            text = "Scan Recovery QR from Another Device",
+                            color = AegisTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Sign in with the same Guardian email registered at first boot, then scan the QR shown on a timed-out screen (ends timer only) or a Forgot-PIN prompt.",
+                            color = AegisTextSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 16.5.sp,
+                            fontFamily = ClassicalBodyFont
+                        )
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Button(
+                            onClick = {
+                                if (currentUser == null) {
+                                    recoveryScanOutcome = RecoveryScanResult.RequiresGoogleSignIn
+                                    Toast.makeText(
+                                        context,
+                                        "Sign in with your Guardian Google account above first.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } else {
+                                    qrScanMode = "recovery"
+                                    showQrScanner = true
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AegisChampagneGold,
+                                contentColor = AegisOnPrimaryWhite
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("scan_recovery_qr_button")
+                        ) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("SCAN TIMEOUT / FORGOT-PIN QR", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        when (val outcome = recoveryScanOutcome) {
+                            is RecoveryScanResult.Success -> {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(AegisCardBackground)
+                                        .border(1.2.dp, AegisSuccessGreen.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                                        .padding(14.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = if (outcome.mode == RecoveryQrMode.TIMER_END) {
+                                            "TIMER END ONLY • SHIELD STAYS ON"
+                                        } else {
+                                            "MASTER KEY PIN RESET"
+                                        },
+                                        color = AegisSuccessGreen,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp,
+                                        fontFamily = ClassicalBodyFont
+                                    )
+                                    Text(
+                                        text = outcome.oneTimeCode,
+                                        color = AegisTextPrimary,
+                                        fontSize = 26.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 4.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.testTag("recovery_generated_code_text")
+                                    )
+                                    Text(
+                                        text = "Challenge: ${outcome.challengeCode} • Single-use code",
+                                        color = AegisTextSecondary,
+                                        fontSize = 11.sp,
+                                        fontFamily = ClassicalBodyFont
+                                    )
+                                    OutlinedButton(
+                                        onClick = {
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            cm?.setPrimaryClip(ClipData.newPlainText("Sheildlenz One-Time Code", outcome.oneTimeCode))
+                                            Toast.makeText(context, "Copied ${outcome.oneTimeCode}", Toast.LENGTH_SHORT).show()
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(42.dp)
+                                            .testTag("copy_recovery_code_button")
+                                    ) {
+                                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(15.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("COPY ONE-TIME CODE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                            RecoveryScanResult.RequiresGoogleSignIn -> {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Sign in with Google above using your registered Guardian email to authorize QR recovery.",
+                                    color = AegisDangerRed,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                            is RecoveryScanResult.EmailMismatch -> {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Account mismatch: signed in as ${outcome.signedInEmail}, which does not match the Guardian email configured at first boot on the target device.",
+                                    color = AegisDangerRed,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                            RecoveryScanResult.InvalidQr -> {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Unrecognized recovery QR code.",
+                                    color = AegisDangerRed,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                            null -> Unit
+                        }
+                    }
+                }
+
                 // 2. Dual Connection Options: Connect as Parent AND Connect as Child
                 item {
                     LuxurySectionHeader(title = "Connection Role", accentColor = AegisPurple)
@@ -643,7 +819,10 @@ fun ParentsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 OutlinedButton(
-                                    onClick = { showQrScanner = true },
+                                    onClick = {
+                                        qrScanMode = "pairing"
+                                        showQrScanner = true
+                                    },
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier
                                         .weight(1f)

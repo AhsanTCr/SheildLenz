@@ -1,11 +1,26 @@
 package com.example.ui.theme
 
+import android.content.Context
+import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.node.DelegatableNode
+import androidx.compose.ui.node.DelegatingNode
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import com.example.core.audio.AegisSoundEffects
+import kotlinx.coroutines.launch
 
 private val SheildlenzColorScheme = lightColorScheme(
     primary = AegisPrimaryCyan,
@@ -40,14 +55,70 @@ private val SheildlenzShapes = Shapes(
     extraLarge = RoundedCornerShape(28.dp)
 )
 
+private class WaterDropIndicationNodeFactory(
+    private val context: Context,
+    private val baseRipple: IndicationNodeFactory = ripple()
+) : IndicationNodeFactory {
+
+    override fun create(interactionSource: InteractionSource): DelegatableNode {
+        return WaterDropIndicationNode(
+            context = context,
+            interactionSource = interactionSource,
+            rippleDelegate = baseRipple.create(interactionSource)
+        )
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is WaterDropIndicationNodeFactory) return false
+        return baseRipple == other.baseRipple
+    }
+
+    override fun hashCode(): Int = baseRipple.hashCode()
+}
+
+private class WaterDropIndicationNode(
+    private val context: Context,
+    private val interactionSource: InteractionSource,
+    rippleDelegate: DelegatableNode
+) : DelegatingNode() {
+
+    init {
+        delegate(rippleDelegate)
+    }
+
+    override fun onAttach() {
+        coroutineScope.launch {
+            interactionSource.interactions.collect { interaction ->
+                if (interaction is PressInteraction.Release) {
+                    AegisSoundEffects.playTap(context)
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun AegisShieldTheme(
     content: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    SideEffect {
+        view.isSoundEffectsEnabled = false
+    }
+    val waterDropIndication = remember(context) {
+        WaterDropIndicationNodeFactory(context)
+    }
+
     MaterialTheme(
         colorScheme = SheildlenzColorScheme,
         typography = Typography,
-        shapes = SheildlenzShapes,
-        content = content
-    )
+        shapes = SheildlenzShapes
+    ) {
+        CompositionLocalProvider(
+            LocalIndication provides waterDropIndication,
+            content = content
+        )
+    }
 }

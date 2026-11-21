@@ -14,10 +14,12 @@ import com.example.core.models.SensitivityLevel
 import com.example.core.models.ThreatCategory
 import com.example.core.models.ThreatSeverity
 import com.example.ui.components.SecurityHealthReport
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.update.UpdateChecker
 import com.example.data.local.AegisDatabase
 import com.example.data.preferences.AegisPreferences
 import com.example.data.preferences.PowerMode
+import com.example.data.preferences.SafeDnsProvider
 import com.example.data.repository.ProtectionRepository
 import com.example.data.repository.SecurityHistoryRepository
 import com.example.detection.classifier.ActiveModelInfo
@@ -1309,6 +1311,43 @@ class ExampleRobolectricTest {
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
             serviceInfo.foregroundServiceType
         )
+    }
+
+    @Test
+    fun `safe dns provider defaults to deen strict and persists switching across family providers`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+
+        assertEquals(SafeDnsProvider.DEEN_STRICT, prefs.safeDnsProvider.value)
+        assertEquals("185.228.168.168", prefs.safeDnsProvider.value.primaryIp)
+
+        prefs.setSafeDnsProvider(SafeDnsProvider.CLOUDFLARE_FAMILY)
+        assertEquals(SafeDnsProvider.CLOUDFLARE_FAMILY, prefs.safeDnsProvider.value)
+
+        val reloaded = AegisPreferences(context)
+        assertEquals(SafeDnsProvider.CLOUDFLARE_FAMILY, reloaded.safeDnsProvider.value)
+
+        reloaded.setSafeDnsProvider(SafeDnsProvider.ADGUARD_FAMILY)
+        assertEquals("94.140.14.15", reloaded.safeDnsProvider.value.primaryIp)
+    }
+
+    @Test
+    fun `sound effects synthesize soft glassy water drop tap and louder mode on voice`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val tapSamples = AegisSoundEffects.synthesizeWaterDropTap()
+        val modeSamples = AegisSoundEffects.synthesizeModeActivatedVoice()
+
+        assertTrue("Tap should be crisp & short (< 2500 samples)", tapSamples.size in 1500..2500)
+        assertTrue("Mode-on chime should have richer longer presence", modeSamples.size > tapSamples.size * 3)
+
+        val tapPeak = tapSamples.maxOf { kotlin.math.abs(it.toInt()) }
+        val modePeak = modeSamples.maxOf { kotlin.math.abs(it.toInt()) }
+        assertTrue("Mode-on chime should have stronger voice peak than subtle tap", modePeak > tapPeak)
+        assertTrue("Tap amplitude must stay soft (no harsh clip)", tapPeak < 9000)
+
+        // Safe execution even on headless Robolectric audio environment
+        AegisSoundEffects.playTap(context)
+        AegisSoundEffects.playModeOn(context)
     }
 }
 

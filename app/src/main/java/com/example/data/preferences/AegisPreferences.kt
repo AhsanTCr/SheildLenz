@@ -81,36 +81,99 @@ enum class SafeDnsProvider(
 ) {
     DEEN_STRICT(
         id = "deen_strict",
-        displayName = "Deen Strict (CleanBrowsing)",
+        displayName = "Deen Strict (CleanBrowsing Family)",
         subtitle = "Zero-tolerance adult, gambling & malicious blocklist",
         primaryIp = "185.228.168.168",
         secondaryIp = "185.228.169.168",
         ratingBadge = "STRICT DEEN",
-        description = "Strict family filter blocking adult domains, gambling, malicious sites, and enforcing SafeSearch on Google, Bing, and YouTube for clean Halal browsing."
+        description = "Strict family filter blocking adult domains, gambling, proxies, and enforcing SafeSearch across search engines and YouTube."
+    ),
+    CLEANBROWSING_ADULT(
+        id = "cleanbrowsing_adult",
+        displayName = "CleanBrowsing Adult Filter",
+        subtitle = "Dedicated anti-adult & SafeSearch resolver",
+        primaryIp = "185.228.168.10",
+        secondaryIp = "185.228.169.11",
+        ratingBadge = "STRICT ADULT",
+        description = "Blocks all explicit adult domains and adult sub-networks while enforcing SafeSearch across Google and Bing."
+    ),
+    OPENDNS_FAMILY(
+        id = "opendns_family",
+        displayName = "OpenDNS FamilyShield (Cisco)",
+        subtitle = "Enterprise-grade adult, proxy & phishing shield",
+        primaryIp = "208.67.222.123",
+        secondaryIp = "208.67.220.123",
+        ratingBadge = "CISCO STRICT",
+        description = "Pre-configured Cisco FamilyShield blocking adult websites, anonymizers, proxies, and phishing hosts."
+    ),
+    CONTROLD_ADULT(
+        id = "controld_adult",
+        displayName = "Control D Strict Adult & Malware",
+        subtitle = "Zero-tolerance adult, malware & ad-tracker resolver",
+        primaryIp = "76.76.2.4",
+        secondaryIp = "76.76.10.4",
+        ratingBadge = "ZERO ADULT",
+        description = "Strict Anycast DNS blocking adult websites, malware infrastructure, and ad trackers with high uptime."
     ),
     CLOUDFLARE_FAMILY(
         id = "cloudflare_family",
         displayName = "Cloudflare Family (1.1.1.3)",
-        subtitle = "Ultra-fast global protection against malware & adult sites",
+        subtitle = "Low-latency Anycast malware & adult filter",
         primaryIp = "1.1.1.3",
         secondaryIp = "1.0.0.3",
         ratingBadge = "FAST FAMILY",
-        description = "High-speed Anycast 1.1.1.3 DNS automatically blocking known malware, phishing domains, and explicit adult websites."
+        description = "Anycast 1.1.1.3 resolver blocking known malware, phishing domains, and explicit adult websites."
     ),
     ADGUARD_FAMILY(
         id = "adguard_family",
         displayName = "AdGuard Family Protection",
-        subtitle = "Ad-free safe browsing with adult content blocking",
+        subtitle = "Ad-free SafeSearch & adult domain blocking",
         primaryIp = "94.140.14.15",
         secondaryIp = "94.140.15.16",
         ratingBadge = "AD-FREE FAMILY",
-        description = "Comprehensive family filter blocking adult domains, malicious sites, and annoying tracking/advertising servers."
+        description = "Family resolver blocking adult domains, intrusive trackers, advertising hosts, and enforces SafeSearch."
     );
 
     companion object {
         fun fromId(id: String?): SafeDnsProvider =
             entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: DEEN_STRICT
     }
+}
+
+enum class RecoveryQrMode(
+    val wireCode: String,
+    val label: String
+) {
+    TIMER_END("T", "End Lockdown Timer Only (Shield Stays Active)"),
+    PIN_RESET("P", "Reset Master Key PIN");
+
+    companion object {
+        fun fromWireCode(code: String?): RecoveryQrMode? = when (code?.trim()?.uppercase(Locale.US)) {
+            "T", "TIMER" -> TIMER_END
+            "P", "PIN" -> PIN_RESET
+            else -> null
+        }
+    }
+}
+
+data class RecoveryQrPayload(
+    val mode: RecoveryQrMode,
+    val challengeCode: String,
+    val emailHash: String
+)
+
+sealed class RecoveryScanResult {
+    data class Success(
+        val mode: RecoveryQrMode,
+        val challengeCode: String,
+        val oneTimeCode: String
+    ) : RecoveryScanResult()
+
+    data object RequiresGoogleSignIn : RecoveryScanResult()
+
+    data class EmailMismatch(val signedInEmail: String) : RecoveryScanResult()
+
+    data object InvalidQr : RecoveryScanResult()
 }
 
 enum class InferenceAccelerationMode(
@@ -1042,6 +1105,33 @@ class AegisPreferences(context: Context) {
         return normalized == expected
     }
 
+    fun verifyTimerRecoveryToken(input: String): Boolean {
+        val normalized = input.trim().uppercase(Locale.US).replace("-", "").replace(" ", "")
+        if (normalized.length < 6) return false
+        val expected = computeTimerRecoveryToken(getRecoveryChallengeCode())
+            .uppercase(Locale.US)
+            .replace("-", "")
+        return normalized == expected
+    }
+
+    /**
+     * Ends only an active lockdown/cooldown timer using a single-use code derived from the
+     * parent-scanned TIMER_END QR. Protection remains desired/active and the Master Key is NOT reset.
+     */
+    fun endLockdownTimerWithToken(token: String): Boolean {
+        if (!verifyTimerRecoveryToken(token)) return false
+        clearLockdown()
+        setShieldDesiredActive(true)
+        rotateRecoveryChallengeCode()
+        return true
+    }
+
+    fun buildRecoveryQrUri(mode: RecoveryQrMode): String = buildRecoveryQrUri(
+        mode = mode,
+        challengeCode = getRecoveryChallengeCode(),
+        guardianEmail = _guardianEmail.value
+    )
+
     fun resetPinWithRecoveryToken(token: String, newPin: String? = null): Boolean {
         if (!verifyRecoveryToken(token)) return false
         clearLockdown()
@@ -1361,8 +1451,8 @@ class AegisPreferences(context: Context) {
                 payload.optInt("bedtimeEndMinutes", 6 * 60)
             )
             setSafeDnsEnabled(payload.optBoolean("safeDnsEnabled", false))
-            val savedDnsProv = payload.optString("safeDnsProvider", null)
-            if (!savedDnsProv.isNullOrBlank()) {
+            val savedDnsProv = payload.optString("safeDnsProvider", "")
+            if (savedDnsProv.isNotBlank()) {
                 setSafeDnsProvider(SafeDnsProvider.fromId(savedDnsProv))
             }
             setBlockExplicitAdult(payload.optBoolean("blockExplicitAdult", true))
@@ -1425,6 +1515,74 @@ class AegisPreferences(context: Context) {
             val md = MessageDigest.getInstance("SHA-256")
             val digest = md.digest(("ahsantcr_sheildlenz_recovery_v1_" + challengeCode.trim().uppercase(Locale.US)).toByteArray(Charsets.UTF_8))
             return digest.take(4).joinToString("") { "%02X".format(it) }
+        }
+
+        fun computeTimerRecoveryToken(challengeCode: String): String {
+            val md = MessageDigest.getInstance("SHA-256")
+            val digest = md.digest(("sheildlenz_timer_end_v2_" + challengeCode.trim().uppercase(Locale.US)).toByteArray(Charsets.UTF_8))
+            return digest.take(4).joinToString("") { "%02X".format(it) }
+        }
+
+        fun computeEmailHashForQr(email: String): String {
+            val clean = email.trim().lowercase(Locale.US)
+            if (clean.isEmpty()) return ""
+            val md = MessageDigest.getInstance("SHA-256")
+            val digest = md.digest(("slz_email_v1_$clean").toByteArray(Charsets.UTF_8))
+            return digest.take(6).joinToString("") { "%02X".format(it) }
+        }
+
+        fun buildRecoveryQrUri(
+            mode: RecoveryQrMode,
+            challengeCode: String,
+            guardianEmail: String
+        ): String {
+            val cleanChallenge = challengeCode.trim().uppercase(Locale.US)
+            val hash = computeEmailHashForQr(guardianEmail)
+            return if (hash.isNotEmpty()) {
+                "sheildlenz://rec?t=${mode.wireCode}&c=$cleanChallenge&e=$hash"
+            } else {
+                "sheildlenz://rec?t=${mode.wireCode}&c=$cleanChallenge"
+            }
+        }
+
+        fun parseRecoveryQrUri(rawInput: String): RecoveryQrPayload? {
+            val trimmed = rawInput.trim()
+            if (!trimmed.startsWith("sheildlenz://rec", ignoreCase = true)) return null
+            val query = trimmed.substringAfter("?", "")
+            if (query.isBlank()) return null
+            val params = query.split("&").mapNotNull { pair ->
+                val idx = pair.indexOf('=')
+                if (idx <= 0) null
+                else pair.substring(0, idx).lowercase(Locale.US) to pair.substring(idx + 1).trim()
+            }.toMap()
+            val mode = RecoveryQrMode.fromWireCode(params["t"]) ?: return null
+            val challenge = params["c"]?.uppercase(Locale.US)?.takeIf { it.startsWith("SLZ-") && it.length >= 8 }
+                ?: return null
+            val emailHash = params["e"]?.uppercase(Locale.US).orEmpty()
+            return RecoveryQrPayload(mode = mode, challengeCode = challenge, emailHash = emailHash)
+        }
+
+        fun resolveRecoveryTokenForGuardianScan(
+            rawQrInput: String,
+            signedInEmail: String?
+        ): RecoveryScanResult {
+            val payload = parseRecoveryQrUri(rawQrInput) ?: return RecoveryScanResult.InvalidQr
+            val cleanSignedIn = signedInEmail?.trim().orEmpty()
+            if (cleanSignedIn.isEmpty()) {
+                return RecoveryScanResult.RequiresGoogleSignIn
+            }
+            if (payload.emailHash.isNotEmpty() && computeEmailHashForQr(cleanSignedIn) != payload.emailHash) {
+                return RecoveryScanResult.EmailMismatch(signedInEmail = cleanSignedIn)
+            }
+            val code = when (payload.mode) {
+                RecoveryQrMode.TIMER_END -> computeTimerRecoveryToken(payload.challengeCode)
+                RecoveryQrMode.PIN_RESET -> computeRecoveryTokenForChallenge(payload.challengeCode)
+            }
+            return RecoveryScanResult.Success(
+                mode = payload.mode,
+                challengeCode = payload.challengeCode,
+                oneTimeCode = code
+            )
         }
 
         fun normalizeDomainInput(raw: String): String? {

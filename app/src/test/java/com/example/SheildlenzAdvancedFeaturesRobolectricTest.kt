@@ -18,10 +18,18 @@ import com.example.detection.decision.ThreatDecisionEngine
 import com.example.di.AegisContainer
 import com.example.monitoring.accessibility.AegisAccessibilityService
 import com.example.services.dns.DnsPacketHelper
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTextInput
+import com.example.data.preferences.RecoveryQrMode
+import com.example.data.preferences.RecoveryScanResult
+import com.example.data.preferences.SafeDnsProvider
 import com.example.ui.about.AboutScreen
 import com.example.ui.auth.GuardianGateScreen
+import com.example.ui.components.QrCodeGenerator
+import com.example.ui.components.rememberMasterKeyGate
 import com.example.ui.dashboard.DashboardScreen
+import com.example.ui.onboarding.OnboardingScreen
 import com.example.ui.parents.ParentsScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.settings.WellbeingHubScreen
@@ -328,7 +336,7 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
     }
 
     @Test
-    fun `parents screen renders scan qr button in parent role`() {
+    fun `parents screen renders qr recovery scanner and scan child qr button`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         container.preferences.clearParentalConnectionState()
@@ -342,6 +350,12 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
                 )
             }
         }
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("guardian_qr_recovery_card"))
+        composeRule.onNodeWithTag("guardian_qr_recovery_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("scan_recovery_qr_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Sign in with Google above using your registered Guardian email to authorize QR recovery.").assertIsDisplayed()
 
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("connect_as_parent_button"))
         composeRule.onNodeWithTag("connect_as_parent_button").performScrollTo()
@@ -426,6 +440,216 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         composeRule.onNodeWithTag("hub_bedtime_button").assertIsDisplayed()
         composeRule.onNodeWithTag("hub_warnings_button").assertIsDisplayed()
         composeRule.onNodeWithTag("hub_device_owner_button").assertIsDisplayed()
+    }
+
+    @Test
+    fun `qr recovery distinguishes timer-end vs pin-reset and enforces matching guardian email`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+        prefs.setGuardianEmail("parent.guard@example.com")
+        prefs.setGuardianPin("2468")
+        prefs.lockGuardianSession()
+        prefs.engageFullDeviceLockdown("Chrome", "com.android.chrome", "Explicit", "test")
+
+        val timerQrUri = prefs.buildRecoveryQrUri(RecoveryQrMode.TIMER_END)
+        val pinQrUri = prefs.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
+
+        // Requires Google sign-in on scanning parent phone
+        assertTrue(
+            AegisPreferences.resolveRecoveryTokenForGuardianScan(timerQrUri, null)
+                is RecoveryScanResult.RequiresGoogleSignIn
+        )
+
+        // Wrong email is rejected
+        val mismatch = AegisPreferences.resolveRecoveryTokenForGuardianScan(timerQrUri, "intruder@example.com")
+        assertTrue(mismatch is RecoveryScanResult.EmailMismatch)
+
+        // Matching email returns one-time timer code (case/whitespace normalized)
+        val timerResult = AegisPreferences.resolveRecoveryTokenForGuardianScan(
+            timerQrUri,
+            " Parent.Guard@example.com "
+        ) as RecoveryScanResult.Success
+        assertEquals(RecoveryQrMode.TIMER_END, timerResult.mode)
+
+        // Timer token cannot reset PIN, and PIN token cannot end timer cleanly via wrong verifier
+        assertFalse(prefs.resetPinWithRecoveryToken(timerResult.oneTimeCode, "9999"))
+        assertTrue(prefs.endLockdownTimerWithToken(timerResult.oneTimeCode))
+
+        // Timer ended, Shield remains ON, original PIN unchanged, Guardian session still locked, Challenge rotated
+        assertFalse(prefs.isLockdownActive())
+        assertTrue(prefs.isShieldDesiredActive.value)
+        assertTrue(prefs.verifyGuardianPin("2468"))
+        assertFalse(prefs.isGuardianSessionUnlocked.value)
+        assertFalse(prefs.endLockdownTimerWithToken(timerResult.oneTimeCode))
+
+        // Older pinQrUri still checks out conceptually for matching email on its challenge
+        val pinResult = AegisPreferences.resolveRecoveryTokenForGuardianScan(
+            pinQrUri,
+            "parent.guard@example.com"
+        ) as RecoveryScanResult.Success
+        assertEquals(RecoveryQrMode.PIN_RESET, pinResult.mode)
+        assertNotEquals(timerResult.oneTimeCode, pinResult.oneTimeCode)
+
+        // Bitmap QR encoder produces crisp valid square bitmap
+        val qrBitmap = QrCodeGenerator.encodeBitmap(timerQrUri, sizePx = 280)
+        assertEquals(qrBitmap.width, qrBitmap.height)
+        assertTrue(qrBitmap.width >= 100)
+    }
+
+    @Test
+    fun `master key gate supports inline forgot pin qr reset`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+        prefs.setGuardianEmail("guardian@home.org")
+        prefs.setGuardianPin("1122")
+        prefs.lockGuardianSession()
+
+        var callbackInvoked = false
+        composeRule.setContent {
+            AegisShieldTheme {
+                val gate = rememberMasterKeyGate(prefs)
+                androidx.compose.material3.Button(
+                    onClick = {
+                        gate.request("turn off shield") { callbackInvoked = true }
+                    },
+                    modifier = androidx.compose.ui.Modifier.testTag("test_trigger_gate_btn")
+                ) {
+                    androidx.compose.material3.Text("Trigger")
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("test_trigger_gate_btn").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("master_key_forgot_pin_button").performClick()
+        composeRule.waitForIdle()
+
+        val qrUri = prefs.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
+        val scanResult = AegisPreferences.resolveRecoveryTokenForGuardianScan(
+            qrUri,
+            "guardian@home.org"
+        ) as RecoveryScanResult.Success
+
+        composeRule.onNodeWithTag("master_key_forgot_qr_matrix").assertIsDisplayed()
+        composeRule.onNodeWithTag("master_key_recovery_code_input").performTextInput(scanResult.oneTimeCode)
+        composeRule.onNodeWithTag("master_key_new_pin_input").performTextInput("7788")
+        composeRule.onNodeWithTag("master_key_prompt_confirm").performClick()
+        composeRule.waitForIdle()
+
+        assertTrue(callbackInvoked)
+        assertTrue(prefs.verifyGuardianPin("7788"))
+        assertFalse(prefs.verifyGuardianPin("1122"))
+    }
+
+    @Test
+    fun `onboarding step 1 requires master key and valid guardian email before proceeding`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+        prefs.removeGuardianPin()
+        prefs.setGuardianEmail("")
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                OnboardingScreen(preferences = prefs, onComplete = {})
+            }
+        }
+
+        composeRule.onNodeWithTag("onboarding_get_started_button").performScrollTo()
+        composeRule.onNodeWithTag("onboarding_get_started_button").performClick()
+        composeRule.waitForIdle()
+
+        // Trying to continue with empty fields stays on Step 1
+        composeRule.onNodeWithTag("onboarding_guardian_continue_button").performScrollTo()
+        composeRule.onNodeWithTag("onboarding_guardian_continue_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("onboarding_pin_input").performScrollTo()
+        composeRule.onNodeWithTag("onboarding_pin_input").assertIsDisplayed()
+
+        // Fill valid PIN + matching confirm + email
+        composeRule.onNodeWithTag("onboarding_pin_input").performTextInput("5544")
+        composeRule.onNodeWithTag("onboarding_confirm_pin_input").performScrollTo()
+        composeRule.onNodeWithTag("onboarding_confirm_pin_input").performTextInput("5544")
+        composeRule.onNodeWithTag("onboarding_email_input").performScrollTo()
+        composeRule.onNodeWithTag("onboarding_email_input").performTextInput("mom.guard@example.com")
+        composeRule.onNodeWithTag("onboarding_guardian_continue_button").performScrollTo()
+        composeRule.onNodeWithTag("onboarding_guardian_continue_button").performClick()
+        composeRule.waitForIdle()
+
+        assertTrue(prefs.verifyGuardianPin("5544"))
+        assertEquals("mom.guard@example.com", prefs.guardianEmail.value)
+        composeRule.onNodeWithText("System Overlay").assertIsDisplayed()
+    }
+
+    @Test
+    fun `strict anti adult dns catalog and packet filter block adult mirrors tlds and doh bypass`() {
+        assertEquals("185.228.168.10", SafeDnsProvider.CLEANBROWSING_ADULT.primaryIp)
+        assertEquals("208.67.222.123", SafeDnsProvider.OPENDNS_FAMILY.primaryIp)
+        assertEquals("76.76.2.4", SafeDnsProvider.CONTROLD_ADULT.primaryIp)
+
+        assertNotNull(DnsPacketHelper.matchesBlockedDomain("chaturbate.com", blockExplicitAdult = true))
+        assertNotNull(DnsPacketHelper.matchesBlockedDomain("live.myfreecams.cam", blockExplicitAdult = true))
+        assertNotNull(DnsPacketHelper.matchesBlockedDomain("model.sexy", blockExplicitAdult = true))
+        assertNotNull(DnsPacketHelper.matchesBlockedDomain("free-pornhub-hd.net", blockExplicitAdult = true))
+        assertNotNull(DnsPacketHelper.matchesBlockedDomain("dns.google", blockExplicitAdult = true))
+        assertNotNull(DnsPacketHelper.matchesBlockedDomain("cloudflare-dns.com", blockExplicitAdult = true))
+        assertNotNull(DnsPacketHelper.matchesBlockedDomain("mozilla.cloudflare-dns.com", blockExplicitAdult = true))
+
+        assertNull(DnsPacketHelper.matchesBlockedDomain("wikipedia.org", blockExplicitAdult = true))
+        assertNull(DnsPacketHelper.matchesBlockedDomain("scunthorpe-united.co.uk", blockExplicitAdult = true))
+    }
+
+    @Test
+    fun `3d orbital projection computes depth z and perspective scaling cleanly`() {
+        val center = androidx.compose.ui.geometry.Offset(100f, 100f)
+        val front = com.example.ui.components.projectOrbitPoint3D(
+            center = center,
+            radiusX = 80f,
+            radiusY = 48f,
+            zAmplitude = 60f,
+            angleDeg = 90f,
+            tiltDeg = 16f,
+            cameraDistance = 240f
+        )
+        val back = com.example.ui.components.projectOrbitPoint3D(
+            center = center,
+            radiusX = 80f,
+            radiusY = 48f,
+            zAmplitude = 60f,
+            angleDeg = 270f,
+            tiltDeg = 16f,
+            cameraDistance = 240f
+        )
+
+        assertTrue(front.zNormalized > 0.9f)
+        assertTrue(back.zNormalized < -0.9f)
+        assertTrue(front.perspectiveScale > 1.0f)
+        assertTrue(back.perspectiveScale < 1.0f)
+        assertTrue(front.perspectiveScale > back.perspectiveScale)
+    }
+
+    @Test
+    fun `about screen hero branding update card and expandable guide items render cleanly`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                AboutScreen(preferences = container.preferences)
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("about_screen_root").assertIsDisplayed()
+        composeRule.onNodeWithTag("built_by_ahsantcr_link").performScrollTo()
+        composeRule.onNodeWithTag("built_by_ahsantcr_link").assertIsDisplayed()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("app_update_checker_card"))
+        composeRule.onNodeWithTag("app_update_checker_card").assertIsDisplayed()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("about_faq_item_2"))
+        composeRule.onNodeWithTag("about_faq_item_2").performScrollTo()
+        composeRule.onNodeWithTag("about_faq_item_2").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("How does Strict Safe DNS block adult websites across apps?").assertIsDisplayed()
     }
 
     private fun buildSampleIpv4UdpDnsQueryPacket(domain: String): ByteArray {

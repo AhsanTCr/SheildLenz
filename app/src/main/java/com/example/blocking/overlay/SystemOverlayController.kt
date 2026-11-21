@@ -18,6 +18,7 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -29,8 +30,10 @@ import com.example.core.models.ThreatCategory
 import com.example.core.permissions.PermissionHelper
 import com.example.data.preferences.AegisPreferences
 import com.example.data.preferences.LockdownIncidentInfo
+import com.example.data.preferences.RecoveryQrMode
 import com.example.di.AegisContainer
 import com.example.services.protection.AegisLockdownService
+import com.example.ui.components.QrCodeGenerator
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -537,8 +540,9 @@ class SystemOverlayController(private val context: Context) {
 
         val challengeCode = prefs.getRecoveryChallengeCode()
         val registeredEmail = prefs.guardianEmail.value.ifBlank { "Not configured during setup" }
+        val timerQrPayload = prefs.buildRecoveryQrUri(RecoveryQrMode.TIMER_END)
 
-        // Dominant Always-Visible Challenge ID & Guardian Recovery Card — Sunlit Honey Gold pastel
+        // Guardian QR Timer Recovery Card — scannable from another phone signed in with Guardian email
         val dominantChallengeCard = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -551,29 +555,55 @@ class SystemOverlayController(private val context: Context) {
         }
 
         val recoveryHeading = TextView(context).apply {
-            text = "FORGOT PIN? GUARDIAN RECOVERY ID"
+            text = "END TIMER BY QR • GUARDIAN RECOVERY"
             setTextColor(Color.parseColor("#D9820B"))
             textSize = 11f
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 8)
+            setPadding(0, 0, 0, 10)
         }
         dominantChallengeCard.addView(recoveryHeading)
+
+        val qrBitmap = runCatching {
+            QrCodeGenerator.encodeBitmap(content = timerQrPayload, sizePx = 360)
+        }.getOrNull()
+        if (qrBitmap != null) {
+            val qrContainer = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = roundedBox("#FFFFFF", "#E59712", 24f)
+                setPadding(18, 18, 18, 18)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 14
+                }
+            }
+            val qrImageView = ImageView(context).apply {
+                setImageBitmap(qrBitmap)
+                contentDescription = "Guardian Timer Recovery QR Code for Challenge $challengeCode"
+                adjustViewBounds = true
+                layoutParams = LinearLayout.LayoutParams(360, 360)
+            }
+            qrContainer.addView(qrImageView)
+            dominantChallengeCard.addView(qrContainer)
+        }
 
         val challengeCodeBadge = TextView(context).apply {
             text = challengeCode
             setTextColor(Color.parseColor("#1A3673"))
-            textSize = 22f
+            textSize = 20f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             gravity = Gravity.CENTER
             background = roundedBox("#FFFFFF", "#E59712", 20f)
-            setPadding(34, 14, 34, 14)
+            setPadding(32, 12, 32, 12)
         }
         dominantChallengeCard.addView(challengeCodeBadge)
 
         val recoveryInfo = TextView(context).apply {
-            text = "Guardian Email: $registeredEmail\n" +
-                "Each block creates a fresh Challenge ID. Send this ID to AhsanTCr to receive your 8-char recovery unlock code."
+            text = "Registered Guardian Email: $registeredEmail\n" +
+                "Scan this QR with Sheildlenz on a parent phone signed in with the same email to get a 1-time code that ends this timer only (Shield remains ON)."
             setTextColor(Color.parseColor("#3E5894"))
             textSize = 11.5f
             gravity = Gravity.CENTER
@@ -582,30 +612,16 @@ class SystemOverlayController(private val context: Context) {
         dominantChallengeCard.addView(recoveryInfo)
 
         val recoveryInput = EditText(context).apply {
-            hint = "Enter 8-Char AhsanTCr Recovery Code"
+            hint = "Enter 8-Char One-Time Timer End Code"
             setHintTextColor(Color.parseColor("#5D76B0"))
             setTextColor(Color.parseColor("#1A3673"))
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-            imeOptions = EditorInfo.IME_ACTION_NEXT
-            isSingleLine = true
-            typeface = Typeface.MONOSPACE
-            textSize = 13f
-            gravity = Gravity.CENTER
-            background = roundedBox("#FFFFFF", "#F2C667", 18f)
-            setPadding(20, 18, 20, 18)
-        }
-
-        val recoveryNewPinInput = EditText(context).apply {
-            hint = "Optional: Set New PIN (4–8 digits)"
-            setHintTextColor(Color.parseColor("#5D76B0"))
-            setTextColor(Color.parseColor("#1A3673"))
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
             imeOptions = EditorInfo.IME_ACTION_DONE
             isSingleLine = true
             typeface = Typeface.MONOSPACE
             textSize = 13f
             gravity = Gravity.CENTER
-            background = roundedBox("#FFFFFF", "#C0AEFD", 18f)
+            background = roundedBox("#FFFFFF", "#F2C667", 18f)
             setPadding(20, 18, 20, 18)
         }
 
@@ -621,11 +637,9 @@ class SystemOverlayController(private val context: Context) {
         }
         recoveryPanel.addView(recoveryInput)
         recoveryPanel.addView(verticalSpacer(10))
-        recoveryPanel.addView(recoveryNewPinInput)
-        recoveryPanel.addView(verticalSpacer(10))
 
         val verifyRecoveryBtn = Button(context).apply {
-            text = "VERIFY RECOVERY CODE & UNLOCK"
+            text = "END TIMER (SHIELD STAYS ON)"
             setTextColor(Color.WHITE)
             background = roundedBox("#D9820B", "#D9820B", 20f)
             textSize = 11.5f
@@ -633,33 +647,26 @@ class SystemOverlayController(private val context: Context) {
             setPadding(20, 20, 20, 20)
             setOnClickListener {
                 val entered = recoveryInput.text.toString()
-                val optionalNewPin = recoveryNewPinInput.text.toString().trim()
-                if (optionalNewPin.isNotEmpty() && (optionalNewPin.length !in 4..8 || !optionalNewPin.all { it.isDigit() })) {
-                    Toast.makeText(context, "New PIN must be 4–8 digits or left blank.", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
-                if (prefs.resetPinWithRecoveryToken(entered, optionalNewPin.ifBlank { null })) {
-                    prefs.setShieldDesiredActive(true)
+                if (prefs.endLockdownTimerWithToken(entered)) {
                     AegisLockdownService.stop(context)
                     dismissBlockOverlay()
-                    val msg = if (optionalNewPin.isNotBlank()) {
-                        "Recovery verified & new PIN saved. Device unlocked • Shield stays ON."
-                    } else {
-                        "Guardian recovery verified. Device unlocked • Shield stays ON."
-                    }
-                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "Timer ended via Guardian one-time code. Sheildlenz Shield remains ON.",
+                        Toast.LENGTH_LONG
+                    ).show()
                     ensureShieldRemainsOnAfterUnlock()
                 } else {
                     recoveryInput.setText("")
                     Toast.makeText(
                         context,
-                        "Invalid recovery code for Challenge ID $challengeCode.",
+                        "Invalid timer-end code for Challenge ID $challengeCode.",
                         Toast.LENGTH_LONG
                     ).show()
                 }
             }
         }
-        bindPinSubmitOnEnter(recoveryNewPinInput, verifyRecoveryBtn)
+        bindPinSubmitOnEnter(recoveryInput, verifyRecoveryBtn)
         recoveryPanel.addView(verifyRecoveryBtn)
 
         val emergencyRow = LinearLayout(context).apply {
@@ -692,7 +699,7 @@ class SystemOverlayController(private val context: Context) {
         emergencyRow.addView(emergencyBtn)
 
         val recoveryToggleBtn = Button(context).apply {
-            text = "ENTER RECOVERY CODE"
+            text = "ENTER TIMER END CODE"
             setTextColor(Color.WHITE)
             background = roundedBox("#7C5CFA", "#7C5CFA", 18f)
             textSize = 11f
@@ -707,7 +714,7 @@ class SystemOverlayController(private val context: Context) {
             setOnClickListener {
                 val nextVisible = recoveryPanel.visibility != View.VISIBLE
                 recoveryPanel.visibility = if (nextVisible) View.VISIBLE else View.GONE
-                text = if (nextVisible) "HIDE RECOVERY FORM" else "ENTER RECOVERY CODE"
+                text = if (nextVisible) "HIDE CODE FORM" else "ENTER TIMER END CODE"
             }
         }
         emergencyRow.addView(recoveryToggleBtn)

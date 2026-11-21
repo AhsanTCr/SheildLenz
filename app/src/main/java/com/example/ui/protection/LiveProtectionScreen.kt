@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.permissions.PermissionHelper
 import com.example.data.preferences.AegisPreferences
 import com.example.data.repository.ProtectionRepository
@@ -158,7 +159,12 @@ fun LiveProtectionScreen(
                     SecurityHealthGaugeCard(
                         report = healthReport,
                         preferences = preferences,
-                        onRequestArmShield = onRequestArmShield
+                        onRequestArmShield = {
+                            if (!telemetry.isProtectionEnabled) {
+                                AegisSoundEffects.playModeOn(context)
+                            }
+                            onRequestArmShield()
+                        }
                     )
                 }
 

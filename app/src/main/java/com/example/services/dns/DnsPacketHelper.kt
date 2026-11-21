@@ -24,38 +24,124 @@ object DnsPacketHelper {
     const val DNS_TYPE_A = 1
     const val DNS_TYPE_AAAA = 28
 
-    private val ADULT_TLDS = setOf("xxx", "porn", "sex", "adult")
+    private val ADULT_TLDS = setOf("xxx", "porn", "sex", "adult", "sexy", "cam", "webcam")
+
+    private val BUILTIN_DOH_BYPASS_DOMAINS = setOf(
+        "dns.google",
+        "dns.google.com",
+        "cloudflare-dns.com",
+        "mozilla.cloudflare-dns.com",
+        "chrome.cloudflare-dns.com",
+        "dns.quad9.net",
+        "dns9.quad9.net",
+        "dns10.quad9.net",
+        "dns11.quad9.net",
+        "doh.opendns.com",
+        "familyshield.opendns.com",
+        "dns.nextdns.io"
+    )
+
+    private val EXACT_ADULT_LABEL_TOKENS = setOf(
+        "porn", "porno", "pornhub", "xvideos", "xnxx", "xhamster", "hentai",
+        "redtube", "youporn", "chaturbate", "stripchat", "brazzers", "spankbang",
+        "onlyfans", "fansly", "eporner", "hqporner", "erotic", "nsfw", "xxx",
+        "sex", "camgirl", "livecam", "nude", "nudes", "escort", "brothel",
+        "milf", "bdsm", "javhd", "tnaflix", "fapello", "motherless", "rule34",
+        "hanime", "nhentai", "youjizz", "livejasmin", "myfreecams", "bongacams"
+    )
+
+    private val UNAMBIGUOUS_ADULT_BRAND_SUBSTRINGS = listOf(
+        "pornhub", "xvideos", "xnxx", "xhamster", "chaturbate", "stripchat",
+        "brazzers", "spankbang", "onlyfans", "youporn", "redtube", "livejasmin",
+        "eporner", "hqporner", "myfreecams", "bongacams", "nhentai", "hanime",
+        "porntrex", "sunporno", "extremetube", "realitykings", "bangbros",
+        "naughtyamerica", "adultfriendfinder"
+    )
 
     private val BUILTIN_ADULT_DOMAINS = setOf(
         "pornhub.com",
+        "pornhub.org",
         "xvideos.com",
+        "xvideos2.com",
+        "xvideo.com",
         "xnxx.com",
+        "xnxx.tv",
+        "xnxx2.com",
+        "xnxx3.com",
         "xhamster.com",
+        "xhamsterlive.com",
         "redtube.com",
         "youporn.com",
+        "youporn.tv",
         "tube8.com",
         "spankbang.com",
+        "spankwire.com",
         "chaturbate.com",
         "stripchat.com",
         "livejasmin.com",
         "cam4.com",
+        "camsoda.com",
+        "jerkmate.com",
+        "xlovecam.com",
+        "flirt4free.com",
+        "imlive.com",
         "myfreecams.com",
         "bongacams.com",
         "onlyfans.com",
         "fansly.com",
         "brazzers.com",
+        "brazzersnetwork.com",
+        "realitykings.com",
+        "bangbros.com",
+        "naughtyamerica.com",
+        "mofos.com",
+        "vixen.com",
+        "blacked.com",
+        "tushy.com",
+        "deeper.com",
         "beeg.com",
         "eporner.com",
         "txxx.com",
+        "upornia.com",
+        "hotmovs.com",
         "hqporner.com",
+        "porntrex.com",
         "motherless.com",
         "rule34.xxx",
         "nhentai.net",
         "hanime.tv",
+        "hentaihaven.xxx",
+        "hentaihaven.org",
+        "hitomi.la",
+        "tsumino.com",
+        "fakku.net",
+        "e621.net",
+        "gelbooru.com",
+        "sankakucomplex.com",
         "erome.com",
         "youjizz.com",
         "tnaflix.com",
         "fapello.com",
+        "fapvid.com",
+        "drtuber.com",
+        "nuvid.com",
+        "sunporno.com",
+        "vporn.com",
+        "4tube.com",
+        "keezmovies.com",
+        "extremetube.com",
+        "hclips.com",
+        "porn.com",
+        "sex.com",
+        "porntube.com",
+        "literotica.com",
+        "luscious.net",
+        "adultfriendfinder.com",
+        "ashleymadison.com",
+        "javhd.com",
+        "vjav.com",
+        "missav.com",
+        "supjav.com",
         "coomer.su",
         "kemono.su"
     )
@@ -156,7 +242,8 @@ object DnsPacketHelper {
         customKeywords: Set<String> = emptySet(),
         blockExplicitAdult: Boolean = true,
         blockGambling: Boolean = true,
-        whitelistedDomains: Set<String> = emptySet()
+        whitelistedDomains: Set<String> = emptySet(),
+        blockDohBypass: Boolean = blockExplicitAdult
     ): String? {
         return matchesBlockedDomainDetailed(
             rawDomain = rawDomain,
@@ -164,7 +251,8 @@ object DnsPacketHelper {
             customKeywords = customKeywords,
             blockExplicitAdult = blockExplicitAdult,
             blockGambling = blockGambling,
-            whitelistedDomains = whitelistedDomains
+            whitelistedDomains = whitelistedDomains,
+            blockDohBypass = blockDohBypass
         )?.reason
     }
 
@@ -174,7 +262,8 @@ object DnsPacketHelper {
         customKeywords: Set<String> = emptySet(),
         blockExplicitAdult: Boolean = true,
         blockGambling: Boolean = true,
-        whitelistedDomains: Set<String> = emptySet()
+        whitelistedDomains: Set<String> = emptySet(),
+        blockDohBypass: Boolean = blockExplicitAdult
     ): BlockedDomainMatch? {
         val domain = rawDomain.trim().trimEnd('.').lowercase(Locale.US)
         if (domain.isBlank()) return null
@@ -208,6 +297,18 @@ object DnsPacketHelper {
             }
         }
 
+        if (blockDohBypass) {
+            for (dohHost in BUILTIN_DOH_BYPASS_DOMAINS) {
+                if (isDomainOrSubdomain(domain, dohHost)) {
+                    return BlockedDomainMatch(
+                        category = "DOH_BYPASS",
+                        reason = "Safe DNS DoH Bypass Block ($dohHost)",
+                        matchedRule = dohHost
+                    )
+                }
+            }
+        }
+
         if (blockExplicitAdult) {
             val tld = domain.substringAfterLast('.', "")
             if (tld in ADULT_TLDS) {
@@ -223,6 +324,24 @@ object DnsPacketHelper {
                         category = "ADULT",
                         reason = "Safe DNS Adult Block ($adultHost)",
                         matchedRule = adultHost
+                    )
+                }
+            }
+            val labelTokens = domain.split('.', '-', '_')
+            for (token in labelTokens) {
+                if (token in EXACT_ADULT_LABEL_TOKENS) {
+                    return BlockedDomainMatch(
+                        category = "ADULT",
+                        reason = "Safe DNS Adult Token ($token)",
+                        matchedRule = token
+                    )
+                }
+                val brand = UNAMBIGUOUS_ADULT_BRAND_SUBSTRINGS.firstOrNull { token.contains(it) }
+                if (brand != null) {
+                    return BlockedDomainMatch(
+                        category = "ADULT",
+                        reason = "Safe DNS Adult Mirror ($brand)",
+                        matchedRule = brand
                     )
                 }
             }
