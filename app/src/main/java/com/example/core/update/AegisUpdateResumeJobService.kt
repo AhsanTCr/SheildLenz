@@ -6,6 +6,7 @@ import android.app.job.JobScheduler
 import android.app.job.JobService
 import android.content.ComponentName
 import android.content.Context
+import android.os.Build
 import android.util.Log
 
 /**
@@ -51,15 +52,16 @@ class AegisUpdateResumeJobService : JobService() {
                 val appCtx = context.applicationContext
                 val scheduler = appCtx.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler ?: return
                 val component = ComponentName(appCtx, AegisUpdateResumeJobService::class.java)
-                val jobInfo = JobInfo.Builder(JOB_ID, component)
+                val builder = JobInfo.Builder(JOB_ID, component)
                     .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                    .setRequiresBatteryNotLow(true)
                     .setPersisted(true)
                     .setMinimumLatency(3_000L)
-                    .build()
-                scheduler.schedule(jobInfo)
-            } catch (e: Exception) {
-                Log.w(TAG, "Unable to schedule resume job: ${e.message}")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    builder.setRequiresBatteryNotLow(true)
+                }
+                scheduler.schedule(builder.build())
+            } catch (t: Throwable) {
+                Log.w(TAG, "Unable to schedule resume job safely: ${t.message}")
             }
         }
 
@@ -67,7 +69,7 @@ class AegisUpdateResumeJobService : JobService() {
             try {
                 val scheduler = context.applicationContext.getSystemService(Context.JOB_SCHEDULER_SERVICE) as? JobScheduler
                 scheduler?.cancel(JOB_ID)
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
             }
         }
     }

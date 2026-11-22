@@ -35,7 +35,11 @@ class AegisBackgroundDownloadService : Service() {
         val subtitle = intent?.getStringExtra(EXTRA_SUBTITLE) ?: "Downloading update..."
         val progressPct = intent?.getIntExtra(EXTRA_PROGRESS, -1) ?: -1
 
-        val promoted = promoteToForeground(buildNotification(title, subtitle, progressPct))
+        val promoted = try {
+            promoteToForeground(buildNotification(title, subtitle, progressPct))
+        } catch (_: Throwable) {
+            false
+        }
         if (intent?.action == ACTION_STOP || !promoted) {
             stopForegroundCompat()
             stopSelf()
@@ -123,7 +127,7 @@ class AegisBackgroundDownloadService : Service() {
         )
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_sheildlenz_update)
             .setContentTitle(title)
             .setContentText(subtitle)
             .setOngoing(true)

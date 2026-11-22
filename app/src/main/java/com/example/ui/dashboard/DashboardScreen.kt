@@ -65,6 +65,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.example.ui.theme.AegisDangerRed
+import com.example.ui.theme.AegisWarningAmber
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -334,6 +340,80 @@ fun DashboardScreen(
     val apkDownloadState by UpdateChecker.apkDownloadState.collectAsState()
     val homeBannerHidden by UpdateChecker.homeBannerHidden.collectAsState()
 
+    val hasPin by preferences.hasGuardianPin.collectAsState()
+    var showMissingPinDialog by remember { mutableStateOf(!hasPin) }
+
+    if (showMissingPinDialog && !hasPin) {
+        var setupPinInput by remember { mutableStateOf("") }
+        var setupEmailInput by remember { mutableStateOf(preferences.guardianEmail.value) }
+        var pinSetupError by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = {},
+            containerColor = AegisCardBackground,
+            title = {
+                Text(
+                    text = "Master Key Protection Required",
+                    fontFamily = ClassicalDisplayFont,
+                    fontWeight = FontWeight.Bold,
+                    color = AegisDangerRed
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Without a Master Key PIN and recovery email, shielding controls are not enough to prevent unauthorized removal or bypass. Please set up your Master Key now.",
+                        fontFamily = ClassicalBodyFont,
+                        fontSize = 13.sp,
+                        color = AegisTextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = setupPinInput,
+                        onValueChange = { if (it.length <= 8 && it.all { ch -> ch.isDigit() }) setupPinInput = it },
+                        label = { Text("Master Key PIN (4-8 digits)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = setupEmailInput,
+                        onValueChange = { setupEmailInput = it },
+                        label = { Text("Guardian Recovery Email") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (pinSetupError != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(text = pinSetupError!!, color = AegisWarningAmber, fontSize = 11.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val cleanPin = setupPinInput.trim()
+                        val cleanEmail = setupEmailInput.trim()
+                        if (cleanPin.length !in 4..8) {
+                            pinSetupError = "Enter a 4-8 digit PIN."
+                        } else if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
+                            pinSetupError = "Enter a valid email."
+                        } else {
+                            preferences.setGuardianPin(cleanPin)
+                            preferences.setGuardianEmail(cleanEmail)
+                            showMissingPinDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AegisPrimaryCyan)
+                ) {
+                    Text("SAVE MASTER KEY", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
     val showUpdateBanner = updateInfo?.isUpdateAvailable == true &&
         !homeBannerHidden &&
         apkDownloadState !is ApkDownloadState.Installed
@@ -352,9 +432,9 @@ fun DashboardScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
-                    .padding(horizontal = 18.dp),
-                contentPadding = PaddingValues(top = 14.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.Top),
+                    .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(top = 18.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.Top),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 0. Update Banner

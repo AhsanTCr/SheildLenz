@@ -187,7 +187,8 @@ object UpdateChecker {
         OkHttpClient.Builder()
             .followRedirects(true)
             .followSslRedirects(true)
-            .connectTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .build()
     }
@@ -201,9 +202,25 @@ object UpdateChecker {
         return try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                 ?: return false
-            val activeNet = cm.activeNetwork ?: return false
-            val caps = cm.getNetworkCapabilities(activeNet) ?: return false
-            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            val activeNet = cm.activeNetwork
+            if (activeNet != null) {
+                val activeCaps = cm.getNetworkCapabilities(activeNet)
+                if (activeCaps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
+                    return true
+                }
+            }
+            // Local VPNs (Android 7/8) or secondary links may report NET_CAPABILITY_INTERNET on underlying networks
+            @Suppress("DEPRECATION")
+            val anyCapInternet = cm.allNetworks.any { net ->
+                cm.getNetworkCapabilities(net)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            }
+            if (anyCapInternet) return true
+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                @Suppress("DEPRECATION")
+                return cm.activeNetworkInfo?.isConnectedOrConnecting == true
+            }
+            false
         } catch (_: Throwable) {
             false
         }
@@ -250,14 +267,34 @@ object UpdateChecker {
         if (looksOffline) return offlineMsg
 
         val rawMsg = err?.message.orEmpty().trim()
-        val leaksInternalHost = rawMsg.isBlank() ||
+        val leaksTechnicalDetails = rawMsg.isBlank() ||
+            causes.any { t ->
+                t is Error ||
+                    t is SecurityException ||
+                    t is IllegalStateException ||
+                    t is IllegalArgumentException ||
+                    t is NullPointerException ||
+                    t is ClassCastException ||
+                    t is java.io.IOException
+            } ||
             rawMsg.contains("github", ignoreCase = true) ||
             rawMsg.contains("http://", ignoreCase = true) ||
             rawMsg.contains("https://", ignoreCase = true) ||
             rawMsg.contains("api.", ignoreCase = true) ||
-            causes.any { it is java.io.IOException }
+            rawMsg.contains("Landroid/", ignoreCase = false) ||
+            rawMsg.contains("Ljava/", ignoreCase = false) ||
+            rawMsg.contains("framework.jar", ignoreCase = true) ||
+            rawMsg.contains("No virtual method", ignoreCase = true) ||
+            rawMsg.contains("NoSuchMethod", ignoreCase = true) ||
+            rawMsg.contains("ClassNotFound", ignoreCase = true) ||
+            rawMsg.contains("JobInfo", ignoreCase = true) ||
+            rawMsg.contains("PackageInstaller", ignoreCase = true) ||
+            rawMsg.contains("FileProvider", ignoreCase = true) ||
+            rawMsg.contains(".kt:", ignoreCase = true) ||
+            rawMsg.contains(".java:", ignoreCase = true) ||
+            rawMsg.length > 160
 
-        return if (leaksInternalHost) fallback else rawMsg
+        return if (leaksTechnicalDetails) fallback else rawMsg
     }
 
     fun startCheckForUpdates(
@@ -772,8 +809,8 @@ object UpdateChecker {
             }
             val candidates = mutableListOf<JSONObject>()
 
-            val allResult = fetchReleaseJson(GITHUB_ALL_RELEASES_URL)
-            if (allResult.code == 200 && allResult.body != null) {
+            val allResult = runCatching { fetchReleaseJson(GITHUB_ALL_RELEASES_URL) }.getOrNull()
+            if (allResult != null && allResult.code == 200 && allResult.body != null) {
                 val releasesArray = JSONArray(allResult.body)
                 for (i in 0 until releasesArray.length()) {
                     val item = releasesArray.optJSONObject(i) ?: continue
@@ -784,13 +821,18 @@ object UpdateChecker {
             }
 
             if (candidates.isEmpty()) {
-                val latestResult = fetchReleaseJson(GITHUB_LATEST_RELEASE_URL)
-                if (latestResult.code == 200 && latestResult.body != null) {
+                val latestResult = runCatching { fetchReleaseJson(GITHUB_LATEST_RELEASE_URL) }.getOrNull()
+                if (latestResult != null && latestResult.code == 200 && latestResult.body != null) {
                     val obj = JSONObject(latestResult.body)
                     if (!obj.optBoolean("draft", false)) {
                         candidates.add(obj)
                     }
-                } else if (allResult.code != 200) {
+                } else {
+                    // Web redirect + expanded_assets fallback avoids REST API rate limits strictly in-app
+                    val webFallback = fetchLatestReleaseViaWebRedirect()
+                    if (webFallback != null) {
+                        return@withContext Result.success(webFallback)
+                    }
                     val msg = if (context != null && !isNetworkAvailable(context)) {
                         "You are offline. Please check your internet connection."
                     } else {
@@ -829,14 +871,48 @@ object UpdateChecker {
                 }
             }
             Result.success(parsed)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to check for updates", e)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to check for updates", t)
             val friendly = formatFriendlyUpdateError(
                 context = context,
-                err = e,
+                err = t,
                 fallback = "Unable to check for updates right now. Please try again."
             )
-            Result.failure(Exception(friendly, e))
+            Result.failure(Exception(friendly, t))
+        }
+    }
+
+    private fun fetchLatestReleaseViaWebRedirect(): UpdateInfo? {
+        return try {
+            val req = Request.Builder()
+                .url("https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/latest")
+                .header("User-Agent", "Sheildlenz-Android-App")
+                .header("Cache-Control", "no-cache")
+                .build()
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val finalUrl = resp.request.url.toString()
+                val tagName = finalUrl.substringAfter("/releases/tag/", "").substringBefore('?').substringBefore('#').trim()
+                if (tagName.isBlank()) return null
+                val expandedApkUrl = fetchExpandedAssetsApkUrl(tagName)
+                val latestClean = cleanVersionTag(tagName)
+                val currentClean = cleanVersionTag(BuildConfig.VERSION_NAME)
+                val isNewer = compareVersions(latestClean, currentClean) > 0
+                UpdateInfo(
+                    isUpdateAvailable = isNewer,
+                    latestVersion = tagName,
+                    currentVersion = BuildConfig.VERSION_NAME,
+                    releaseUrl = finalUrl,
+                    releaseNotes = "Bug fixes and performance improvements.",
+                    apkDownloadUrl = expandedApkUrl,
+                    apkSizeBytes = 0L,
+                    expectedSha256 = null
+                )
+            }
+        } catch (_: Throwable) {
+            null
         }
     }
 
@@ -888,7 +964,7 @@ object UpdateChecker {
                     "https://github.com$rel"
                 }
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
     }
@@ -996,163 +1072,226 @@ object UpdateChecker {
                 }
             }
 
-            var existingBytes = if (partFile.exists()) partFile.length() else 0L
-            val initialProgress = if (expectedTotalBytes > 0L && existingBytes > 0L) {
-                (existingBytes.toFloat() / expectedTotalBytes.toFloat()).coerceIn(0f, 1f)
-            } else {
-                0f
+            if (expectedTotalBytes > 0L && partFile.exists() && partFile.length() > expectedTotalBytes) {
+                partFile.delete()
             }
-            emitTransferState(onStateChanged, initialProgress, existingBytes, expectedTotalBytes)
 
-            // Only stream over HTTP if not already completely present in `.part`
-            if (expectedTotalBytes <= 0L || existingBytes < expectedTotalBytes) {
-                var attemptResume = existingBytes > 0L
-                var retryFresh = false
+            var cleanVerificationRetriesRemaining = 1
+            while (true) {
+                var existingBytes = if (partFile.exists()) partFile.length() else 0L
+                val startedWithPartial = existingBytes > 0L
+                val initialProgress = if (expectedTotalBytes > 0L && existingBytes > 0L) {
+                    (existingBytes.toFloat() / expectedTotalBytes.toFloat()).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                emitTransferState(onStateChanged, initialProgress, existingBytes, expectedTotalBytes)
 
-                do {
-                    retryFresh = false
-                    val reqBuilder = Request.Builder()
-                        .url(apkUrl)
-                        .header("User-Agent", "Sheildlenz-Android-App")
-                    if (attemptResume && existingBytes > 0L) {
-                        reqBuilder.header("Range", "bytes=$existingBytes-")
-                    }
+                // Only stream over HTTP if not already completely present in `.part`
+                if (expectedTotalBytes <= 0L || existingBytes < expectedTotalBytes) {
+                    var attemptResume = existingBytes > 0L
+                    var transientIoRetriesRemaining = 2
+                    var rangeResetAttemptsRemaining = 3
+                    var shouldContinueTransferLoop: Boolean
 
-                    client.newCall(reqBuilder.build()).execute().use { response ->
-                        if (response.code == 416) {
-                            // Server indicates offset >= total; verify `.part` or wipe and retry fresh
-                            if (expectedTotalBytes > 0L && existingBytes == expectedTotalBytes) {
-                                // Proceed straight to verification
-                            } else {
-                                partFile.delete()
-                                existingBytes = 0L
-                                attemptResume = false
-                                retryFresh = true
-                            }
-                            return@use
+                    do {
+                        shouldContinueTransferLoop = false
+                        existingBytes = if (partFile.exists()) partFile.length() else 0L
+                        val reqBuilder = Request.Builder()
+                            .url(apkUrl)
+                            .header("User-Agent", "Sheildlenz-Android-App")
+                        if (attemptResume && existingBytes > 0L) {
+                            reqBuilder.header("Range", "bytes=$existingBytes-")
                         }
 
-                        if (!response.isSuccessful && response.code != 206) {
-                            val msg = "APK download failed (HTTP ${response.code})"
-                            onStateChanged(ApkDownloadState.Failed(msg))
-                            return@withContext Result.failure(Exception(msg))
-                        }
-
-                        val isAppend = response.code == 206 && existingBytes > 0L
-                        val body = response.body ?: run {
-                            val msg = "Empty APK download response"
-                            onStateChanged(ApkDownloadState.Failed(msg))
-                            return@withContext Result.failure(Exception(msg))
-                        }
-
-                        val totalBytes = resolveTotalBytes(
-                            contentRangeHeader = response.header("Content-Range"),
-                            bodyContentLength = body.contentLength(),
-                            existingOffset = if (isAppend) existingBytes else 0L,
-                            fallbackExpected = expectedTotalBytes
-                        )
-                        var downloadedBytes = if (isAppend) existingBytes else 0L
-                        if (totalBytes > 0L) {
-                            persistTotalBytes(context, totalBytes)
-                        }
-
-                        val buffer = ByteArray(16 * 1024)
-                        var windowBytes = 0L
-                        var windowStart = SystemClock.elapsedRealtime()
-                        var lastEmit = 0L
-
-                        body.byteStream().use { input ->
-                            FileOutputStream(partFile, isAppend).use { output ->
-                                while (true) {
-                                    currentCoroutineContext().ensureActive()
-                                    val read = input.read(buffer)
-                                    if (read == -1) break
-                                    output.write(buffer, 0, read)
-                                    downloadedBytes += read
-                                    windowBytes += read
-
-                                    val limit = activeBandwidthLimitBps.get()
-                                    if (limit != TURBO_UNLIMITED_BPS) {
-                                        var sleepRemaining = computeThrottleDelayMs(
-                                            bytesInWindow = windowBytes,
-                                            elapsedMs = SystemClock.elapsedRealtime() - windowStart,
-                                            limitBps = limit
-                                        )
-                                        while (sleepRemaining > 0L && activeBandwidthLimitBps.get() != TURBO_UNLIMITED_BPS) {
-                                            val slice = minOf(sleepRemaining, 50L)
-                                            delay(slice)
-                                            sleepRemaining -= slice
-                                        }
-                                        val elapsedNow = SystemClock.elapsedRealtime() - windowStart
-                                        if (elapsedNow >= 1000L || activeBandwidthLimitBps.get() == TURBO_UNLIMITED_BPS) {
-                                            windowBytes = 0L
-                                            windowStart = SystemClock.elapsedRealtime()
-                                        }
+                        try {
+                            client.newCall(reqBuilder.build()).execute().use { response ->
+                                if (response.code == 416) {
+                                    // Server indicates offset >= total; verify exact length or wipe & restart fresh
+                                    if (expectedTotalBytes > 0L && existingBytes == expectedTotalBytes) {
+                                        return@use
                                     }
+                                    partFile.delete()
+                                    existingBytes = 0L
+                                    attemptResume = false
+                                    if (rangeResetAttemptsRemaining > 0) {
+                                        rangeResetAttemptsRemaining--
+                                        shouldContinueTransferLoop = true
+                                    }
+                                    return@use
+                                }
 
-                                    val now = System.currentTimeMillis()
-                                    if (now - lastEmit >= 120L || (totalBytes > 0L && downloadedBytes >= totalBytes)) {
-                                        lastEmit = now
-                                        val fraction = if (totalBytes > 0L) {
-                                            (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
-                                        } else {
-                                            null
+                                if (!response.isSuccessful && response.code != 206) {
+                                    val msg = "Update package could not be downloaded right now. Tap to retry."
+                                    onStateChanged(ApkDownloadState.Failed(msg))
+                                    return@withContext Result.failure(Exception(msg))
+                                }
+
+                                val contentType = response.header("Content-Type").orEmpty()
+                                if (contentType.contains("text/html", ignoreCase = true)) {
+                                    partFile.delete()
+                                    val msg = "Network blocked or altered the update file. Check Wi-Fi/DNS and retry."
+                                    onStateChanged(ApkDownloadState.Failed(msg))
+                                    return@withContext Result.failure(Exception(msg))
+                                }
+
+                                val contentRangeHeader = response.header("Content-Range")
+                                val rangeOffsetValid = if (response.code == 206 && !contentRangeHeader.isNullOrBlank()) {
+                                    val startOffset = contentRangeHeader
+                                        .substringAfter("bytes ", "")
+                                        .substringBefore('-', "")
+                                        .trim()
+                                        .toLongOrNull()
+                                    startOffset == null || startOffset == existingBytes
+                                } else {
+                                    true
+                                }
+                                if (response.code == 206 && !rangeOffsetValid) {
+                                    partFile.delete()
+                                    existingBytes = 0L
+                                    attemptResume = false
+                                    if (rangeResetAttemptsRemaining > 0) {
+                                        rangeResetAttemptsRemaining--
+                                        shouldContinueTransferLoop = true
+                                    }
+                                    return@use
+                                }
+
+                                val isAppend = response.code == 206 && existingBytes > 0L
+                                val body = response.body ?: run {
+                                    val msg = "Empty update package response. Tap to retry."
+                                    onStateChanged(ApkDownloadState.Failed(msg))
+                                    return@withContext Result.failure(Exception(msg))
+                                }
+
+                                val totalBytes = resolveTotalBytes(
+                                    contentRangeHeader = contentRangeHeader,
+                                    bodyContentLength = body.contentLength(),
+                                    existingOffset = if (isAppend) existingBytes else 0L,
+                                    fallbackExpected = expectedTotalBytes
+                                )
+                                var downloadedBytes = if (isAppend) existingBytes else 0L
+                                if (totalBytes > 0L) {
+                                    persistTotalBytes(context, totalBytes)
+                                }
+
+                                val buffer = ByteArray(16 * 1024)
+                                var windowBytes = 0L
+                                var windowStart = SystemClock.elapsedRealtime()
+                                var lastEmit = 0L
+
+                                body.byteStream().use { input ->
+                                    FileOutputStream(partFile, isAppend).use { output ->
+                                        while (true) {
+                                            currentCoroutineContext().ensureActive()
+                                            val read = input.read(buffer)
+                                            if (read == -1) break
+                                            output.write(buffer, 0, read)
+                                            downloadedBytes += read
+                                            windowBytes += read
+
+                                            val limit = activeBandwidthLimitBps.get()
+                                            if (limit != TURBO_UNLIMITED_BPS) {
+                                                var sleepRemaining = computeThrottleDelayMs(
+                                                    bytesInWindow = windowBytes,
+                                                    elapsedMs = SystemClock.elapsedRealtime() - windowStart,
+                                                    limitBps = limit
+                                                )
+                                                while (sleepRemaining > 0L && activeBandwidthLimitBps.get() != TURBO_UNLIMITED_BPS) {
+                                                    val slice = minOf(sleepRemaining, 50L)
+                                                    delay(slice)
+                                                    sleepRemaining -= slice
+                                                }
+                                                val elapsedNow = SystemClock.elapsedRealtime() - windowStart
+                                                if (elapsedNow >= 1000L || activeBandwidthLimitBps.get() == TURBO_UNLIMITED_BPS) {
+                                                    windowBytes = 0L
+                                                    windowStart = SystemClock.elapsedRealtime()
+                                                }
+                                            }
+
+                                            val now = System.currentTimeMillis()
+                                            if (now - lastEmit >= 120L || (totalBytes > 0L && downloadedBytes >= totalBytes)) {
+                                                lastEmit = now
+                                                val fraction = if (totalBytes > 0L) {
+                                                    (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                                                } else {
+                                                    null
+                                                }
+                                                emitTransferState(onStateChanged, fraction, downloadedBytes, totalBytes)
+                                            }
                                         }
-                                        emitTransferState(onStateChanged, fraction, downloadedBytes, totalBytes)
+                                        output.flush()
                                     }
                                 }
-                                output.flush()
+                            }
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (ioe: java.io.IOException) {
+                            if (transientIoRetriesRemaining > 0 && isNetworkAvailable(context)) {
+                                transientIoRetriesRemaining--
+                                attemptResume = partFile.exists() && partFile.length() > 0L
+                                shouldContinueTransferLoop = true
+                                delay(750L)
+                            } else {
+                                throw ioe
                             }
                         }
+                    } while (shouldContinueTransferLoop)
+                }
+
+                onStateChanged(ApkDownloadState.Verifying)
+                val effectiveExpectedSize = expectedTotalBytes.takeIf { it > 0L }
+                    ?: context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_PREF_TOTAL_BYTES, 0L)
+
+                val check = verifyApkArchiveAndHash(
+                    context = context,
+                    apkFile = partFile,
+                    expectedTotalBytes = effectiveExpectedSize,
+                    expectedSha256 = expectedSha256
+                )
+                if (check.isValid) {
+                    if (finalApk.exists()) finalApk.delete()
+                    if (!partFile.renameTo(finalApk)) {
+                        partFile.copyTo(finalApk, overwrite = true)
+                        partFile.delete()
                     }
-                } while (retryFresh)
-            }
 
-            onStateChanged(ApkDownloadState.Verifying)
-            val effectiveExpectedSize = expectedTotalBytes.takeIf { it > 0L }
-                ?: context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_PREF_TOTAL_BYTES, 0L)
+                    pendingInstallApk = finalApk
+                    onStateChanged(
+                        ApkDownloadState.ReadyToInstall(
+                            apkFile = finalApk,
+                            needsInstallPermission = false,
+                            preloadedReady = !autoInstallOnComplete.get(),
+                            verifiedSha256 = check.computedSha256
+                        )
+                    )
+                    return@withContext Result.success(finalApk)
+                }
 
-            val check = verifyApkArchiveAndHash(
-                context = context,
-                apkFile = partFile,
-                expectedTotalBytes = effectiveExpectedSize,
-                expectedSha256 = expectedSha256
-            )
-            if (!check.isValid) {
                 partFile.delete()
+                if (startedWithPartial && cleanVerificationRetriesRemaining > 0 && isNetworkAvailable(context)) {
+                    // Self-heal if a resumed partial chunk came from a stale build/CDN mismatch
+                    cleanVerificationRetriesRemaining--
+                    continue
+                }
                 val msg = check.failureReason ?: "Downloaded APK failed integrity check."
                 onStateChanged(ApkDownloadState.Failed(msg))
-                return@withContext Result.failure(Exception(msg))
+                return@withContext Result.failure<File>(Exception(msg))
             }
-
-            if (finalApk.exists()) finalApk.delete()
-            if (!partFile.renameTo(finalApk)) {
-                partFile.copyTo(finalApk, overwrite = true)
-                partFile.delete()
-            }
-
-            pendingInstallApk = finalApk
-            onStateChanged(
-                ApkDownloadState.ReadyToInstall(
-                    apkFile = finalApk,
-                    needsInstallPermission = false,
-                    preloadedReady = !autoInstallOnComplete.get(),
-                    verifiedSha256 = check.computedSha256
-                )
-            )
-            Result.success(finalApk)
+            @Suppress("UNREACHABLE_CODE")
+            Result.failure<File>(Exception("Update download interrupted — tap to resume."))
         } catch (ce: CancellationException) {
             // Preserve `.part` file across pause/cancellation so HTTP Range resumes cleanly!
             throw ce
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to download APK (`.part` kept for resume)", e)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Failed to download APK (`.part` kept for resume)", t)
             val msg = formatFriendlyUpdateError(
                 context = context,
-                err = e,
+                err = t,
                 fallback = "Update download interrupted — tap to resume."
             )
             onStateChanged(ApkDownloadState.Failed(msg))
-            Result.failure(Exception(msg, e))
+            return@withContext Result.failure<File>(Exception(msg, t))
         }
     }
 
@@ -1275,8 +1414,8 @@ object UpdateChecker {
                 }
             }
             baseCheck
-        } catch (e: Exception) {
-            Log.w(TAG, "Package archive validation warning: ${e.message}")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Package archive validation warning: ${t.message}")
             baseCheck
         }
     }
@@ -1307,7 +1446,7 @@ object UpdateChecker {
             try {
                 val digest = MessageDigest.getInstance("SHA-256").digest(sig.toByteArray())
                 digest.joinToString("") { "%02x".format(it) }
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 null
             }
         }.toSet()
@@ -1349,8 +1488,8 @@ object UpdateChecker {
                 return "Newer build ($installedCode) is already installed compared to release APK ($archiveCode)."
             }
             null
-        } catch (e: Exception) {
-            Log.w(TAG, "Pre-install signature check skipped: ${e.message}")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Pre-install signature check skipped: ${t.message}")
             null
         }
     }
@@ -1383,8 +1522,8 @@ object UpdateChecker {
                     null
                 }
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not export APK to public Downloads: ${e.message}")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Could not export APK to public Downloads: ${t.message}")
             null
         }
     }
@@ -1557,6 +1696,24 @@ object UpdateChecker {
         _apkDownloadState.value = ApkDownloadState.Failed(message)
     }
 
+    internal fun resolveNonBrowserInstallerPackage(pm: PackageManager, intent: Intent): String? {
+        return try {
+            @Suppress("DEPRECATION")
+            val candidates = pm.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            val browserHints = listOf(
+                "chrome", "browser", "firefox", "mozilla", "opera", "brave", "edge", "emmx", "duckduckgo", "sbrowser", "webview"
+            )
+            val nonBrowserCandidates = candidates
+                .mapNotNull { it.activityInfo?.packageName }
+                .filter { pkg -> browserHints.none { hint -> pkg.contains(hint, ignoreCase = true) } }
+            nonBrowserCandidates.firstOrNull { pkg ->
+                pkg.contains("packageinstaller", ignoreCase = true)
+            } ?: nonBrowserCandidates.firstOrNull()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     fun installApk(context: Context, apkFile: File): Boolean {
         rememberUiActivity(context)
         val appContext = context.applicationContext
@@ -1590,26 +1747,44 @@ object UpdateChecker {
                 "${appContext.packageName}.fileprovider",
                 apkFile
             )
+            val pm = appContext.packageManager
+
+            @Suppress("DEPRECATION")
+            val installPkgIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                data = apkUri
+                clipData = ClipData.newRawUri("Sheildlenz Update", apkUri)
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME, appContext.packageName)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (launchCtx !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }.also { intent ->
+                resolveNonBrowserInstallerPackage(pm, intent)?.let { pkg ->
+                    intent.setPackage(pkg)
+                }
+            }
+
             val viewIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
                 clipData = ClipData.newRawUri("Sheildlenz Update", apkUri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 if (launchCtx !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }.also { intent ->
+                resolveNonBrowserInstallerPackage(pm, intent)?.let { pkg ->
+                    intent.setPackage(pkg)
+                }
             }
+
+            // On Android 7-9 (API 24-28), ACTION_INSTALL_PACKAGE targets the native PackageInstaller directly
+            // without browser/file-viewer disambiguation; on Android 10+ (API 29+), prefer non-browser ACTION_VIEW first.
+            val primaryIntent = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) installPkgIntent else viewIntent
+            val secondaryIntent = if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) viewIntent else installPkgIntent
+
             val launched = try {
-                launchCtx.startActivity(viewIntent)
+                launchCtx.startActivity(primaryIntent)
                 true
             } catch (primaryErr: Throwable) {
-                Log.w(TAG, "ACTION_VIEW installer fallback to ACTION_INSTALL_PACKAGE: ${primaryErr.message}")
-                @Suppress("DEPRECATION")
-                val installPkgIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
-                    data = apkUri
-                    clipData = ClipData.newRawUri("Sheildlenz Update", apkUri)
-                    putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    if (launchCtx !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                launchCtx.startActivity(installPkgIntent)
+                Log.w(TAG, "Primary installer intent fallback: ${primaryErr.message}")
+                launchCtx.startActivity(secondaryIntent)
                 true
             }
             AegisBackgroundDownloadService.stop(appContext)
@@ -1676,16 +1851,5 @@ object UpdateChecker {
     fun formatBytesMb(bytes: Long): String {
         if (bytes <= 0L) return "0.0 MB"
         return String.format(Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
-    }
-
-    fun openReleaseUrl(context: Context, urlString: String) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(urlString)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to open release URL", e)
-        }
     }
 }

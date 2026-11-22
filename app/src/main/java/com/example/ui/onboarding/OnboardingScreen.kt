@@ -8,6 +8,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -208,7 +209,10 @@ fun OnboardingScreen(
                     ) {
                         when (step) {
                             0 -> WelcomeStepContent(
-                                onGetStarted = { currentStep = 1 }
+                                onSelectRole = { currentStep = 1 },
+                                onLinkDevice = { currentStep = 2 },
+                                onEnableAi = { currentStep = 3 },
+                                onContinue = { currentStep = 1 }
                             )
                             1 -> GuardianKeySetupStepCard(
                                 initialEmail = preferences.guardianEmail.value,
@@ -571,103 +575,123 @@ private fun GuardianKeySetupStepCard(
 
 @Composable
 private fun WelcomeStepContent(
-    onGetStarted: () -> Unit
+    onSelectRole: () -> Unit,
+    onLinkDevice: () -> Unit,
+    onEnableAi: () -> Unit,
+    onContinue: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .widthIn(max = 500.dp)
-            .padding(vertical = 12.dp),
+            .padding(vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        AegisShieldGraphic(
-            isProtected = true,
-            isThreatActive = false,
-            size = 140.dp
-        )
-
-        Spacer(modifier = Modifier.height(18.dp))
-
         Text(
-            text = "Welcome to Sheildlenz",
+            text = "Launch Setup",
             color = AegisTextPrimary,
-            fontSize = 26.sp,
+            fontSize = 30.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = ClassicalDisplayFont,
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Text(
-            text = "On-device visual screening, strict Safe DNS filtering,\nand Guardian lock protection.",
-            color = AegisTextSecondary,
-            fontSize = 13.5.sp,
-            lineHeight = 20.sp,
-            fontFamily = ClassicalBodyFont,
-            textAlign = TextAlign.Center
-        )
-
         Spacer(modifier = Modifier.height(24.dp))
 
-        HighlightPill(
-            icon = Icons.Default.Shield,
-            title = "Real-Time Visual Shield",
-            subtitle = "Inspects active frames locally across browsers and applications.",
-            accentColor = AegisPrimaryCyan
+        SetupStepCard(
+            stepNumber = "1.",
+            title = "Select Role",
+            subtitle = "Identify how this device will be used.",
+            isSelected = true,
+            onClick = onSelectRole
         )
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        HighlightPill(
-            icon = Icons.Default.WifiOff,
-            title = "Offline Inference Engine",
-            subtitle = "Zero screen frame uploads. All neural classification stays in device RAM.",
-            accentColor = AegisPurple
+        SetupStepCard(
+            stepNumber = "2.",
+            title = "Link Device",
+            subtitle = "Pair and connect your devices.",
+            isSelected = false,
+            onClick = onLinkDevice
         )
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        HighlightPill(
-            icon = Icons.Default.Lock,
-            title = "Guardian Key & QR Recovery",
-            subtitle = "Locks critical controls with a PIN backed by parent-authenticated QR recovery.",
-            accentColor = AegisChampagneGold
+        SetupStepCard(
+            stepNumber = "3.",
+            title = "Enable Local AI",
+            subtitle = "Optimize secure, on-device detection.",
+            isSelected = false,
+            onClick = onEnableAi
         )
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(36.dp))
 
         Button(
-            onClick = onGetStarted,
+            onClick = onContinue,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp)
-                .shadow(8.dp, RoundedCornerShape(16.dp), ambientColor = AegisPrimaryCyan.copy(alpha = 0.25f))
+                .height(54.dp)
+                .shadow(10.dp, RoundedCornerShape(18.dp), ambientColor = AegisPrimaryCyan.copy(alpha = 0.3f))
                 .testTag("onboarding_get_started_button"),
             colors = ButtonDefaults.buttonColors(
                 containerColor = AegisPrimaryCyan,
                 contentColor = AegisOnPrimaryWhite
             ),
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(18.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "GET STARTED",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.5.sp,
-                    letterSpacing = 1.sp,
-                    fontFamily = ClassicalBodyFont
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
+            Text(
+                text = "CONTINUE",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                letterSpacing = 1.2.sp,
+                fontFamily = ClassicalBodyFont
+            )
+        }
+    }
+}
+
+@Composable
+private fun SetupStepCard(
+    stepNumber: String,
+    title: String,
+    subtitle: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        color = if (isSelected) Color.White else Color(0xFFF1F5F9),
+        border = if (isSelected) {
+            androidx.compose.foundation.BorderStroke(2.dp, AegisPrimaryCyan)
+        } else {
+            androidx.compose.foundation.BorderStroke(1.dp, AegisCardBorder.copy(alpha = 0.7f))
+        },
+        shadowElevation = if (isSelected) 6.dp else 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp)
+        ) {
+            Text(
+                text = "$stepNumber $title",
+                color = if (isSelected) AegisPrimaryCyan else AegisTextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = ClassicalDisplayFont
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                color = AegisTextSecondary,
+                fontSize = 13.sp,
+                fontFamily = ClassicalBodyFont
+            )
         }
     }
 }

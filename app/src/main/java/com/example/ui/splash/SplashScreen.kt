@@ -399,8 +399,8 @@ fun SplashScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Image(
-                            painter = painterResource(id = R.drawable.sheildlenz_sl_emblem_1795343822554),
-                            contentDescription = "Sheildlenz SL Emblem",
+                            painter = painterResource(id = R.drawable.sheildlenz_emblem_cropped),
+                            contentDescription = "Sheildlenz Emblem Logo",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )

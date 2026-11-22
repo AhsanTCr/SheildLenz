@@ -228,7 +228,7 @@ fun CyberCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(20.dp),
             content = content
         )
     }

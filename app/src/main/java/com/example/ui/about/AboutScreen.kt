@@ -999,13 +999,23 @@ private fun AppUpdateCheckerCard() {
             }
             is ApkDownloadState.Failed -> {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = state.message,
-                    color = AegisWarningAmber,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = ClassicalBodyFont
-                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = AegisWarningAmber.copy(alpha = 0.10f),
+                    border = BorderStroke(1.dp, AegisWarningAmber.copy(alpha = 0.45f))
+                ) {
+                    Text(
+                        text = state.message,
+                        color = AegisWarningAmber,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                    )
+                }
             }
             ApkDownloadState.Idle -> {}
         }
