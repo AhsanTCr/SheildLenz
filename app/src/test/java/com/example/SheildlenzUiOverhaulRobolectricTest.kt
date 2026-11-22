@@ -155,7 +155,7 @@ class SheildlenzUiOverhaulRobolectricTest {
     }
 
     @Test
-    fun `edits screen shows AI Classification at top and enables Quiet Hours presets on one tap`() {
+    fun `edits screen shows compact pills and tapping Quiet Hours opens popup edits dialog`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         container.preferences.setScheduleEnabled(false)
@@ -170,17 +170,21 @@ class SheildlenzUiOverhaulRobolectricTest {
             }
         }
 
-        composeRule.onNodeWithText("AI Classification").assertIsDisplayed()
-        // Quiet Hours starts collapsed when OFF
+        composeRule.onNodeWithText("AI CLASSIFICATION").assertIsDisplayed()
+        composeRule.onNodeWithTag("ai_model_pill").assertIsDisplayed()
+        // Quiet Hours starts as a compact pill without inline presets clutter
         assertEquals(0, composeRule.onAllNodesWithText("10P–6A").fetchSemanticsNodes().size)
 
-        // Single tap on Quiet Hours card turns ON Scheduled Guard and reveals presets immediately
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("scheduled_protection_card_toggle"))
-        composeRule.onNodeWithTag("scheduled_protection_card_toggle").performClick()
+        // Single tap on Quiet Hours pill opens its popup edits dialog cleanly
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("scheduled_protection_card"))
+        composeRule.onNodeWithTag("scheduled_protection_card").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("scheduled_protection_card_dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("schedule_enabled_switch").performClick()
         composeRule.waitForIdle()
         assertTrue(container.preferences.scheduleEnabled.value)
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("10P–6A"))
         composeRule.onNodeWithText("10P–6A").assertIsDisplayed()
+        composeRule.onNodeWithText("DONE").performClick()
     }
 
     @Test
@@ -213,13 +217,20 @@ class SheildlenzUiOverhaulRobolectricTest {
         composeRule.onNodeWithTag("parent_pairing_code_input").assertIsDisplayed()
         composeRule.onNodeWithTag("pair_child_button").assertIsDisplayed()
 
-        // Tap As Child -> opens Child QR card + Uninstall Lock card
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("connect_as_child_button"))
+        // Tap As Child -> shows Child QR card + Uninstall Lock card together without scrolling, and tapping QR enlarges it
         composeRule.onNodeWithTag("connect_as_child_button").performClick()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("child_pairing_qr_card"))
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("child_pairing_qr_card").assertIsDisplayed()
         composeRule.onNodeWithTag("child_pairing_qr_matrix").assertIsDisplayed()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("child_connection_status_card"))
+        composeRule.onNodeWithTag("child_connection_status_card").assertIsDisplayed()
         composeRule.onNodeWithText("Uninstall Blocked (Child Mode)").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("child_qr_tap_enlarge").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("child_qr_enlarged_dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("child_pairing_qr_enlarged").assertIsDisplayed()
+        composeRule.onNodeWithText("DONE").performClick()
+        composeRule.waitForIdle()
     }
 
     @Test
@@ -314,7 +325,7 @@ class SheildlenzUiOverhaulRobolectricTest {
     }
 
     @Test
-    fun `safe dns starts as single toggle switch and reveals options once turned on`() {
+    fun `safe dns pill opens popup with single switch and reveals options once turned on`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         container.preferences.setSafeDnsEnabled(false)
@@ -330,23 +341,27 @@ class SheildlenzUiOverhaulRobolectricTest {
         }
 
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("safe_dns_blocklist_card"))
+        composeRule.onNodeWithTag("safe_dns_blocklist_card").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("safe_dns_blocklist_card_dialog").assertIsDisplayed()
         composeRule.onNodeWithTag("safe_dns_enabled_switch").assertIsDisplayed()
         assertEquals(0, composeRule.onAllNodesWithText("DNS Filter Provider").fetchSemanticsNodes().size)
 
-        // Enabling Safe DNS reveals all options in one clean panel
+        // Enabling Safe DNS reveals all options inside the popup dialog
         composeRule.runOnUiThread {
             container.preferences.setSafeDnsEnabled(true)
         }
         composeRule.waitForIdle()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("DNS Filter Provider"))
         composeRule.onNodeWithText("DNS Filter Provider").assertIsDisplayed()
         composeRule.onNodeWithText("Blocked Domains").performScrollTo()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Blocked Domains").assertIsDisplayed()
+        composeRule.onNodeWithText("DONE").performClick()
     }
 
     @Test
-    fun `edits screen shows Touch Sounds toggle and persists state across clicks`() {
+    fun `edits screen shows Touch Sounds pill and toggles sound state inside popup`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         container.preferences.setTouchSoundsEnabled(true)
@@ -362,8 +377,10 @@ class SheildlenzUiOverhaulRobolectricTest {
         }
 
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("touch_sounds_card"))
-        composeRule.onNodeWithTag("touch_sounds_card").assertIsDisplayed()
-        composeRule.onNodeWithText("Touch Sounds").assertIsDisplayed()
+        composeRule.onNodeWithTag("touch_sounds_card").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("touch_sounds_card_dialog").assertIsDisplayed()
         composeRule.onNodeWithTag("touch_sounds_switch").assertIsDisplayed()
 
         // Toggle OFF
@@ -373,15 +390,16 @@ class SheildlenzUiOverhaulRobolectricTest {
         assertFalse(AegisSoundEffects.isEnabled())
         composeRule.onNodeWithText("Muted").assertIsDisplayed()
 
-        // Toggle back ON via tapping the card text row itself (1-tap whole-row touch target)
-        composeRule.onNodeWithText("Touch Sounds").performClick()
+        // Toggle back ON via row tap
+        composeRule.onNodeWithText("Bubbly Glassy Tap").performClick()
         composeRule.waitForIdle()
         assertTrue(container.preferences.touchSoundsEnabled.value)
         assertTrue(AegisSoundEffects.isEnabled())
+        composeRule.onNodeWithText("DONE").performClick()
     }
 
     @Test
-    fun `edits screen opens Excluded Apps picker directly on one tap when empty`() {
+    fun `edits screen opens Excluded Apps picker popup directly on one tap`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         container.preferences.whitelistedPackages.value.forEach { container.preferences.removeWhitelistedPackage(it) }
@@ -396,8 +414,8 @@ class SheildlenzUiOverhaulRobolectricTest {
             }
         }
 
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("whitelisted_apps_card_toggle"))
-        composeRule.onNodeWithTag("whitelisted_apps_card_toggle").performClick()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("whitelisted_apps_card"))
+        composeRule.onNodeWithTag("whitelisted_apps_card").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("installed_apps_picker_dialog").assertIsDisplayed()
         composeRule.onNodeWithText("DONE").performClick()

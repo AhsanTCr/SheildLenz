@@ -346,7 +346,8 @@ fun QrCodeImage(
     modifier: Modifier = Modifier,
     padding: Dp = 12.dp,
     darkColor: Color = Color(0xFF141824),
-    lightColor: Color = Color.White
+    lightColor: Color = Color.White,
+    testTag: String? = "child_pairing_qr_matrix"
 ) {
     val matrix = remember(payload) { QrCodeGenerator.encode(payload) }
     Box(
@@ -354,7 +355,7 @@ fun QrCodeImage(
             .background(lightColor, RoundedCornerShape(16.dp))
             .padding(padding)
             .semantics { contentDescription = "Pairing QR code for $payload" }
-            .testTag("child_pairing_qr_matrix")
+            .let { base -> if (!testTag.isNullOrBlank()) base.testTag(testTag) else base }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val count = matrix.size

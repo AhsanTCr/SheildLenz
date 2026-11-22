@@ -100,7 +100,11 @@ import com.example.ui.components.MasterKeyGateState
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
+import com.example.ui.theme.AegisEmeraldBorder
+import com.example.ui.theme.AegisEmeraldTeal
 import com.example.ui.theme.AegisGoldBorder
+import com.example.ui.theme.AegisIndigo
+import com.example.ui.theme.AegisIndigoBorder
 import com.example.ui.theme.AegisLavenderBorder
 import com.example.ui.theme.AegisLavenderSoft
 import com.example.ui.theme.AegisOnPrimaryWhite
@@ -121,7 +125,8 @@ import kotlinx.coroutines.withContext
 internal fun SafeDnsAndBlocklistSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState,
-    initiallyExpanded: Boolean = false
+    initiallyExpanded: Boolean = false,
+    compactPillMode: Boolean = true
 ) {
     val context = LocalContext.current
     val safeDnsEnabled by preferences.safeDnsEnabled.collectAsState()
@@ -150,7 +155,7 @@ internal fun SafeDnsAndBlocklistSection(
 
     val summaryText = when {
         safeDnsEnabled -> "${currentProvider.ratingBadge} • ${blockedDomains.size + blockedKeywords.size} custom rules"
-        else -> "Off • Tap to enable"
+        else -> "Off • DNS filter inactive"
     }
 
     val toggleSafeDns: (Boolean) -> Unit = { enable ->
@@ -173,7 +178,7 @@ internal fun SafeDnsAndBlocklistSection(
     }
 
     ToggleRevealEditsCard(
-        title = stringResource(R.string.section_safe_dns),
+        title = "Safe DNS",
         summary = summaryText,
         icon = Icons.Default.Dns,
         accentColor = AegisPrimaryCyan,
@@ -183,7 +188,9 @@ internal fun SafeDnsAndBlocklistSection(
         onCheckedChange = toggleSafeDns,
         cardTestTag = "safe_dns_blocklist_card",
         switchTestTag = "safe_dns_enabled_switch",
-        initiallyExpanded = initiallyExpanded || safeDnsEnabled
+        initiallyExpanded = initiallyExpanded || safeDnsEnabled,
+        compactPillMode = compactPillMode,
+        dialogTitle = stringResource(R.string.section_safe_dns)
     ) {
         if (blockedQueryCount > 0L) {
             Box(
@@ -489,7 +496,8 @@ private data class SimpleAppEntry(
 internal fun BedtimeAndBudgetsSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState,
-    initiallyExpanded: Boolean = false
+    initiallyExpanded: Boolean = false,
+    compactPillMode: Boolean = true
 ) {
     val context = LocalContext.current
     val bedtimeEnabled by preferences.bedtimeEnabled.collectAsState()
@@ -527,12 +535,12 @@ internal fun BedtimeAndBudgetsSection(
         "${AegisPreferences.formatClockTime(bedtimeStart)} → ${AegisPreferences.formatClockTime(bedtimeEnd)}"
 
     ToggleRevealEditsCard(
-        title = stringResource(R.string.section_bedtime_budgets),
+        title = "Bedtime & Limits",
         summary = "${if (bedtimeEnabled) bedtimeWindowLabel else "Off"} • ${appBudgets.size} app limits",
         icon = Icons.Default.Bedtime,
-        accentColor = AegisChampagneGold,
-        tone = CyberCardTone.GOLD,
-        borderColor = AegisGoldBorder,
+        accentColor = AegisEmeraldTeal,
+        tone = CyberCardTone.EMERALD,
+        borderColor = AegisEmeraldBorder,
         checked = bedtimeEnabled,
         onCheckedChange = { enable ->
             if (!enable) {
@@ -547,7 +555,10 @@ internal fun BedtimeAndBudgetsSection(
         cardTestTag = "bedtime_budgets_card",
         switchTestTag = "bedtime_enabled_switch",
         initiallyExpanded = initiallyExpanded || bedtimeEnabled,
-        allowExpandWhenOff = true
+        allowExpandWhenOff = true,
+        compactPillMode = compactPillMode,
+        isPillActive = bedtimeEnabled || appBudgets.isNotEmpty(),
+        dialogTitle = stringResource(R.string.section_bedtime_budgets)
     ) {
         if (bedtimeEnabled) {
             Row(
@@ -567,7 +578,7 @@ internal fun BedtimeAndBudgetsSection(
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isSelected) AegisChampagneGold else AegisCardBackground,
+                            containerColor = if (isSelected) AegisEmeraldTeal else AegisCardBackground,
                             contentColor = if (isSelected) AegisOnPrimaryWhite else AegisTextPrimary
                         ),
                         modifier = Modifier
@@ -829,21 +840,25 @@ private val SupportedLanguages = listOf(
 @Composable
 internal fun LanguageSelectorSection(
     preferences: AegisPreferences,
-    initiallyExpanded: Boolean = false
+    initiallyExpanded: Boolean = false,
+    compactPillMode: Boolean = true
 ) {
     val context = LocalContext.current
     val currentCode by preferences.appLanguageCode.collectAsState()
     val currentLabel = SupportedLanguages.firstOrNull { it.first == currentCode }?.second ?: "System Default"
 
     CollapsibleEditsCard(
-        title = stringResource(R.string.section_app_language),
+        title = "Language",
         summary = currentLabel,
         icon = Icons.Default.Language,
-        accentColor = AegisPurple,
-        tone = CyberCardTone.LAVENDER,
-        borderColor = AegisLavenderBorder,
+        accentColor = AegisIndigo,
+        tone = CyberCardTone.INDIGO,
+        borderColor = AegisIndigoBorder,
         testTag = "language_selector_card",
-        initiallyExpanded = initiallyExpanded
+        initiallyExpanded = initiallyExpanded,
+        compactPillMode = compactPillMode,
+        isPillActive = currentCode != "system",
+        dialogTitle = stringResource(R.string.section_app_language)
     ) {
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -867,7 +882,7 @@ internal fun LanguageSelectorSection(
                         )
                     },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = AegisPurple,
+                        selectedContainerColor = AegisIndigo,
                         selectedLabelColor = AegisOnPrimaryWhite
                     ),
                     modifier = Modifier
@@ -883,41 +898,80 @@ internal fun LanguageSelectorSection(
 internal fun WarningThresholdsSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState,
-    initiallyExpanded: Boolean = false
+    initiallyExpanded: Boolean = false,
+    compactPillMode: Boolean = true
 ) {
     val context = LocalContext.current
     val warningThreshold by preferences.warningThresholdCount.collectAsState()
-    val summary = if (warningThreshold == 0) {
-        "0 Warnings • Instant Lock"
-    } else {
-        "$warningThreshold ${if (warningThreshold == 1) "Warning" else "Warnings"}"
+    val warningOnlyNoLockout by preferences.warningOnlyNoLockout.collectAsState()
+    val summary = when {
+        warningOnlyNoLockout -> "Warn Only • No Lockout"
+        warningThreshold == 0 -> "0 Warnings • Instant Lock"
+        else -> "$warningThreshold ${if (warningThreshold == 1) "Warning" else "Warnings"}"
     }
 
     CollapsibleEditsCard(
-        title = "Warning Thresholds",
+        title = "Warnings",
         summary = summary,
         icon = Icons.Default.NotificationsActive,
-        accentColor = AegisChampagneGold,
-        tone = CyberCardTone.GOLD,
-        borderColor = AegisGoldBorder,
+        accentColor = AegisPrimaryCyan,
+        tone = CyberCardTone.SKY,
+        borderColor = AegisCardBorder,
         testTag = "warning_thresholds_card",
-        initiallyExpanded = initiallyExpanded
+        initiallyExpanded = initiallyExpanded,
+        compactPillMode = compactPillMode,
+        isPillActive = warningOnlyNoLockout || warningThreshold > 0,
+        dialogTitle = "Warning Thresholds"
     ) {
+        CompactSwitchRow(
+            title = "Warn Only (Don't Lockout)",
+            checked = warningOnlyNoLockout,
+            activeColor = AegisPrimaryCyan,
+            onCheckedChange = { enabled ->
+                if (enabled) {
+                    masterKeyGate.request("enable Warn-Only (no lockout)") {
+                        preferences.setWarningOnlyNoLockout(true)
+                    }
+                } else {
+                    AegisSoundEffects.playModeOn(context)
+                    preferences.setWarningOnlyNoLockout(false)
+                }
+            },
+            testTag = "warning_only_no_lockout_switch"
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = if (warningOnlyNoLockout) {
+                "Apps are closed with a warning alert. Full device lockout never triggers."
+            } else {
+                "Warnings before full device lockout engages:"
+            },
+            color = AegisTextSecondary,
+            fontSize = 11.5.sp,
+            fontFamily = ClassicalBodyFont
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             listOf(0 to "0 (Now)", 1 to "1 Warn", 2 to "2 Warn", 3 to "3 Warn").forEach { (count, label) ->
-                val selected = warningThreshold == count
+                val selected = !warningOnlyNoLockout && warningThreshold == count
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(if (selected) AegisChampagneGold else AegisCardBackground.copy(alpha = 0.85f))
-                        .border(1.dp, if (selected) AegisChampagneGold else AegisCardBorder, RoundedCornerShape(10.dp))
+                        .background(if (selected) AegisPrimaryCyan else AegisCardBackground.copy(alpha = 0.85f))
+                        .border(1.dp, if (selected) AegisPrimaryCyan else AegisCardBorder, RoundedCornerShape(10.dp))
                         .clickable {
-                            if (count > warningThreshold) {
+                            if (warningOnlyNoLockout) {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setWarningOnlyNoLockout(false)
+                                preferences.setWarningThresholdCount(count)
+                            } else if (count > warningThreshold) {
                                 masterKeyGate.request("increase warnings before lock to $count") {
                                     preferences.setWarningThresholdCount(count)
                                 }
@@ -946,7 +1000,8 @@ internal fun WarningThresholdsSection(
 internal fun AiAcceleratorAndCategoriesSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState,
-    initiallyExpanded: Boolean = false
+    initiallyExpanded: Boolean = false,
+    compactPillMode: Boolean = true
 ) {
     val context = LocalContext.current
     val accelerationMode by preferences.inferenceAccelerationMode.collectAsState()
@@ -963,14 +1018,17 @@ internal fun AiAcceleratorAndCategoriesSection(
     ).count { it }
 
     CollapsibleEditsCard(
-        title = "AI Hardware & Categories",
+        title = "AI Filters",
         summary = "${accelerationMode.displayName} • $enabledCount/4 Filters Active",
         icon = Icons.Default.Memory,
         accentColor = AegisPurple,
         tone = CyberCardTone.LAVENDER,
         borderColor = AegisLavenderBorder,
         testTag = "ai_categories_card",
-        initiallyExpanded = initiallyExpanded
+        initiallyExpanded = initiallyExpanded,
+        compactPillMode = compactPillMode,
+        isPillActive = enabledCount > 0,
+        dialogTitle = "AI Hardware & Categories"
     ) {
         Text(
             text = "AI Hardware Accelerator",
@@ -1024,6 +1082,7 @@ internal fun AiAcceleratorAndCategoriesSection(
         CompactSwitchRow(
             title = "Explicit Adult Content",
             checked = blockExplicitAdult,
+            activeColor = AegisPurple,
             onCheckedChange = { enabled ->
                 if (enabled) {
                     AegisSoundEffects.playModeOn(context)
@@ -1039,6 +1098,7 @@ internal fun AiAcceleratorAndCategoriesSection(
         CompactSwitchRow(
             title = "Suggestive Visuals",
             checked = blockSuggestiveContent,
+            activeColor = AegisPurple,
             onCheckedChange = { enabled ->
                 if (enabled) {
                     AegisSoundEffects.playModeOn(context)
@@ -1054,6 +1114,7 @@ internal fun AiAcceleratorAndCategoriesSection(
         CompactSwitchRow(
             title = "Sensitive / Graphic Media",
             checked = blockSensitiveGraphic,
+            activeColor = AegisPurple,
             onCheckedChange = { enabled ->
                 if (enabled) {
                     AegisSoundEffects.playModeOn(context)
@@ -1069,6 +1130,7 @@ internal fun AiAcceleratorAndCategoriesSection(
         CompactSwitchRow(
             title = "Gambling Websites & Search",
             checked = blockGamblingKeywords,
+            activeColor = AegisPurple,
             onCheckedChange = { enabled ->
                 if (enabled) {
                     AegisSoundEffects.playModeOn(context)
@@ -1087,7 +1149,8 @@ internal fun AiAcceleratorAndCategoriesSection(
 @Composable
 internal fun GuardianRecoverySection(
     preferences: AegisPreferences,
-    masterKeyGate: MasterKeyGateState
+    masterKeyGate: MasterKeyGateState,
+    compactPillMode: Boolean = true
 ) {
     val context = LocalContext.current
     val guardianEmail by preferences.guardianEmail.collectAsState()
@@ -1095,13 +1158,16 @@ internal fun GuardianRecoverySection(
     var emailDraft by remember(guardianEmail) { mutableStateOf(guardianEmail) }
 
     CollapsibleEditsCard(
-        title = "Guardian Recovery & ID",
+        title = "Recovery ID",
         summary = if (guardianEmail.isBlank()) "ID $challengeId • Tap to set email" else "$guardianEmail • ID $challengeId",
         icon = Icons.Default.Key,
         accentColor = AegisChampagneGold,
         tone = CyberCardTone.GOLD,
         borderColor = AegisGoldBorder,
-        testTag = "guardian_recovery_card"
+        testTag = "guardian_recovery_card",
+        compactPillMode = compactPillMode,
+        isPillActive = guardianEmail.isNotBlank(),
+        dialogTitle = "Guardian Recovery & ID"
     ) {
         Surface(
             modifier = Modifier
@@ -1211,11 +1277,35 @@ internal fun GuardianRecoverySection(
 
 @Composable
 internal fun DeviceOwnerSetupSection(
-    onOpenWizard: () -> Unit
+    onOpenWizard: () -> Unit,
+    compactPillMode: Boolean = true
 ) {
     val context = LocalContext.current
     val isDeviceOwner = remember { AegisDeviceAdminReceiver.isDeviceOwner(context) }
     val isDeviceAdmin = remember { AegisDeviceAdminReceiver.isDeviceAdmin(context) }
+
+    if (compactPillMode) {
+        EditsActionCard(
+            title = "Device Owner",
+            summary = when {
+                isDeviceOwner -> "Active • Maximum tamper resistance"
+                isDeviceAdmin -> "Device Admin active • Upgrade to Owner"
+                else -> "Step-by-step ADB tamper-proof wizard"
+            },
+            icon = Icons.Default.AdminPanelSettings,
+            accentColor = AegisChampagneGold,
+            tone = CyberCardTone.GOLD,
+            borderColor = AegisGoldBorder,
+            actionLabel = if (isDeviceOwner) "STATUS" else "SETUP",
+            testTag = "device_owner_card",
+            buttonTestTag = "device_owner_wizard_button",
+            onClick = {
+                AegisSoundEffects.playTap(context)
+                onOpenWizard()
+            }
+        )
+        return
+    }
 
     CyberCard(
         borderColor = if (isDeviceOwner) AegisPrimaryCyan.copy(alpha = 0.6f) else AegisLavenderBorder,
@@ -1299,7 +1389,8 @@ internal fun DeviceOwnerSetupSection(
 internal fun PolicyBackupRestoreSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState,
-    initiallyExpanded: Boolean = false
+    initiallyExpanded: Boolean = false,
+    compactPillMode: Boolean = true
 ) {
     val context = LocalContext.current
     val exportLauncher = rememberLauncherForActivityResult(
@@ -1339,14 +1430,16 @@ internal fun PolicyBackupRestoreSection(
     }
 
     CollapsibleEditsCard(
-        title = "Backup & Restore Policy",
+        title = "Backup & Restore",
         summary = "Export or restore settings",
         icon = Icons.Default.Backup,
-        accentColor = AegisChampagneGold,
-        tone = CyberCardTone.GOLD,
-        borderColor = AegisGoldBorder,
+        accentColor = AegisIndigo,
+        tone = CyberCardTone.INDIGO,
+        borderColor = AegisIndigoBorder,
         testTag = "policy_backup_restore_card",
-        initiallyExpanded = initiallyExpanded
+        initiallyExpanded = initiallyExpanded,
+        compactPillMode = compactPillMode,
+        dialogTitle = "Backup & Restore Policy"
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1373,7 +1466,7 @@ internal fun PolicyBackupRestoreSection(
                         importLauncher.launch(arrayOf("application/json", "*/*"))
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = AegisChampagneGold, contentColor = AegisOnPrimaryWhite),
+                colors = ButtonDefaults.buttonColors(containerColor = AegisIndigo, contentColor = AegisOnPrimaryWhite),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.weight(1f).height(48.dp).testTag("restore_policy_button")
             ) {

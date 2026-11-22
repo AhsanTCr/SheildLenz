@@ -3,8 +3,14 @@ package com.example.core.audio
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.media.SoundPool
 import android.os.SystemClock
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import kotlin.math.PI
 import kotlin.math.cos
@@ -13,17 +19,19 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 /**
- * Synthesizes a minimal, soft bubbly pitch-drop glassy pop for UI touches and
- * a fuller crystalline dual-droplet chime when activating protection modes,
- * backed by pre-warmed static AudioTrack instances for zero-latency playback.
+ * Synthesizes a crisp, soft bubbly pitch-drop glassy pop for UI touches and
+ * a richer dual-droplet crystalline resonance for activating protection modes.
+ *
+ * Uses SoundPool backed by STREAM_MUSIC / USAGE_MEDIA for zero-latency,
+ * high-volume playback on all Android versions and emulators, with AudioTrack
+ * and system click fallbacks.
  */
 object AegisSoundEffects {
 
     private const val SAMPLE_RATE = 44100
-    private const val TAP_POOL_SIZE = 3
 
     private val audioExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "SheildlenzAudioFx").apply { isDaemon = true }
+        Thread(runnable, "SheildlenzAudioEngine").apply { isDaemon = true }
     }
 
     @Volatile
@@ -36,14 +44,30 @@ object AegisSoundEffects {
     private var lastModeOnAtMs: Long = 0L
 
     @Volatile
-    private var prewarmScheduled: Boolean = false
+    private var soundPool: SoundPool? = null
+
+    @Volatile
+    private var tapSoundId: Int = 0
+
+    @Volatile
+    private var modeOnSoundId: Int = 0
+
+    @Volatile
+    private var isWarmedUp: Boolean = false
 
     private val tapPcm: ShortArray by lazy { synthesizeWaterDropTap() }
     private val modeOnPcm: ShortArray by lazy { synthesizeModeActivatedVoice() }
 
-    private val tapTracks = arrayOfNulls<AudioTrack>(TAP_POOL_SIZE)
-    private var tapCursor = 0
-    private var modeOnTrack: AudioTrack? = null
+    @Volatile
+    private var appContext: Context? = null
+
+    private val loadedSoundIds = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+
+    @Volatile
+    private var lastDirectTrack: AudioTrack? = null
+
+    @Volatile
+    private var lastDirectTrackAtMs: Long = 0L
 
     fun setEnabled(isEnabled: Boolean) {
         enabled = isEnabled
@@ -54,139 +78,275 @@ object AegisSoundEffects {
     internal fun currentModeOnElapsedMs(): Long = lastModeOnAtMs
 
     /**
-     * Synthesizes waveforms and pre-populates static AudioTrack buffers asynchronously
-     * so first touch feedback triggers immediately with zero cold-init latency.
+     * Initializes SoundPool and pre-loads synthesized WAV waveforms into memory
+     * so touch feedback plays instantly with zero cold-start delay.
      */
-    fun prewarm() {
-        if (prewarmScheduled) return
-        prewarmScheduled = true
+    fun prewarm(context: Context? = null) {
+        if (context != null) {
+            appContext = context.applicationContext
+        }
+        if (isWarmedUp) return
         audioExecutor.execute {
-            ensureWarmedOnAudioThread()
+            ensureInitialized(context)
+        }
+    }
+
+    private fun ensureInitialized(context: Context?) {
+        if (context != null) {
+            appContext = context.applicationContext
+        }
+        val ctx = appContext ?: context?.applicationContext
+        if (isWarmedUp && soundPool != null) return
+        try {
+            val pool = soundPool ?: SoundPool.Builder()
+                .setMaxStreams(8)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .build().also {
+                    it.setOnLoadCompleteListener { _, sampleId, status ->
+                        if (status == 0) {
+                            loadedSoundIds.add(sampleId)
+                        }
+                    }
+                    soundPool = it
+                }
+
+            val targetDir = ctx?.cacheDir ?: ctx?.filesDir
+            if (targetDir != null) {
+                val tapFile = File(targetDir, "sheildlenz_tap_pop_v3.wav")
+                val modeFile = File(targetDir, "sheildlenz_mode_on_v3.wav")
+
+                writePcmToWavFile(tapFile, tapPcm, SAMPLE_RATE)
+                writePcmToWavFile(modeFile, modeOnPcm, SAMPLE_RATE)
+
+                if (tapSoundId == 0) {
+                    tapSoundId = pool.load(tapFile.absolutePath, 1)
+                }
+                if (modeOnSoundId == 0) {
+                    modeOnSoundId = pool.load(modeFile.absolutePath, 1)
+                }
+                isWarmedUp = true
+            }
+        } catch (_: Throwable) {
+            // Keep retryable if context was not yet ready
         }
     }
 
     /**
-     * Plays a crisp ~40ms soft bubbly pitch-drop glassy pop immediately on press.
+     * Plays a crisp ~48ms soft bubbly pitch-drop glassy pop immediately on press.
      */
-    fun playTap(@Suppress("UNUSED_PARAMETER") context: Context? = null) {
+    fun playTap(context: Context? = null) {
         if (!enabled) return
+        if (context != null) {
+            appContext = context.applicationContext
+        }
         val now = SystemClock.elapsedRealtime()
         if (now - lastModeOnAtMs < 140L) return
-        if (now - lastTapAtMs < 38L) return
+        if (now - lastTapAtMs < 32L) return
         lastTapAtMs = now
+
         audioExecutor.execute {
             if (!enabled) return@execute
-            ensureWarmedOnAudioThread()
-            val slot = tapCursor
-            tapCursor = (tapCursor + 1) % TAP_POOL_SIZE
-            var track = tapTracks[slot]
-            if (track == null || track.state != AudioTrack.STATE_INITIALIZED) {
-                runCatching { track?.release() }
-                track = buildStaticTrack(tapPcm)
-                tapTracks[slot] = track
-            }
-            playStaticTrack(track, tapPcm)
+            dispatchTapSound(context)
         }
     }
 
     /**
-     * Plays a fuller, richer dual-droplet crystalline resonance ("more voice")
-     * whenever the user switches ON a protection mode (Shield, Safe DNS, Bedtime, Strict, etc.).
+     * Always plays a preview of the bubbly pop when user taps TEST SOUND.
      */
-    fun playModeOn(@Suppress("UNUSED_PARAMETER") context: Context? = null) {
+    fun playPreviewTap(context: Context? = null) {
+        if (context != null) {
+            appContext = context.applicationContext
+        }
+        lastTapAtMs = SystemClock.elapsedRealtime()
+        audioExecutor.execute {
+            dispatchTapSound(context)
+        }
+    }
+
+    private fun dispatchTapSound(context: Context?) {
+        ensureInitialized(context)
+
+        val pool = soundPool
+        val sid = tapSoundId
+        var played = false
+        if (pool != null && sid != 0 && loadedSoundIds.contains(sid)) {
+            val streamId = pool.play(sid, 1.0f, 1.0f, 1, 0, 1.0f)
+            played = (streamId != 0)
+        }
+
+        // Direct AudioTrack playback fallback if SoundPool stream wasn't ready
+        if (!played) {
+            playViaDirectAudioTrack(tapPcm)
+        }
+
+        // Also trigger system touch sound effect as companion
+        try {
+            val ctx = appContext ?: context?.applicationContext
+            val audioManager = ctx?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 1.0f)
+        } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * Plays a fuller, crystalline dual-droplet chime when activating protection modes.
+     */
+    fun playModeOn(context: Context? = null) {
         if (!enabled) return
+        if (context != null) {
+            appContext = context.applicationContext
+        }
         val now = SystemClock.elapsedRealtime()
         if (now - lastModeOnAtMs < 140L) return
         lastModeOnAtMs = now
         lastTapAtMs = now
+
         audioExecutor.execute {
             if (!enabled) return@execute
-            ensureWarmedOnAudioThread()
-            var track = modeOnTrack
-            if (track == null || track.state != AudioTrack.STATE_INITIALIZED) {
-                runCatching { track?.release() }
-                track = buildStaticTrack(modeOnPcm)
-                modeOnTrack = track
+            ensureInitialized(context)
+
+            val pool = soundPool
+            val sid = modeOnSoundId
+            var played = false
+            if (pool != null && sid != 0 && loadedSoundIds.contains(sid)) {
+                val streamId = pool.play(sid, 1.0f, 1.0f, 2, 0, 1.0f)
+                played = (streamId != 0)
             }
-            playStaticTrack(track, modeOnPcm)
+
+            if (!played) {
+                playViaDirectAudioTrack(modeOnPcm)
+            }
         }
     }
 
-    private fun ensureWarmedOnAudioThread() {
-        val tap = tapPcm
-        val mode = modeOnPcm
-        for (i in 0 until TAP_POOL_SIZE) {
-            val existing = tapTracks[i]
-            if (existing == null || existing.state != AudioTrack.STATE_INITIALIZED) {
-                tapTracks[i] = buildStaticTrack(tap)
+    private fun playViaDirectAudioTrack(samples: ShortArray) {
+        try {
+            val now = SystemClock.elapsedRealtime()
+            val prev = lastDirectTrack
+            if (prev != null && now - lastDirectTrackAtMs > 240L) {
+                lastDirectTrack = null
+                runCatching {
+                    prev.stop()
+                    prev.release()
+                }
             }
-        }
-        if (modeOnTrack == null || modeOnTrack?.state != AudioTrack.STATE_INITIALIZED) {
-            modeOnTrack = buildStaticTrack(mode)
-        }
-    }
 
-    private fun buildStaticTrack(samples: ShortArray): AudioTrack? {
-        return runCatching {
-            val byteCount = samples.size * 2
-            val attrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            val format = AudioFormat.Builder()
-                .setSampleRate(SAMPLE_RATE)
-                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                .build()
+            val rawByteCount = samples.size * 2
+            val minBufBytes = AudioTrack.getMinBufferSize(
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            ).coerceAtLeast(0)
+            val paddedSamples = if (minBufBytes > rawByteCount) {
+                val targetSamples = (minBufBytes + 1) / 2
+                ShortArray(targetSamples).also { padded ->
+                    samples.copyInto(padded)
+                }
+            } else {
+                samples
+            }
+            val byteCount = paddedSamples.size * 2
+
             val track = AudioTrack.Builder()
-                .setAudioAttributes(attrs)
-                .setAudioFormat(format)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(SAMPLE_RATE)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
                 .setBufferSizeInBytes(byteCount)
                 .setTransferMode(AudioTrack.MODE_STATIC)
                 .build()
+
             if (track.state == AudioTrack.STATE_INITIALIZED) {
-                track.write(samples, 0, samples.size)
-                track
+                track.write(paddedSamples, 0, paddedSamples.size)
+                track.setVolume(1.0f)
+                track.play()
+                lastDirectTrack = track
+                lastDirectTrackAtMs = now
             } else {
-                track.release()
-                null
+                runCatching { track.release() }
             }
-        }.getOrNull()
+        } catch (_: Throwable) {
+        }
     }
 
-    private fun playStaticTrack(track: AudioTrack?, samples: ShortArray) {
-        if (track == null || track.state != AudioTrack.STATE_INITIALIZED) return
-        runCatching {
-            if (track.playState != AudioTrack.PLAYSTATE_STOPPED) {
-                track.stop()
+    private fun writePcmToWavFile(file: File, pcm: ShortArray, sampleRate: Int) {
+        val totalAudioLen = pcm.size * 2
+        val totalDataLen = totalAudioLen + 36
+        val byteRate = sampleRate * 2
+
+        val header = ByteArray(44)
+        // "RIFF" chunk
+        header[0] = 'R'.code.toByte(); header[1] = 'I'.code.toByte(); header[2] = 'F'.code.toByte(); header[3] = 'F'.code.toByte()
+        header[4] = (totalDataLen and 0xff).toByte()
+        header[5] = ((totalDataLen shr 8) and 0xff).toByte()
+        header[6] = ((totalDataLen shr 16) and 0xff).toByte()
+        header[7] = ((totalDataLen shr 24) and 0xff).toByte()
+        // "WAVE"
+        header[8] = 'W'.code.toByte(); header[9] = 'A'.code.toByte(); header[10] = 'V'.code.toByte(); header[11] = 'E'.code.toByte()
+        // "fmt " subchunk
+        header[12] = 'f'.code.toByte(); header[13] = 'm'.code.toByte(); header[14] = 't'.code.toByte(); header[15] = ' '.code.toByte()
+        header[16] = 16; header[17] = 0; header[18] = 0; header[19] = 0 // 16 bytes for PCM format
+        header[20] = 1; header[21] = 0 // PCM = 1
+        header[22] = 1; header[23] = 0 // 1 channel (Mono)
+        header[24] = (sampleRate and 0xff).toByte()
+        header[25] = ((sampleRate shr 8) and 0xff).toByte()
+        header[26] = ((sampleRate shr 16) and 0xff).toByte()
+        header[27] = ((sampleRate shr 24) and 0xff).toByte()
+        header[28] = (byteRate and 0xff).toByte()
+        header[29] = ((byteRate shr 8) and 0xff).toByte()
+        header[30] = ((byteRate shr 16) and 0xff).toByte()
+        header[31] = ((byteRate shr 24) and 0xff).toByte()
+        header[32] = 2; header[33] = 0 // 2 bytes per sample block
+        header[34] = 16; header[35] = 0 // 16 bits per sample
+        // "data" subchunk
+        header[36] = 'd'.code.toByte(); header[37] = 'a'.code.toByte(); header[38] = 't'.code.toByte(); header[39] = 'a'.code.toByte()
+        header[40] = (totalAudioLen and 0xff).toByte()
+        header[41] = ((totalAudioLen shr 8) and 0xff).toByte()
+        header[42] = ((totalAudioLen shr 16) and 0xff).toByte()
+        header[43] = ((totalAudioLen shr 24) and 0xff).toByte()
+
+        FileOutputStream(file).use { out ->
+            out.write(header)
+            val buffer = ByteBuffer.allocate(pcm.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+            for (s in pcm) {
+                buffer.putShort(s)
             }
-            val reloaded = track.reloadStaticData()
-            if (reloaded != AudioTrack.SUCCESS) {
-                track.write(samples, 0, samples.size)
-            }
-            track.play()
+            out.write(buffer.array())
         }
     }
 
     /**
-     * ~40ms soft bubbly pitch-drop glassy pop:
-     * Smooth raised-cosine attack (2.8ms -> zero harsh transient click),
-     * rapid downward sine pitch sweep (1040Hz -> ~380Hz) + delicate crystal octave harmonic
-     * with fast exponential fade-out and raised-cosine tail taper.
+     * ~48ms crisp, bubbly glassy pop:
+     * Downward pitch drop (1120Hz -> ~420Hz) with raised-cosine attack & exponential decay.
+     * Calibrated soft peak (~0.25 full-scale) so clicks stay silky without harsh clipping.
      */
     internal fun synthesizeWaterDropTap(): ShortArray {
-        val durationSec = 0.040
+        val durationSec = 0.048
         val totalSamples = (SAMPLE_RATE * durationSec).toInt()
         val out = ShortArray(totalSamples)
         var phase = 0.0
         var harmPhase = 0.0
-        val attackSec = 0.0028
+        val attackSec = 0.0032
 
         for (i in 0 until totalSamples) {
             val t = i.toDouble() / SAMPLE_RATE
             val progress = t / durationSec
-            // Smooth rapid downward pitch drop (1040Hz -> ~380Hz) for bubbly pop feel
-            val freq = 1040.0 * 2.0.pow(-1.45 * progress)
+            // Downward pitch drop (1120Hz down to ~420Hz)
+            val freq = 1120.0 * 2.0.pow(-1.42 * progress)
             phase += 2.0 * PI * freq / SAMPLE_RATE
             harmPhase += 2.0 * PI * (freq * 2.0) / SAMPLE_RATE
 
@@ -195,15 +355,15 @@ object AegisSoundEffects {
             } else {
                 1.0
             }
-            val decayEnv = exp(-(t - attackSec).coerceAtLeast(0.0) / 0.0095)
-            val endTaper = if (progress > 0.82) {
-                0.5 * (1.0 + cos(PI * (progress - 0.82) / 0.18))
+            val decayEnv = exp(-(t - attackSec).coerceAtLeast(0.0) / 0.012)
+            val endTaper = if (progress > 0.80) {
+                0.5 * (1.0 + cos(PI * (progress - 0.80) / 0.20))
             } else {
                 1.0
             }
 
-            val wave = sin(phase) + 0.14 * sin(harmPhase)
-            val amplitude = 0.17 * attackEnv * decayEnv * endTaper
+            val wave = sin(phase) + 0.18 * sin(harmPhase)
+            val amplitude = 0.245 * attackEnv * decayEnv * endTaper
             out[i] = (wave * amplitude * Short.MAX_VALUE)
                 .toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
@@ -213,9 +373,7 @@ object AegisSoundEffects {
     }
 
     /**
-     * ~195ms fuller, higher-presence dual-droplet chime for activating protection modes:
-     * Layer 1 (0ms): Warm resonant droplet (480Hz -> 960Hz + 1.5x fifth & 2x octave harmonics).
-     * Layer 2 (48ms): Uplifting crystal droplet (720Hz -> 1440Hz + 2x octave chime).
+     * ~195ms fuller, higher-presence dual-droplet chime for activating protection modes.
      */
     internal fun synthesizeModeActivatedVoice(): ShortArray {
         val durationSec = 0.195
@@ -246,7 +404,7 @@ object AegisSoundEffects {
             val dec1 = exp(-t / 0.036)
             mixed += (sin(p1) + 0.30 * sin(p1Fifth) + 0.22 * sin(p1Oct)) * atk1 * dec1
 
-            // Droplet 2 (uplifting bright confirmation drop)
+            // Droplet 2
             if (t >= secondDropStart) {
                 val t2 = t - secondDropStart
                 val progress2 = (t2 / 0.14).coerceIn(0.0, 1.0)
@@ -260,7 +418,7 @@ object AegisSoundEffects {
             }
 
             val tailTaper = if (t > 0.17) (durationSec - t).coerceAtLeast(0.0) / 0.025 else 1.0
-            val scaled = mixed * 0.36 * tailTaper
+            val scaled = mixed * 0.58 * tailTaper
             out[i] = (scaled * Short.MAX_VALUE)
                 .toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())

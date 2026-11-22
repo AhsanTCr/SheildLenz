@@ -830,9 +830,15 @@ class AegisProtectionService : Service() {
                 packageName = targetPkg,
                 categoryName = decision.category.displayName,
                 warningNumber = escalation.warningNumber,
-                maxWarnings = escalation.maxWarnings
+                maxWarnings = escalation.maxWarnings,
+                warningOnly = escalation.isWarningOnly
             )
             serviceScope.launch {
+                val actionSummary = if (escalation.isWarningOnly) {
+                    "Warning Only #${escalation.warningNumber} • App Evicted (No Lockout)"
+                } else {
+                    "Warning ${escalation.warningNumber}/${escalation.maxWarnings} • App Evicted"
+                }
                 val incident = SecurityIncident(
                     timestampMillis = System.currentTimeMillis(),
                     packageName = targetPkg.ifBlank { "foreground.screen" },
@@ -840,7 +846,7 @@ class AegisProtectionService : Service() {
                     category = decision.category,
                     severity = com.example.core.models.ThreatSeverity.MEDIUM,
                     confidenceScore = decision.confidence,
-                    actionTaken = "Warning ${escalation.warningNumber}/${escalation.maxWarnings} • App Evicted",
+                    actionTaken = actionSummary,
                     diagnosticSummary = fullDetails,
                     lockdownDurationMinutes = 0
                 )

@@ -74,6 +74,21 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         prefs.setWarningThresholdCount(0)
         val immediate = prefs.recordThreatAndCheckLockdown()
         assertTrue(immediate.shouldLockdown)
+
+        // Warning Only (Don't Lockout) never escalates to full device lockout
+        prefs.resetWarningCycle()
+        prefs.setWarningOnlyNoLockout(true)
+        assertTrue(prefs.warningOnlyNoLockout.value)
+        repeat(5) { idx ->
+            val res = prefs.recordThreatAndCheckLockdown()
+            assertFalse("Threat #${idx + 1} must not trigger lockout in Warn-Only mode", res.shouldLockdown)
+            assertTrue(res.isWarningOnly)
+            assertEquals(idx + 1, res.warningNumber)
+        }
+        val exportedJson = prefs.exportPolicyJson()
+        prefs.setWarningOnlyNoLockout(false)
+        assertTrue(prefs.restorePolicyJson(exportedJson))
+        assertTrue(prefs.warningOnlyNoLockout.value)
     }
 
     @Test
@@ -371,6 +386,8 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
     fun `settings screen renders separate cards for all new features`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
+        container.preferences.setGuardianPin("1234")
+        container.preferences.unlockGuardianSession()
 
         composeRule.setContent {
             AegisShieldTheme {
@@ -383,13 +400,21 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         }
 
         listOf(
-            "warning_thresholds_card",
+            "ai_model_pill",
+            "thresholds_accordion",
             "ai_categories_card",
-            "guardian_recovery_card",
             "safe_dns_blocklist_card",
+            "warning_thresholds_card",
+            "power_mode_widget",
+            "scheduled_protection_card",
             "bedtime_budgets_card",
+            "whitelisted_apps_card",
+            "guardian_pin_change_button",
+            "guardian_recovery_card",
+            "resistance_accordion",
             "device_owner_card",
-            "device_owner_wizard_button",
+            "touch_sounds_card",
+            "policy_backup_restore_card",
             "language_selector_card"
         ).forEach { tag ->
             composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag(tag))
@@ -397,6 +422,16 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
             composeRule.waitForIdle()
             composeRule.onNodeWithTag(tag).assertIsDisplayed()
         }
+
+        // Verify tapping Warnings pill opens popup dialog with Warn Only (Don't Lockout) switch
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("warning_thresholds_card"))
+        composeRule.onNodeWithTag("warning_thresholds_card").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("warning_thresholds_card_dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("warning_only_no_lockout_switch").performClick()
+        composeRule.waitForIdle()
+        assertTrue(container.preferences.warningOnlyNoLockout.value)
+        composeRule.onNodeWithText("DONE").performClick()
     }
 
     @Test

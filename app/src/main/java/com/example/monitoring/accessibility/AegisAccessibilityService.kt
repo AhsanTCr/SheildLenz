@@ -357,9 +357,15 @@ class AegisAccessibilityService : AccessibilityService() {
                 packageName = browserPkg,
                 categoryName = ThreatCategory.EXPLICIT_ADULT.displayName,
                 warningNumber = escalation.warningNumber,
-                maxWarnings = escalation.maxWarnings
+                maxWarnings = escalation.maxWarnings,
+                warningOnly = escalation.isWarningOnly
             )
             serviceScope.launch {
+                val actionSummary = if (escalation.isWarningOnly) {
+                    "Warning Only #${escalation.warningNumber} • Browser Evicted (No Lockout)"
+                } else {
+                    "Warning ${escalation.warningNumber}/${escalation.maxWarnings} • Browser Evicted"
+                }
                 val incident = SecurityIncident(
                     timestampMillis = System.currentTimeMillis(),
                     packageName = browserPkg,
@@ -367,7 +373,7 @@ class AegisAccessibilityService : AccessibilityService() {
                     category = ThreatCategory.EXPLICIT_ADULT,
                     severity = ThreatSeverity.MEDIUM,
                     confidenceScore = 1.0f,
-                    actionTaken = "Warning ${escalation.warningNumber}/${escalation.maxWarnings} • Browser Evicted",
+                    actionTaken = actionSummary,
                     diagnosticSummary = fullDetails,
                     lockdownDurationMinutes = 0
                 )

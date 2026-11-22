@@ -98,6 +98,7 @@ fun WellbeingHubScreen(
     val safeDnsProvider by preferences.safeDnsProvider.collectAsState()
     val bedtimeEnabled by preferences.bedtimeEnabled.collectAsState()
     val warningThreshold by preferences.warningThresholdCount.collectAsState()
+    val warningOnlyNoLockout by preferences.warningOnlyNoLockout.collectAsState()
     val blockedQueryCount by AegisSafeDnsVpnService.blockedQueryCount.collectAsState()
     val liveDnsLogs by (blockedDnsLogRepo?.liveLogs?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
     var isDeviceOwner by remember { mutableStateOf(AegisDeviceAdminReceiver.isDeviceOwner(context)) }
@@ -208,19 +209,32 @@ fun WellbeingHubScreen(
                         ) {
                             HubQuickActionButton(
                                 title = "Warnings",
-                                status = if (warningThreshold == 0) "0 (INSTANT)" else "$warningThreshold SCREEN",
+                                status = when {
+                                    warningOnlyNoLockout -> "WARN ONLY"
+                                    warningThreshold == 0 -> "0 (INSTANT)"
+                                    else -> "$warningThreshold SCREEN"
+                                },
                                 icon = Icons.Default.NotificationsActive,
                                 accentColor = AegisPurple,
-                                active = warningThreshold > 0,
+                                active = warningOnlyNoLockout || warningThreshold > 0,
                                 onClick = {
-                                    val next = (warningThreshold + 1) % 4
-                                    if (next > warningThreshold) {
-                                        masterKeyGate.request("increase warnings before lock") {
-                                            preferences.setWarningThresholdCount(next)
+                                    when {
+                                        warningOnlyNoLockout -> {
+                                            AegisSoundEffects.playModeOn(context)
+                                            preferences.setWarningOnlyNoLockout(false)
+                                            preferences.setWarningThresholdCount(0)
                                         }
-                                    } else {
-                                        AegisSoundEffects.playModeOn(context)
-                                        preferences.setWarningThresholdCount(next)
+                                        warningThreshold >= 3 -> {
+                                            masterKeyGate.request("enable Warn-Only (no lockout)") {
+                                                preferences.setWarningOnlyNoLockout(true)
+                                            }
+                                        }
+                                        else -> {
+                                            val next = warningThreshold + 1
+                                            masterKeyGate.request("increase warnings before lock") {
+                                                preferences.setWarningThresholdCount(next)
+                                            }
+                                        }
                                     }
                                 },
                                 modifier = Modifier
@@ -247,7 +261,8 @@ fun WellbeingHubScreen(
                     SafeDnsAndBlocklistSection(
                         preferences = preferences,
                         masterKeyGate = masterKeyGate,
-                        initiallyExpanded = true
+                        initiallyExpanded = true,
+                        compactPillMode = false
                     )
                 }
 

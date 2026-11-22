@@ -71,7 +71,7 @@ class MainActivity : ComponentActivity() {
         handlePairingDeepLink(intent)
         container.parentChildSyncController.ensureStarted()
         AegisSoundEffects.setEnabled(container.preferences.touchSoundsEnabled.value)
-        AegisSoundEffects.prewarm()
+        AegisSoundEffects.prewarm(this.applicationContext)
         // Silently check latest GitHub release vs current app version on startup & pre-download at 100 KB/s
         UpdateChecker.startCheckForUpdates(this, showUpToDatePopup = false)
         enableEdgeToEdge(

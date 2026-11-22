@@ -11,6 +11,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -54,12 +55,16 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.components.AegisShieldGraphic
+import com.example.R
+import com.example.core.update.UpdateChecker
 import com.example.ui.components.AhsanTcrBrandingPill
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.components.drawVolumetric3DSphere
@@ -94,6 +99,7 @@ fun SplashScreen(
     isOnboardingCompleted: Boolean,
     onNavigateNext: (destination: String) -> Unit
 ) {
+    val context = LocalContext.current
     var phase by remember { mutableStateOf(SplashPhase.SHIELD_LOADING) }
 
     // Instant energetic shield entrance (no dead fade wait)
@@ -165,11 +171,16 @@ fun SplashScreen(
     )
 
     LaunchedEffect(Unit) {
-        // Step 1: Parallel spring-pop emblem + smooth energetic progress fill
+        val logoStartMs = android.os.SystemClock.elapsedRealtime()
+        runCatching {
+            UpdateChecker.startCheckForUpdates(context, showUpToDatePopup = false)
+        }
+
+        // Step 1: Parallel spring-pop emblem + 3.5s to 4.5s update-check hold on the SL logo
         launch {
             shieldAlpha.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
             )
         }
         launch {
@@ -182,11 +193,23 @@ fun SplashScreen(
             )
         }
         progressAnim.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 1050, easing = FastOutSlowInEasing)
+            targetValue = 0.90f,
+            animationSpec = tween(durationMillis = 3300, easing = FastOutSlowInEasing)
         )
 
-        delay(120)
+        while (true) {
+            val elapsedMs = android.os.SystemClock.elapsedRealtime() - logoStartMs
+            val stillChecking = UpdateChecker.isChecking.value
+            if ((elapsedMs >= 3500L && !stillChecking) || elapsedMs >= 4600L) {
+                break
+            }
+            delay(100)
+        }
+
+        progressAnim.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+        )
 
         // Step 2: Smooth luminous veil + kinetic word-by-word reveal
         phase = SplashPhase.STATEMENT_REVEAL
@@ -352,11 +375,36 @@ fun SplashScreen(
                         }
                     }
 
-                    AegisShieldGraphic(
-                        isProtected = true,
-                        isThreatActive = false,
-                        size = 184.dp
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(144.dp)
+                            .shadow(
+                                elevation = 14.dp,
+                                shape = RoundedCornerShape(34.dp),
+                                ambientColor = AegisElectricBlue.copy(alpha = 0.35f),
+                                spotColor = AegisPurple.copy(alpha = 0.35f)
+                            )
+                            .clip(RoundedCornerShape(34.dp))
+                            .border(
+                                width = 2.dp,
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        AegisElectricBlue.copy(alpha = 0.85f),
+                                        Color.White.copy(alpha = 0.9f),
+                                        AegisPurple.copy(alpha = 0.85f)
+                                    )
+                                ),
+                                shape = RoundedCornerShape(34.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Image(
+                            painter = painterResource(id = R.drawable.sheildlenz_sl_emblem_1795343822554),
+                            contentDescription = "Sheildlenz SL Emblem",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(22.dp))

@@ -42,6 +42,20 @@ val AegisGoldBorder = Color(0xFFF2C667)           // Crisp Gold Card Border
 val AegisWarningAmber = Color(0xFFD9820B)         // Luminous Honey Amber
 val AegisDangerRed = Color(0xFFD9820B)            // Warm Sunlit Gold-Amber (zero red)
 
+// Color 4: Emerald Teal (Schedules & Apps section)
+val AegisEmeraldTeal = Color(0xFF0D9488)          // Crisp Vibrant Emerald Teal
+val AegisEmeraldBright = Color(0xFF14B8A6)        // Luminous Seafoam Accent
+val AegisEmeraldSoft = Color(0xFFE3FAF4)          // Pastel Mint-Emerald Card Top
+val AegisEmeraldSurface = Color(0xFFCFF3EA)       // Richer Emerald Card Gradient End
+val AegisEmeraldBorder = Color(0xFF7ADBC9)        // Crisp Emerald Card Border
+
+// Color 5: Cobalt Indigo (System & Language section)
+val AegisIndigo = Color(0xFF4F46E5)               // Vibrant Royal Cobalt Indigo
+val AegisIndigoBright = Color(0xFF6366F1)         // Soft Luminous Periwinkle Indigo
+val AegisIndigoSoft = Color(0xFFEBEBFF)           // Pastel Indigo Card Top
+val AegisIndigoSurface = Color(0xFFD9DBFF)        // Richer Indigo Card Gradient End
+val AegisIndigoBorder = Color(0xFFA2A8FA)         // Crisp Indigo Card Border
+
 // Crisp Royal-Blue Ink (zero black, zero dark charcoal — AAA readable on pastels)
 val AegisTextPrimary = Color(0xFF1A3673)          // Deep Royal Blue Ink
 val AegisTextSecondary = Color(0xFF3E5894)        // Rich Sapphire Ink

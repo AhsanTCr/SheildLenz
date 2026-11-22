@@ -75,6 +75,7 @@ class ParentChildSyncController(
                                 preferences.setWhitelistedPackages(remote.whitelistedPackages)
                             }
                             preferences.setWarningThresholdCount(remote.warningThresholdCount)
+                            preferences.setWarningOnlyNoLockout(remote.warningOnlyNoLockout)
                             preferences.setBedtimeEnabled(remote.bedtimeEnabled)
                             preferences.setBedtimeWindow(remote.bedtimeStartMinutes, remote.bedtimeEndMinutes)
                             preferences.setAppTimeBudgets(remote.appTimeBudgets)

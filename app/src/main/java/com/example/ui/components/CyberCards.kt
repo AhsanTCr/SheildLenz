@@ -38,9 +38,19 @@ import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisElectricBlue
+import com.example.ui.theme.AegisEmeraldBorder
+import com.example.ui.theme.AegisEmeraldBright
+import com.example.ui.theme.AegisEmeraldSoft
+import com.example.ui.theme.AegisEmeraldSurface
+import com.example.ui.theme.AegisEmeraldTeal
 import com.example.ui.theme.AegisGoldBorder
 import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisGoldDeepTint
+import com.example.ui.theme.AegisIndigo
+import com.example.ui.theme.AegisIndigoBorder
+import com.example.ui.theme.AegisIndigoBright
+import com.example.ui.theme.AegisIndigoSoft
+import com.example.ui.theme.AegisIndigoSurface
 import com.example.ui.theme.AegisLavenderBorder
 import com.example.ui.theme.AegisLavenderLight
 import com.example.ui.theme.AegisLavenderSoft
@@ -61,6 +71,8 @@ enum class CyberCardTone {
     SKY,
     LAVENDER,
     GOLD,
+    EMERALD,
+    INDIGO,
     HERO
 }
 
@@ -160,6 +172,18 @@ fun CyberCard(
             listOf(AegisChampagneGold, AegisGoldBright),
             AegisChampagneGold.copy(alpha = 0.18f)
         )
+        CyberCardTone.EMERALD -> Quad(
+            listOf(AegisEmeraldSoft, AegisEmeraldSurface),
+            AegisEmeraldBorder,
+            listOf(AegisEmeraldTeal, AegisEmeraldBright),
+            AegisEmeraldTeal.copy(alpha = 0.16f)
+        )
+        CyberCardTone.INDIGO -> Quad(
+            listOf(AegisIndigoSoft, AegisIndigoSurface),
+            AegisIndigoBorder,
+            listOf(AegisIndigo, AegisIndigoBright),
+            AegisIndigo.copy(alpha = 0.16f)
+        )
         CyberCardTone.HERO -> Quad(
             listOf(
                 Color(0xFFF6FAFF), // Pearl White-Sky Top
@@ -234,14 +258,14 @@ fun LuxurySectionHeader(
                 .clip(RoundedCornerShape(2.dp))
                 .background(
                     brush = Brush.horizontalGradient(
-                        colors = listOf(accentColor, AegisPrimaryCyan)
+                        colors = listOf(accentColor, accentColor.copy(alpha = 0.55f))
                     )
                 )
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = title.uppercase(),
-            color = AegisTextPrimary,
+            color = accentColor,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = ClassicalBodyFont,
@@ -262,6 +286,8 @@ fun MetricTile(
     val tileTone = when (accentColor) {
         AegisPurple, AegisLavenderLight -> CyberCardTone.LAVENDER
         AegisChampagneGold, AegisGoldBright -> CyberCardTone.GOLD
+        AegisEmeraldTeal, AegisEmeraldBright -> CyberCardTone.EMERALD
+        AegisIndigo, AegisIndigoBright -> CyberCardTone.INDIGO
         else -> CyberCardTone.SKY
     }
     CyberCard(

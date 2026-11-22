@@ -125,8 +125,8 @@ fun AegisShieldTheme(
     SideEffect {
         view.isSoundEffectsEnabled = false
     }
-    LaunchedEffect(Unit) {
-        AegisSoundEffects.prewarm()
+    LaunchedEffect(context) {
+        AegisSoundEffects.prewarm(context)
     }
     val waterDropIndication = remember(context) {
         WaterDropIndicationNodeFactory(context)

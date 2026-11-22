@@ -198,7 +198,8 @@ enum class InferenceAccelerationMode(
 data class WarningEscalationResult(
     val shouldLockdown: Boolean,
     val warningNumber: Int,
-    val maxWarnings: Int
+    val maxWarnings: Int,
+    val isWarningOnly: Boolean = false
 )
 
 class AegisPreferences(context: Context) {
@@ -434,6 +435,11 @@ class AegisPreferences(context: Context) {
         prefs.getInt(KEY_WARNINGS_IN_CYCLE, 0).coerceAtLeast(0)
     )
     val warningsIssuedInCycle: StateFlow<Int> = _warningsIssuedInCycle.asStateFlow()
+
+    private val _warningOnlyNoLockout = MutableStateFlow(
+        prefs.getBoolean(KEY_WARNING_ONLY_NO_LOCKOUT, false)
+    )
+    val warningOnlyNoLockout: StateFlow<Boolean> = _warningOnlyNoLockout.asStateFlow()
 
     // Guardian Email & Emergency Recovery
     private val _guardianEmail = MutableStateFlow(
@@ -1049,7 +1055,23 @@ class AegisPreferences(context: Context) {
         _warningThresholdCount.value = clamped
     }
 
+    fun setWarningOnlyNoLockout(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WARNING_ONLY_NO_LOCKOUT, enabled).apply()
+        _warningOnlyNoLockout.value = enabled
+    }
+
     fun recordThreatAndCheckLockdown(): WarningEscalationResult {
+        if (_warningOnlyNoLockout.value) {
+            val nextCount = _warningsIssuedInCycle.value + 1
+            prefs.edit().putInt(KEY_WARNINGS_IN_CYCLE, nextCount).apply()
+            _warningsIssuedInCycle.value = nextCount
+            return WarningEscalationResult(
+                shouldLockdown = false,
+                warningNumber = nextCount,
+                maxWarnings = 0,
+                isWarningOnly = true
+            )
+        }
         val maxWarnings = _warningThresholdCount.value.coerceIn(0, 5)
         if (maxWarnings == 0) {
             return WarningEscalationResult(shouldLockdown = true, warningNumber = 0, maxWarnings = 0)
@@ -1417,6 +1439,7 @@ class AegisPreferences(context: Context) {
             put("childUninstallLocked", _childUninstallLocked.value)
             put("liveSeeEnabled", _liveSeeEnabled.value)
             put("warningThresholdCount", _warningThresholdCount.value)
+            put("warningOnlyNoLockout", _warningOnlyNoLockout.value)
             put("bedtimeEnabled", _bedtimeEnabled.value)
             put("bedtimeStartMinutes", _bedtimeStartMinutes.value)
             put("bedtimeEndMinutes", _bedtimeEndMinutes.value)
@@ -1463,6 +1486,7 @@ class AegisPreferences(context: Context) {
             setChildUninstallLocked(payload.optBoolean("childUninstallLocked", true))
             setLiveSeeEnabled(payload.optBoolean("liveSeeEnabled", true))
             setWarningThresholdCount(payload.optInt("warningThresholdCount", 0))
+            setWarningOnlyNoLockout(payload.optBoolean("warningOnlyNoLockout", false))
             setBedtimeEnabled(payload.optBoolean("bedtimeEnabled", false))
             setBedtimeWindow(
                 payload.optInt("bedtimeStartMinutes", 22 * 60),
@@ -1755,6 +1779,7 @@ class AegisPreferences(context: Context) {
 
         private const val KEY_WARNING_THRESHOLD_COUNT = "key_warning_threshold_count"
         private const val KEY_WARNINGS_IN_CYCLE = "key_warnings_in_cycle"
+        private const val KEY_WARNING_ONLY_NO_LOCKOUT = "key_warning_only_no_lockout"
         private const val KEY_GUARDIAN_EMAIL = "key_guardian_email"
         private const val KEY_RECOVERY_CHALLENGE_ID = "key_recovery_challenge_id"
         private const val KEY_INFERENCE_ACCELERATION_MODE = "key_inference_acceleration_mode"

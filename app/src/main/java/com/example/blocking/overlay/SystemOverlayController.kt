@@ -138,7 +138,8 @@ class SystemOverlayController(private val context: Context) {
         packageName: String,
         categoryName: String,
         warningNumber: Int,
-        maxWarnings: Int
+        maxWarnings: Int,
+        warningOnly: Boolean = false
     ) {
         if (!PermissionHelper.hasOverlayPermission(context)) {
             Log.w(TAG, "Cannot show warning overlay: SYSTEM_ALERT_WINDOW permission missing.")
@@ -147,18 +148,18 @@ class SystemOverlayController(private val context: Context) {
 
         mainHandler.post {
             val prefs = AegisContainer.getInstance(context).preferences
-            if (prefs.isLockdownActive()) {
+            if (!warningOnly && prefs.isLockdownActive()) {
                 showLockdownOverlay(prefs.lockdownIncidentInfo.value)
                 return@post
             }
             removeCurrentViewImmediate()
             activeOverlayMode = OverlayMode.WARNING
             try {
-                val view = createWarningLayout(appName, packageName, categoryName, warningNumber, maxWarnings)
+                val view = createWarningLayout(appName, packageName, categoryName, warningNumber, maxWarnings, warningOnly)
                 windowManager?.addView(view, buildFullscreenLayoutParams())
                 overlayView = view
                 isOverlayVisible = true
-                Log.i(TAG, "Sheildlenz Warning Overlay $warningNumber/$maxWarnings presented.")
+                Log.i(TAG, "Sheildlenz Warning Overlay #$warningNumber (warningOnly=$warningOnly) presented.")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to present Warning Overlay", e)
             }
@@ -861,7 +862,8 @@ class SystemOverlayController(private val context: Context) {
         packageName: String,
         categoryName: String,
         warningNumber: Int,
-        maxWarnings: Int
+        maxWarnings: Int,
+        warningOnly: Boolean = false
     ): View {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -876,7 +878,11 @@ class SystemOverlayController(private val context: Context) {
         }
 
         val badge = TextView(context).apply {
-            text = "WARNING $warningNumber OF $maxWarnings BEFORE LOCKDOWN"
+            text = if (warningOnly) {
+                "WARNING ONLY • NO LOCKOUT (#$warningNumber)"
+            } else {
+                "WARNING $warningNumber OF $maxWarnings BEFORE LOCKDOWN"
+            }
             setTextColor(Color.parseColor("#D9820B"))
             textSize = 11f
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
@@ -898,13 +904,18 @@ class SystemOverlayController(private val context: Context) {
 
         val desc = TextView(context).apply {
             val remaining = (maxWarnings - warningNumber).coerceAtLeast(0)
-            text = "Detected $categoryName in $appName ($packageName).\n" +
-                "The app was closed automatically. " +
-                if (remaining == 0) {
-                    "This is your final warning—the next violation will trigger a full device lockdown."
-                } else {
-                    "$remaining warning(s) remaining before a full device lockdown engages."
-                }
+            text = if (warningOnly) {
+                "Detected $categoryName in $appName ($packageName).\n" +
+                    "The app was closed automatically. Warning-Only mode is active so no device lockdown was engaged."
+            } else {
+                "Detected $categoryName in $appName ($packageName).\n" +
+                    "The app was closed automatically. " +
+                    if (remaining == 0) {
+                        "This is your final warning—the next violation will trigger a full device lockdown."
+                    } else {
+                        "$remaining warning(s) remaining before a full device lockdown engages."
+                    }
+            }
             setTextColor(Color.parseColor("#3E5894"))
             textSize = 13f
             gravity = Gravity.CENTER
