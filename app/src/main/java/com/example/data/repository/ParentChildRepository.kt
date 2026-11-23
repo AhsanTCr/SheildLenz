@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.util.Base64
 import android.util.Log
-import com.example.R
 import com.example.core.models.SecurityIncident
 import com.example.core.models.SensitivityLevel
 import com.example.core.models.ThreatCategory
@@ -122,8 +121,9 @@ class ParentChildRepository(
         dbOverride ?: runCatching {
             if (ensureFirebaseInitialized()) {
                 val dbId = runCatching {
-                    appContext.getString(R.string.firestore_database_id)
-                }.getOrDefault("ai-studio-android-sheildle-445b68c5-4463-4bd1-939c-33931bb3fc12")
+                    val resId = appContext.resources.getIdentifier("firestore_database_id", "string", appContext.packageName)
+                    if (resId != 0) appContext.getString(resId).trim() else null
+                }.getOrNull()?.takeIf { it.isNotBlank() } ?: "ai-studio-android-sheildle-445b68c5-4463-4bd1-939c-33931bb3fc12"
                 FirebaseFirestore.getInstance(dbId)
             } else {
                 null

@@ -10,7 +10,6 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
-import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -28,11 +27,18 @@ import kotlinx.coroutines.withContext
 /**
  * Centralized Jetpack Credential Manager + Firebase Auth Google Sign-In helper.
  *
- * Uses compile-time `R.string.default_web_client_id` generated from `app/google-services.json`
- * and enforces one credential option per `GetCredentialRequest` for API 36 compatibility.
+ * Resolves the Google OAuth web client ID dynamically or falls back to the configured
+ * client ID, eliminating compile-time failure if default_web_client_id is missing from R.string.
  */
 object GoogleSignInManager {
     private const val TAG = "Auth"
+
+    /**
+     * Default Web Client ID configured for this Firebase project (gen-lang-client-0700550101).
+     * Used as a robust fallback in CI and release environments where google-services.json
+     * may not have generated R.string.default_web_client_id.
+     */
+    const val DEFAULT_WEB_CLIENT_ID = "206265135684-sh14t7ig3uimgrp5guqttdi18rbdj8hk.apps.googleusercontent.com"
 
     fun ensureFirebaseInitialized(context: Context): Boolean {
         val appContext = context.applicationContext
@@ -47,13 +53,29 @@ object GoogleSignInManager {
     }
 
     fun resolveWebClientId(context: Context): String {
-        return runCatching {
-            context.getString(R.string.default_web_client_id).trim()
-        }.getOrElse {
-            runCatching {
-                context.applicationContext.getString(R.string.default_web_client_id).trim()
-            }.getOrDefault("")
+        val resId = runCatching {
+            context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+        }.getOrDefault(0)
+
+        if (resId != 0) {
+            val resolved = runCatching { context.getString(resId).trim() }.getOrDefault("")
+            if (resolved.isNotBlank()) return resolved
         }
+
+        val appResId = runCatching {
+            context.applicationContext.resources.getIdentifier(
+                "default_web_client_id",
+                "string",
+                context.applicationContext.packageName
+            )
+        }.getOrDefault(0)
+
+        if (appResId != 0) {
+            val resolved = runCatching { context.applicationContext.getString(appResId).trim() }.getOrDefault("")
+            if (resolved.isNotBlank()) return resolved
+        }
+
+        return DEFAULT_WEB_CLIENT_ID
     }
 
     suspend fun attemptAutoSignIn(
