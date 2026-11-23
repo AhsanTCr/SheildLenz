@@ -29,13 +29,17 @@ class AegisBootReceiver : BroadcastReceiver() {
                 Log.w(TAG, "Device rebooted with active lockdown — restoring AegisLockdownService.")
                 AegisLockdownService.start(context)
             } else if (prefs.isShieldDesiredActive.value && prefs.autoStart.value) {
-                Log.i(TAG, "Device rebooted with Sheildlenz Shield armed — notifying to re-arm screen capture.")
-                showShieldRecoveryNotification(context)
+                if (prefs.notificationsEnabled.value) {
+                    Log.i(TAG, "Device rebooted with Sheildlenz Shield armed — notifying to re-arm screen capture.")
+                    showShieldRecoveryNotification(context)
+                }
             }
         }
     }
 
     private fun showShieldRecoveryNotification(context: Context) {
+        val prefs = com.example.di.AegisContainer.getInstance(context).preferences
+        if (!prefs.notificationsEnabled.value) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(

@@ -1,5 +1,8 @@
 package com.example.ui.dashboard
 
+import android.app.Activity
+import android.net.VpnService
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -49,13 +52,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -75,6 +80,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -103,6 +109,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
 import com.example.core.audio.AegisSoundEffects
+import com.example.core.models.SensitivityLevel
 import com.example.core.permissions.PermissionHelper
 import com.example.core.update.ApkDownloadState
 import com.example.core.update.UpdateChecker
@@ -111,6 +118,7 @@ import com.example.data.repository.ProtectionRepository
 import com.example.detection.classifier.ModelDownloader
 import com.example.detection.classifier.ModelImportResult
 import com.example.detection.classifier.ModelManager
+import com.example.services.dns.AegisSafeDnsVpnService
 import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
@@ -127,6 +135,8 @@ import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisElectricBlue
+import com.example.ui.theme.AegisEmeraldBorder
+import com.example.ui.theme.AegisEmeraldTeal
 import com.example.ui.theme.AegisGoldBorder
 import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisLavenderBorder
@@ -140,8 +150,10 @@ import com.example.ui.theme.AegisTextSecondary
 import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -155,7 +167,8 @@ fun DashboardScreen(
     onRequestStopProtection: () -> Unit = {},
     onNavigateToStatus: () -> Unit = {},
     onNavigateToProgress: () -> Unit = {},
-    onNavigateToWellbeing: () -> Unit = {}
+    onNavigateToWellbeing: () -> Unit = {},
+    onNavigateToFocusHub: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -166,9 +179,50 @@ fun DashboardScreen(
     val scheduleStartMinutes by preferences.scheduleStartMinutes.collectAsState()
     val scheduleEndMinutes by preferences.scheduleEndMinutes.collectAsState()
     val isWithinScheduledWindow = scheduleEnabled && preferences.isWithinScheduledWindow()
+    val studyModeEnabled by preferences.studyModeEnabled.collectAsState()
+    val studySessionEndMillis by preferences.studySessionEndMillis.collectAsState()
+    val studyDurationMinutes by preferences.studyDurationMinutes.collectAsState()
+    val smartSafeSearchEnabled by preferences.smartSafeSearchEnabled.collectAsState()
+    val safeSearchPacks by preferences.safeSearchPacks.collectAsState()
+    val appTimeBudgets by preferences.appTimeBudgets.collectAsState()
+    val safeDnsEnabled by preferences.safeDnsEnabled.collectAsState()
+    val safeDnsProvider by preferences.safeDnsProvider.collectAsState()
+    val bedtimeEnabled by preferences.bedtimeEnabled.collectAsState()
+    val bedtimeStartMinutes by preferences.bedtimeStartMinutes.collectAsState()
+    val bedtimeEndMinutes by preferences.bedtimeEndMinutes.collectAsState()
+    val strictEverything by preferences.strictEverything.collectAsState()
+
+    var remainingStudyMillis by remember { mutableLongStateOf(preferences.getRemainingStudyMillis()) }
+    LaunchedEffect(studyModeEnabled, studySessionEndMillis) {
+        if (!studyModeEnabled) {
+            remainingStudyMillis = 0L
+        } else {
+            while (true) {
+                val rem = preferences.getRemainingStudyMillis()
+                remainingStudyMillis = rem
+                if (rem <= 0L) break
+                delay(1000L)
+            }
+        }
+    }
+    val isStudyActive = studyModeEnabled && remainingStudyMillis > 0L
 
     var showOverlayWarningDialog by remember { mutableStateOf(false) }
     var showMissingModelDialog by remember { mutableStateOf(false) }
+
+    val vpnLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            AegisSoundEffects.playModeOn(context)
+            preferences.setSafeDnsEnabled(true)
+            AegisSafeDnsVpnService.start(context)
+            Toast.makeText(context, "Safe DNS VPN active", Toast.LENGTH_SHORT).show()
+        } else {
+            preferences.setSafeDnsEnabled(false)
+            Toast.makeText(context, "VPN permission declined", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     val quickModelPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -1167,6 +1221,168 @@ fun DashboardScreen(
                     }
                 }
 
+                // 1b. One-Tap Focus, Safe Search & Budgets Quick Strip
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 540.dp)
+                            .testTag("home_one_tap_features_strip"),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        HomeOneTapFeatureTile(
+                            title = "Study Lock",
+                            status = if (isStudyActive) formatHomeClock(remainingStudyMillis) else "Tap ${studyDurationMinutes}m",
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            active = isStudyActive,
+                            accentColor = AegisPurple,
+                            borderColor = AegisLavenderBorder,
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (isStudyActive) {
+                                    masterKeyGate.request("end Study Session early") {
+                                        preferences.stopStudySession()
+                                    }
+                                } else if (!telemetry.isOverlayPermitted) {
+                                    showOverlayWarningDialog = true
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.startStudySession(studyDurationMinutes)
+                                }
+                            },
+                            testTag = "home_one_tap_study",
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        HomeOneTapFeatureTile(
+                            title = "Safe Search",
+                            status = if (smartSafeSearchEnabled) "${safeSearchPacks.size} Packs" else "Tap ON",
+                            icon = Icons.Default.Security,
+                            active = smartSafeSearchEnabled,
+                            accentColor = AegisPrimaryCyan,
+                            borderColor = AegisCardBorder,
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (smartSafeSearchEnabled) {
+                                    masterKeyGate.request("turn off Smart Safe Search") {
+                                        preferences.setSmartSafeSearchEnabled(false)
+                                    }
+                                } else {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setSmartSafeSearchEnabled(true)
+                                }
+                            },
+                            testTag = "home_one_tap_safe_search",
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        HomeOneTapFeatureTile(
+                            title = "App Limits",
+                            status = if (appTimeBudgets.isNotEmpty()) "${appTimeBudgets.size} Caps" else "Tap Set",
+                            icon = Icons.Default.Timer,
+                            active = appTimeBudgets.isNotEmpty(),
+                            accentColor = AegisEmeraldTeal,
+                            borderColor = AegisEmeraldBorder,
+                            onClick = {
+                                AegisSoundEffects.playTap(context)
+                                onNavigateToFocusHub()
+                            },
+                            testTag = "home_one_tap_budgets",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // 1c. Priority Controls from Edits (Safe DNS, Bedtime, Strict Filter)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 540.dp)
+                            .testTag("home_one_tap_priority_strip"),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        HomeOneTapFeatureTile(
+                            title = "Safe DNS",
+                            status = if (safeDnsEnabled) safeDnsProvider.ratingBadge else "Tap ON",
+                            icon = Icons.Default.Dns,
+                            active = safeDnsEnabled,
+                            accentColor = AegisPrimaryCyan,
+                            borderColor = AegisCardBorder,
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (!safeDnsEnabled) {
+                                    val prep = runCatching { VpnService.prepare(context) }.getOrNull()
+                                    if (prep == null) {
+                                        AegisSoundEffects.playModeOn(context)
+                                        preferences.setSafeDnsEnabled(true)
+                                        AegisSafeDnsVpnService.start(context)
+                                    } else {
+                                        preferences.beginAuthorizedExternalFlow()
+                                        vpnLauncher.launch(prep)
+                                    }
+                                } else {
+                                    masterKeyGate.request("turn off Safe DNS") {
+                                        preferences.setSafeDnsEnabled(false)
+                                        AegisSafeDnsVpnService.stop(context)
+                                    }
+                                }
+                            },
+                            testTag = "home_one_tap_safe_dns",
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        HomeOneTapFeatureTile(
+                            title = "Bedtime",
+                            status = if (bedtimeEnabled) {
+                                "${formatCompactHour(bedtimeStartMinutes)}–${formatCompactHour(bedtimeEndMinutes)}"
+                            } else {
+                                "Tap ON"
+                            },
+                            icon = Icons.Default.Bedtime,
+                            active = bedtimeEnabled,
+                            accentColor = AegisChampagneGold,
+                            borderColor = AegisGoldBorder,
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (!bedtimeEnabled) {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setBedtimeEnabled(true)
+                                } else {
+                                    masterKeyGate.request("turn off Bedtime Lock") {
+                                        preferences.setBedtimeEnabled(false)
+                                    }
+                                }
+                            },
+                            testTag = "home_one_tap_bedtime",
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        val isStrictActive = strictEverything || sensitivity == SensitivityLevel.STRICT
+                        HomeOneTapFeatureTile(
+                            title = "Strict Filter",
+                            status = if (strictEverything) "MAX ALL" else sensitivity.displayName,
+                            icon = Icons.Default.Shield,
+                            active = isStrictActive,
+                            accentColor = AegisPurple,
+                            borderColor = AegisLavenderBorder,
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                if (!strictEverything) {
+                                    AegisSoundEffects.playModeOn(context)
+                                    preferences.setStrictEverything(true)
+                                } else {
+                                    masterKeyGate.request("turn off Strict Filter") {
+                                        preferences.setStrictEverything(false)
+                                    }
+                                }
+                            },
+                            testTag = "home_one_tap_strict",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
                 // 2. Scheduled Guard Window Reminder
                 item {
                     AnimatedVisibility(
@@ -1269,52 +1485,6 @@ fun DashboardScreen(
                     }
                 }
 
-                // 4. Charming Spacious Navigation Buttons for Status & Progress
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 540.dp)
-                            .padding(top = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        HomeDestinationGatewayCard(
-                            title = "Live Status",
-                            subtitle = "Permissions health & live frame scanner",
-                            icon = Icons.Default.MonitorHeart,
-                            gradientColors = listOf(AegisPrimaryCyan, AegisElectricBlue),
-                            surfaceTint = listOf(Color(0xFFF9FCFF), Color(0xFFEDF6FF)),
-                            borderColor = AegisCardBorder,
-                            accentColor = AegisPrimaryCyan,
-                            onClick = onNavigateToStatus,
-                            testTag = "home_open_status_button"
-                        )
-
-                        HomeDestinationGatewayCard(
-                            title = "Security Progress",
-                            subtitle = "Blocked applications & security history",
-                            icon = Icons.Default.Assessment,
-                            gradientColors = listOf(AegisPurple, AegisChampagneGold),
-                            surfaceTint = listOf(Color(0xFFFAF8FF), AegisLavenderSoft),
-                            borderColor = AegisLavenderBorder,
-                            accentColor = AegisPurple,
-                            onClick = onNavigateToProgress,
-                            testTag = "home_open_progress_button"
-                        )
-
-                        HomeDestinationGatewayCard(
-                            title = "Wellbeing & Safe DNS",
-                            subtitle = "Strict Deen Safe DNS, Bedtime & App Budgets",
-                            icon = Icons.Default.Dns,
-                            gradientColors = listOf(AegisChampagneGold, AegisPrimaryCyan),
-                            surfaceTint = listOf(Color(0xFFFFFBF2), Color(0xFFF0F9FF)),
-                            borderColor = AegisGoldBorder,
-                            accentColor = AegisChampagneGold,
-                            onClick = onNavigateToWellbeing,
-                            testTag = "home_open_wellbeing_button"
-                        )
-                    }
-                }
             }
 
             if (showOverlayWarningDialog) {
@@ -1441,97 +1611,97 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun HomeDestinationGatewayCard(
+private fun HomeOneTapFeatureTile(
     title: String,
-    subtitle: String,
+    status: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    gradientColors: List<Color>,
-    surfaceTint: List<Color>,
-    borderColor: Color,
+    active: Boolean,
     accentColor: Color,
+    borderColor: Color,
     onClick: () -> Unit,
-    testTag: String
+    testTag: String,
+    modifier: Modifier = Modifier
 ) {
-    val cardShape = RoundedCornerShape(22.dp)
+    val tileShape = RoundedCornerShape(18.dp)
     Surface(
         onClick = onClick,
-        shape = cardShape,
-        color = Color.Transparent,
-        border = BorderStroke(1.2.dp, borderColor.copy(alpha = 0.85f)),
-        modifier = Modifier
-            .fillMaxWidth()
+        shape = tileShape,
+        color = if (active) accentColor.copy(alpha = 0.14f) else AegisCardBackground.copy(alpha = 0.92f),
+        border = BorderStroke(
+            width = if (active) 1.5.dp else 1.dp,
+            color = if (active) accentColor else borderColor.copy(alpha = 0.85f)
+        ),
+        modifier = modifier
             .heightIn(min = 76.dp)
             .shadow(
-                elevation = 8.dp,
-                shape = cardShape,
-                ambientColor = accentColor.copy(alpha = 0.16f),
-                spotColor = accentColor.copy(alpha = 0.16f)
+                elevation = if (active) 6.dp else 3.dp,
+                shape = tileShape,
+                ambientColor = accentColor.copy(alpha = 0.14f),
+                spotColor = accentColor.copy(alpha = 0.14f)
             )
             .testTag(testTag)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(brush = Brush.horizontalGradient(colors = surfaceTint))
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(brush = Brush.linearGradient(colors = gradientColors)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = AegisOnPrimaryWhite,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(14.dp))
-
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = title,
-                        color = AegisTextPrimary,
-                        fontSize = 15.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalDisplayFont
-                    )
-                    Text(
-                        text = subtitle,
-                        color = AegisTextSecondary,
-                        fontSize = 12.sp,
-                        fontFamily = ClassicalBodyFont
-                    )
-                }
-            }
-
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.12f))
-                    .border(1.dp, accentColor.copy(alpha = 0.25f), CircleShape),
+                    .background(if (active) accentColor else accentColor.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = "Open $title",
-                    tint = accentColor,
-                    modifier = Modifier.size(18.dp)
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = if (active) AegisOnPrimaryWhite else accentColor,
+                    modifier = Modifier.size(16.dp)
                 )
             }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = title,
+                color = AegisTextPrimary,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = ClassicalDisplayFont,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = status,
+                color = if (active) accentColor else AegisTextSecondary,
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = ClassicalBodyFont,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
+
+private fun formatHomeClock(millis: Long): String {
+    val totalSec = (millis / 1000L).coerceAtLeast(0L)
+    val mins = totalSec / 60L
+    val secs = totalSec % 60L
+    return String.format(Locale.US, "%02d:%02d", mins, secs)
+}
+
+private fun formatCompactHour(minuteOfDay: Int): String {
+    val safe = ((minuteOfDay % 1440) + 1440) % 1440
+    val hour24 = safe / 60
+    val min = safe % 60
+    val suffix = if (hour24 < 12) "A" else "P"
+    val hour12 = when {
+        hour24 == 0 -> 12
+        hour24 > 12 -> hour24 - 12
+        else -> hour24
+    }
+    return if (min == 0) "$hour12$suffix" else String.format(Locale.US, "%d:%02d%s", hour12, min, suffix)
+}
+

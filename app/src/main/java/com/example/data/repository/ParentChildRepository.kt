@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.util.Base64
 import android.util.Log
+import com.example.R
 import com.example.core.models.SecurityIncident
 import com.example.core.models.SensitivityLevel
 import com.example.core.models.ThreatCategory
@@ -69,7 +70,14 @@ data class RemotePolicySettings(
     val blockExplicitAdult: Boolean = true,
     val blockSuggestiveContent: Boolean = true,
     val blockSensitiveGraphic: Boolean = true,
-    val blockGamblingKeywords: Boolean = true
+    val blockGamblingKeywords: Boolean = true,
+    val studyModeEnabled: Boolean = false,
+    val studyModeDurationMinutes: Int = 25,
+    val studySoftWarningSeconds: Int = 30,
+    val studyAllowedPackages: Set<String> = emptySet(),
+    val smartSafeSearchEnabled: Boolean = false,
+    val safeSearchPacks: Set<String> = setOf("adult", "gambling"),
+    val discreetBlockingScreenMode: Boolean = true
 )
 
 data class RemoteCommandPayload(
@@ -113,16 +121,9 @@ class ParentChildRepository(
     private val firestoreOrNull: FirebaseFirestore? by lazy {
         dbOverride ?: runCatching {
             if (ensureFirebaseInitialized()) {
-                val resId = appContext.resources.getIdentifier(
-                    "firestore_database_id",
-                    "string",
-                    appContext.packageName
-                )
-                val dbId = if (resId != 0) {
-                    appContext.getString(resId)
-                } else {
-                    "ai-studio-android-sheildle-445b68c5-4463-4bd1-939c-33931bb3fc12"
-                }
+                val dbId = runCatching {
+                    appContext.getString(R.string.firestore_database_id)
+                }.getOrDefault("ai-studio-android-sheildle-445b68c5-4463-4bd1-939c-33931bb3fc12")
                 FirebaseFirestore.getInstance(dbId)
             } else {
                 null
@@ -442,6 +443,13 @@ class ParentChildRepository(
                 "blockSuggestiveContent" to settings.blockSuggestiveContent,
                 "blockSensitiveGraphic" to settings.blockSensitiveGraphic,
                 "blockGamblingKeywords" to settings.blockGamblingKeywords,
+                "studyModeEnabled" to settings.studyModeEnabled,
+                "studyModeDurationMinutes" to settings.studyModeDurationMinutes.coerceIn(1, 240),
+                "studySoftWarningSeconds" to settings.studySoftWarningSeconds.coerceIn(5, 120),
+                "studyAllowedPackages" to settings.studyAllowedPackages.take(40),
+                "smartSafeSearchEnabled" to settings.smartSafeSearchEnabled,
+                "safeSearchPacks" to settings.safeSearchPacks.take(10),
+                "discreetBlockingScreenMode" to settings.discreetBlockingScreenMode,
                 "updatedAt" to FieldValue.serverTimestamp()
             )
             db.document(path).set(payload).await()
@@ -491,6 +499,14 @@ class ParentChildRepository(
                             }
                             ?.toMap()
                             ?: emptyMap()
+                        val studyAllowedRaw = (doc.get("studyAllowedPackages") as? List<*>)
+                            ?.mapNotNull { it as? String }
+                            ?.toSet()
+                            ?: emptySet()
+                        val safeSearchPacksRaw = (doc.get("safeSearchPacks") as? List<*>)
+                            ?.mapNotNull { it as? String }
+                            ?.toSet()
+                            ?: setOf("adult", "gambling")
                         RemotePolicySettings(
                             sensitivity = sensitivity,
                             strictEverything = doc.getBoolean("strictEverything") ?: false,
@@ -512,7 +528,14 @@ class ParentChildRepository(
                             blockExplicitAdult = doc.getBoolean("blockExplicitAdult") ?: true,
                             blockSuggestiveContent = doc.getBoolean("blockSuggestiveContent") ?: true,
                             blockSensitiveGraphic = doc.getBoolean("blockSensitiveGraphic") ?: true,
-                            blockGamblingKeywords = doc.getBoolean("blockGamblingKeywords") ?: true
+                            blockGamblingKeywords = doc.getBoolean("blockGamblingKeywords") ?: true,
+                            studyModeEnabled = doc.getBoolean("studyModeEnabled") ?: false,
+                            studyModeDurationMinutes = (doc.getLong("studyModeDurationMinutes") ?: 25L).toInt().coerceIn(1, 240),
+                            studySoftWarningSeconds = (doc.getLong("studySoftWarningSeconds") ?: 30L).toInt().coerceIn(5, 120),
+                            studyAllowedPackages = studyAllowedRaw,
+                            smartSafeSearchEnabled = doc.getBoolean("smartSafeSearchEnabled") ?: false,
+                            safeSearchPacks = safeSearchPacksRaw,
+                            discreetBlockingScreenMode = doc.getBoolean("discreetBlockingScreenMode") ?: true
                         )
                     }
                 }

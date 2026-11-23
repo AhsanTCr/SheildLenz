@@ -16,6 +16,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.core.notifications.AegisNotificationHelper
 import com.example.di.AegisContainer
 
 class AegisLockdownService : Service() {
@@ -124,13 +125,23 @@ class AegisLockdownService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val notificationsOn = container.preferences.notificationsEnabled.value
+        val discreet = container.preferences.discreetBlockingScreenMode.value
+        val channelId = if (notificationsOn) {
+            CHANNEL_ID
+        } else {
+            AegisNotificationHelper.ensureSilentChannel(this)
+            AegisNotificationHelper.SILENT_MONITOR_CHANNEL_ID
+        }
+
+        return NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Sheildlenz Lockdown Active")
-            .setContentText("Device locked due to detected content violation")
+            .setContentTitle(if (discreet || !notificationsOn) "Display Policy Active" else "Sheildlenz Lockdown Active")
+            .setContentText(if (discreet || !notificationsOn) "Device access policy running" else "Device locked due to detected content violation")
             .setContentIntent(pi)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(!notificationsOn)
+            .setPriority(if (notificationsOn) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_MIN)
             .build()
     }
 

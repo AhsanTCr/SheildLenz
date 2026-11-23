@@ -330,40 +330,31 @@ object AegisSoundEffects {
     }
 
     /**
-     * ~48ms crisp, bubbly glassy pop:
-     * Downward pitch drop (1120Hz -> ~420Hz) with raised-cosine attack & exponential decay.
-     * Calibrated soft peak (~0.25 full-scale) so clicks stay silky without harsh clipping.
+     * ~18ms ultra-clean, glassy mechanical tick tap:
+     * Crisp high-frequency metallic tap (2400Hz -> 800Hz) with instantaneous attack and sharp exponential decay.
      */
     internal fun synthesizeWaterDropTap(): ShortArray {
-        val durationSec = 0.048
+        val durationSec = 0.018
         val totalSamples = (SAMPLE_RATE * durationSec).toInt()
         val out = ShortArray(totalSamples)
         var phase = 0.0
-        var harmPhase = 0.0
-        val attackSec = 0.0032
+        val attackSec = 0.0008
 
         for (i in 0 until totalSamples) {
             val t = i.toDouble() / SAMPLE_RATE
             val progress = t / durationSec
-            // Downward pitch drop (1120Hz down to ~420Hz)
-            val freq = 1120.0 * 2.0.pow(-1.42 * progress)
+            val freq = 2400.0 * 2.0.pow(-2.2 * progress)
             phase += 2.0 * PI * freq / SAMPLE_RATE
-            harmPhase += 2.0 * PI * (freq * 2.0) / SAMPLE_RATE
 
             val attackEnv = if (t < attackSec) {
-                0.5 * (1.0 - cos(PI * t / attackSec))
+                t / attackSec
             } else {
                 1.0
             }
-            val decayEnv = exp(-(t - attackSec).coerceAtLeast(0.0) / 0.012)
-            val endTaper = if (progress > 0.80) {
-                0.5 * (1.0 + cos(PI * (progress - 0.80) / 0.20))
-            } else {
-                1.0
-            }
+            val decayEnv = exp(-t / 0.0035)
 
-            val wave = sin(phase) + 0.18 * sin(harmPhase)
-            val amplitude = 0.245 * attackEnv * decayEnv * endTaper
+            val wave = sin(phase) + 0.35 * sin(phase * 2.0)
+            val amplitude = 0.28 * attackEnv * decayEnv
             out[i] = (wave * amplitude * Short.MAX_VALUE)
                 .toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())

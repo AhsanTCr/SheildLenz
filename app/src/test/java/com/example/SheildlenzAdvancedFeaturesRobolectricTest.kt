@@ -31,6 +31,7 @@ import com.example.ui.components.rememberMasterKeyGate
 import com.example.ui.dashboard.DashboardScreen
 import com.example.ui.onboarding.OnboardingScreen
 import com.example.ui.parents.ParentsScreen
+import com.example.ui.protection.LiveProtectionScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.settings.WellbeingHubScreen
 import com.example.ui.theme.AegisShieldTheme
@@ -435,26 +436,58 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
     }
 
     @Test
-    fun `home renders wellbeing gateway button and wellbeing hub renders quick buttons`() {
+    fun `status renders wellbeing gateway button and edits locks behind guardian password`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         var openedWellbeing = false
 
         composeRule.setContent {
             AegisShieldTheme {
-                DashboardScreen(
+                LiveProtectionScreen(
                     protectionRepo = container.protectionRepository,
-                    modelManager = container.modelManager,
                     preferences = container.preferences,
                     onNavigateToWellbeing = { openedWellbeing = true }
                 )
             }
         }
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_open_wellbeing_button"))
-        composeRule.onNodeWithTag("home_open_wellbeing_button").performScrollTo()
-        composeRule.onNodeWithTag("home_open_wellbeing_button").performClick()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_parent_connection_card"))
+        composeRule.onNodeWithTag("status_parent_connection_card").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_edits_overview_card"))
+        composeRule.onNodeWithTag("status_edits_overview_card").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_open_wellbeing_button"))
+        composeRule.onNodeWithTag("status_open_wellbeing_button").performClick()
         composeRule.waitForIdle()
         assertTrue(openedWellbeing)
+
+        // Verify Edits password lock gate protects SettingsScreen in Child mode
+        container.preferences.setGuardianPin("2580")
+        container.preferences.lockGuardianSession()
+        container.preferences.setParentalRole("child")
+        var jumpedToStatus = false
+        composeRule.setContent {
+            AegisShieldTheme {
+                SettingsScreen(
+                    preferences = container.preferences,
+                    modelManager = container.modelManager,
+                    protectionRepo = container.protectionRepository,
+                    onNavigateToStatus = { jumpedToStatus = true }
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("edits_lock_gate_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("edits_child_parent_notice").assertIsDisplayed()
+        composeRule.onNodeWithTag("edits_view_status_button").performScrollTo()
+        composeRule.onNodeWithTag("edits_view_status_button").performClick()
+        composeRule.waitForIdle()
+        assertTrue(jumpedToStatus)
+
+        composeRule.onNodeWithTag("edits_unlock_pin_input").performScrollTo()
+        composeRule.onNodeWithTag("edits_unlock_pin_input").performTextInput("2580")
+        composeRule.onNodeWithTag("edits_unlock_button").performClick()
+        composeRule.waitForIdle()
+        assertTrue(container.preferences.isGuardianSessionUnlocked.value)
+        composeRule.onNodeWithTag("edits_unlocked_banner").assertIsDisplayed()
     }
 
     @Test

@@ -17,10 +17,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.HorizontalDivider
@@ -62,6 +64,7 @@ import com.example.ui.about.AboutScreen
 import com.example.ui.auth.GuardianGateScreen
 import com.example.ui.blocking.BlockOverlayScreen
 import com.example.ui.dashboard.DashboardScreen
+import com.example.ui.focus.FocusSafetyHubScreen
 import com.example.ui.history.SecurityHistoryScreen
 import com.example.ui.onboarding.OnboardingScreen
 import com.example.ui.parents.ParentsScreen
@@ -90,6 +93,12 @@ private val MainTabItems = listOf(
         labelRes = R.string.nav_home,
         selectedIcon = Icons.Filled.Home,
         unselectedIcon = Icons.Outlined.Home
+    ),
+    MainTabItem(
+        route = AegisDestinations.STATUS,
+        labelRes = R.string.nav_status,
+        selectedIcon = Icons.Filled.MonitorHeart,
+        unselectedIcon = Icons.Outlined.MonitorHeart
     ),
     MainTabItem(
         route = AegisDestinations.EDITS,
@@ -122,7 +131,13 @@ fun AegisNavHost(
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
     onRequestStartProtection: () -> Unit = {},
-    onRequestStopProtection: () -> Unit = {}
+    onRequestStopProtection: () -> Unit = {},
+    onRequestGoogleSignIn: ((
+        onSuccess: () -> Unit,
+        onCancelled: () -> Unit,
+        onError: (String) -> Unit
+    ) -> Unit)? = null,
+    onRequestGoogleSignOut: ((onComplete: () -> Unit) -> Unit)? = null
 ) {
     val isOnboardingDone by container.preferences.isOnboardingCompleted.collectAsState()
     val hasGuardianPin by container.preferences.hasGuardianPin.collectAsState()
@@ -343,7 +358,44 @@ fun AegisNavHost(
                             onRequestStartProtection = onRequestStartProtection,
                             onRequestStopProtection = onRequestStopProtection,
                             onNavigateToStatus = {
-                                navController.navigate(AegisDestinations.STATUS) {
+                                navigateToTab(AegisDestinations.STATUS)
+                            },
+                            onNavigateToProgress = {
+                                navController.navigate(AegisDestinations.PROGRESS) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onNavigateToWellbeing = {
+                                navController.navigate(AegisDestinations.WELLBEING) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onNavigateToFocusHub = {
+                                navController.navigate(AegisDestinations.FOCUS_HUB) {
+                                    launchSingleTop = true
+                                }
+                            }
+                        )
+                    }
+
+                    composable(AegisDestinations.EDITS) {
+                        SettingsScreen(
+                            preferences = container.preferences,
+                            modelManager = container.modelManager,
+                            protectionRepo = container.protectionRepository,
+                            onModelUpdated = { container.refreshModelTelemetry() },
+                            onNavigateToStatus = { navigateToTab(AegisDestinations.STATUS) },
+                            onNavigateToParents = { navigateToTab(AegisDestinations.PARENTS) }
+                        )
+                    }
+
+                    composable(AegisDestinations.STATUS) {
+                        LiveProtectionScreen(
+                            protectionRepo = container.protectionRepository,
+                            preferences = container.preferences,
+                            onRequestArmShield = onRequestStartProtection,
+                            onNavigateToFocusHub = {
+                                navController.navigate(AegisDestinations.FOCUS_HUB) {
                                     launchSingleTop = true
                                 }
                             },
@@ -356,25 +408,10 @@ fun AegisNavHost(
                                 navController.navigate(AegisDestinations.WELLBEING) {
                                     launchSingleTop = true
                                 }
+                            },
+                            onNavigateToParents = {
+                                navigateToTab(AegisDestinations.PARENTS)
                             }
-                        )
-                    }
-
-                    composable(AegisDestinations.EDITS) {
-                        SettingsScreen(
-                            preferences = container.preferences,
-                            modelManager = container.modelManager,
-                            protectionRepo = container.protectionRepository,
-                            onModelUpdated = { container.refreshModelTelemetry() }
-                        )
-                    }
-
-                    composable(AegisDestinations.STATUS) {
-                        LiveProtectionScreen(
-                            protectionRepo = container.protectionRepository,
-                            preferences = container.preferences,
-                            onRequestArmShield = onRequestStartProtection,
-                            onNavigateBack = { navController.popBackStack() }
                         )
                     }
 
@@ -394,13 +431,22 @@ fun AegisNavHost(
                         )
                     }
 
+                    composable(AegisDestinations.FOCUS_HUB) {
+                        FocusSafetyHubScreen(
+                            preferences = container.preferences,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
                     composable(AegisDestinations.PARENTS) {
                         ParentsScreen(
                             repository = container.parentChildRepository,
                             preferences = container.preferences,
                             syncController = container.parentChildSyncController,
                             pendingPairingCode = pendingPairingCode,
-                            onConsumePendingPairingCode = { container.setPendingPairingCode(null) }
+                            onConsumePendingPairingCode = { container.setPendingPairingCode(null) },
+                            onRequestGoogleSignIn = onRequestGoogleSignIn,
+                            onRequestGoogleSignOut = onRequestGoogleSignOut
                         )
                     }
 
@@ -423,7 +469,9 @@ fun AegisNavHost(
                             repository = container.parentChildRepository,
                             preferences = container.preferences,
                             syncController = container.parentChildSyncController,
-                            onBack = { navController.popBackStack() }
+                            onBack = { navController.popBackStack() },
+                            onRequestGoogleSignIn = onRequestGoogleSignIn,
+                            onRequestGoogleSignOut = onRequestGoogleSignOut
                         )
                     }
 

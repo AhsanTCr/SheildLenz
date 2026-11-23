@@ -34,6 +34,7 @@ import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.core.models.SecurityIncident
+import com.example.core.notifications.AegisNotificationHelper
 import com.example.core.update.UpdateChecker
 import com.example.data.preferences.AegisPreferences
 import com.example.data.repository.ProtectionRepository
@@ -1054,6 +1055,10 @@ class AegisProtectionService : Service() {
     }
 
     private fun postPausedRearmNotification() {
+        if (!container.preferences.notificationsEnabled.value) {
+            AegisNotificationHelper.cancelOptionalAlerts(this)
+            return
+        }
         try {
             val rearmIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -1091,13 +1096,22 @@ class AegisProtectionService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val notificationsOn = container.preferences.notificationsEnabled.value
+        val channelId = if (notificationsOn) {
+            CHANNEL_ID
+        } else {
+            AegisNotificationHelper.ensureSilentChannel(this)
+            AegisNotificationHelper.SILENT_MONITOR_CHANNEL_ID
+        }
+
+        return NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Sheildlenz")
-            .setContentText(contentText)
+            .setContentTitle(if (notificationsOn) "Sheildlenz" else "Display Service")
+            .setContentText(if (notificationsOn) contentText else "Active")
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(!notificationsOn)
+            .setPriority(if (notificationsOn) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_MIN)
             .build()
     }
 

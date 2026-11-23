@@ -90,6 +90,14 @@ service cloud.firestore {
         (!('blockSuggestiveContent' in data) || data.blockSuggestiveContent is bool) &&
         (!('blockSensitiveGraphic' in data) || data.blockSensitiveGraphic is bool) &&
         (!('blockGamblingKeywords' in data) || data.blockGamblingKeywords is bool) &&
+        (!('warningOnlyNoLockout' in data) || data.warningOnlyNoLockout is bool) &&
+        (!('studyModeEnabled' in data) || data.studyModeEnabled is bool) &&
+        (!('studyModeDurationMinutes' in data) || (data.studyModeDurationMinutes is int && data.studyModeDurationMinutes >= 1 && data.studyModeDurationMinutes <= 240)) &&
+        (!('studySoftWarningSeconds' in data) || (data.studySoftWarningSeconds is int && data.studySoftWarningSeconds >= 5 && data.studySoftWarningSeconds <= 120)) &&
+        (!('studyAllowedPackages' in data) || (data.studyAllowedPackages is list && data.studyAllowedPackages.size() <= 40)) &&
+        (!('smartSafeSearchEnabled' in data) || data.smartSafeSearchEnabled is bool) &&
+        (!('safeSearchPacks' in data) || (data.safeSearchPacks is list && data.safeSearchPacks.size() <= 10)) &&
+        (!('discreetBlockingScreenMode' in data) || data.discreetBlockingScreenMode is bool) &&
         data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 

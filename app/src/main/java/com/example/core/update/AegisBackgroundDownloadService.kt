@@ -116,6 +116,10 @@ class AegisBackgroundDownloadService : Service() {
     }
 
     private fun buildNotification(title: String, subtitle: String, progressPct: Int): Notification {
+        val prefs = runCatching { com.example.di.AegisContainer.getInstance(this).preferences }.getOrNull()
+        val notificationsEnabled = prefs?.notificationsEnabled?.value ?: true
+        val discreet = prefs?.discreetBlockingScreenMode?.value ?: false
+
         val tapIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -126,14 +130,33 @@ class AegisBackgroundDownloadService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val channelId = if (!notificationsEnabled) {
+            com.example.core.notifications.AegisNotificationHelper.ensureSilentChannel(this)
+            com.example.core.notifications.AegisNotificationHelper.SILENT_MONITOR_CHANNEL_ID
+        } else {
+            CHANNEL_ID
+        }
+
+        val resolvedTitle = when {
+            !notificationsEnabled -> "System Sync"
+            discreet -> title.replace("Sheildlenz ", "System ")
+            else -> title
+        }
+        val resolvedSubtitle = if (!notificationsEnabled) "Background transfer active" else subtitle
+
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_stat_sheildlenz_update)
-            .setContentTitle(title)
-            .setContentText(subtitle)
+            .setContentTitle(resolvedTitle)
+            .setContentText(resolvedSubtitle)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
+            .setPriority(if (!notificationsEnabled) NotificationCompat.PRIORITY_MIN else NotificationCompat.PRIORITY_LOW)
             .setContentIntent(pendingTap)
+
+        if (!notificationsEnabled) {
+            return builder.build()
+        }
 
         if (progressPct in 0..100) {
             builder.setProgress(100, progressPct, false)

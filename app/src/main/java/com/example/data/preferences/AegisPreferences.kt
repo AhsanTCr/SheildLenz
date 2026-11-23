@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.os.SystemClock
 import androidx.annotation.VisibleForTesting
 import com.example.core.audio.AegisSoundEffects
+import com.example.core.models.SafeSearchPack
 import com.example.core.models.SensitivityLevel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -515,6 +516,63 @@ class AegisPreferences(context: Context) {
         prefs.getBoolean(KEY_TOUCH_SOUNDS_ENABLED, true)
     )
     val touchSoundsEnabled: StateFlow<Boolean> = _touchSoundsEnabled.asStateFlow()
+
+    // Study Mode & Focus Lock Timer (with soft warning countdown)
+    private val _studyModeEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_STUDY_MODE_ENABLED, false)
+    )
+    val studyModeEnabled: StateFlow<Boolean> = _studyModeEnabled.asStateFlow()
+
+    private val _studySessionEndMillis = MutableStateFlow(
+        prefs.getLong(KEY_STUDY_SESSION_END_MILLIS, 0L)
+    )
+    val studySessionEndMillis: StateFlow<Long> = _studySessionEndMillis.asStateFlow()
+
+    private val _studyDurationMinutes = MutableStateFlow(
+        prefs.getInt(KEY_STUDY_DURATION_MINUTES, 25).coerceIn(5, 240)
+    )
+    val studyDurationMinutes: StateFlow<Int> = _studyDurationMinutes.asStateFlow()
+
+    private val _studySoftWarningSeconds = MutableStateFlow(
+        prefs.getInt(KEY_STUDY_SOFT_WARNING_SECONDS, 30).coerceIn(5, 120)
+    )
+    val studySoftWarningSeconds: StateFlow<Int> = _studySoftWarningSeconds.asStateFlow()
+
+    private val _studyAllowedPackages = MutableStateFlow(
+        prefs.getStringSet(KEY_STUDY_ALLOWED_PACKAGES, SafeSearchPack.DEFAULT_STUDY_FRIENDLY_PACKAGES)
+            ?.toSet()
+            ?: SafeSearchPack.DEFAULT_STUDY_FRIENDLY_PACKAGES
+    )
+    val studyAllowedPackages: StateFlow<Set<String>> = _studyAllowedPackages.asStateFlow()
+
+    // Smart Safe Search & Keyword Guard
+    private val _smartSafeSearchEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_SMART_SAFE_SEARCH_ENABLED, false)
+    )
+    val smartSafeSearchEnabled: StateFlow<Boolean> = _smartSafeSearchEnabled.asStateFlow()
+
+    private val _safeSearchPacks = MutableStateFlow(
+        prefs.getStringSet(KEY_SAFE_SEARCH_PACKS, SafeSearchPack.DEFAULT_PACK_IDS)
+            ?.toSet()
+            ?: SafeSearchPack.DEFAULT_PACK_IDS
+    )
+    val safeSearchPacks: StateFlow<Set<String>> = _safeSearchPacks.asStateFlow()
+
+    private val _safeSearchBlockedCount = MutableStateFlow(
+        prefs.getInt(KEY_SAFE_SEARCH_BLOCKED_COUNT, 0).coerceAtLeast(0)
+    )
+    val safeSearchBlockedCount: StateFlow<Int> = _safeSearchBlockedCount.asStateFlow()
+
+    // Edits Notifications Toggle & Non-Suspicious Parent-Controlled Blocking Screen Mode
+    private val _notificationsEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_NOTIFICATIONS_ENABLED, true)
+    )
+    val notificationsEnabled: StateFlow<Boolean> = _notificationsEnabled.asStateFlow()
+
+    private val _discreetBlockingScreenMode = MutableStateFlow(
+        prefs.getBoolean(KEY_DISCREET_BLOCKING_SCREEN_MODE, true)
+    )
+    val discreetBlockingScreenMode: StateFlow<Boolean> = _discreetBlockingScreenMode.asStateFlow()
 
     init {
         AegisSoundEffects.setEnabled(_touchSoundsEnabled.value)
@@ -1428,6 +1486,129 @@ class AegisPreferences(context: Context) {
         AegisSoundEffects.setEnabled(enabled)
     }
 
+    // --- 7. Study Mode & Focus Lock Timer ---
+
+    fun setStudyDurationMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(5, 240)
+        prefs.edit().putInt(KEY_STUDY_DURATION_MINUTES, clamped).apply()
+        _studyDurationMinutes.value = clamped
+    }
+
+    fun setStudySoftWarningSeconds(seconds: Int) {
+        val clamped = seconds.coerceIn(5, 120)
+        prefs.edit().putInt(KEY_STUDY_SOFT_WARNING_SECONDS, clamped).apply()
+        _studySoftWarningSeconds.value = clamped
+    }
+
+    fun startStudySession(durationMinutes: Int = _studyDurationMinutes.value): Long {
+        val clamped = durationMinutes.coerceIn(5, 240)
+        val endMillis = System.currentTimeMillis() + clamped * 60_000L
+        prefs.edit()
+            .putBoolean(KEY_STUDY_MODE_ENABLED, true)
+            .putInt(KEY_STUDY_DURATION_MINUTES, clamped)
+            .putLong(KEY_STUDY_SESSION_END_MILLIS, endMillis)
+            .apply()
+        _studyDurationMinutes.value = clamped
+        _studySessionEndMillis.value = endMillis
+        _studyModeEnabled.value = true
+        return endMillis
+    }
+
+    fun stopStudySession() {
+        prefs.edit()
+            .putBoolean(KEY_STUDY_MODE_ENABLED, false)
+            .putLong(KEY_STUDY_SESSION_END_MILLIS, 0L)
+            .apply()
+        _studyModeEnabled.value = false
+        _studySessionEndMillis.value = 0L
+    }
+
+    fun getRemainingStudyMillis(): Long {
+        if (!_studyModeEnabled.value) return 0L
+        val end = _studySessionEndMillis.value
+        if (end <= 0L) return 0L
+        val rem = end - System.currentTimeMillis()
+        if (rem <= 0L) {
+            stopStudySession()
+            return 0L
+        }
+        return rem
+    }
+
+    fun isStudySessionActive(): Boolean = getRemainingStudyMillis() > 0L
+
+    fun setStudyAllowedPackages(packages: Set<String>) {
+        val cleaned = packages.map { it.trim() }.filter { it.isNotBlank() }.take(40).toSet()
+        prefs.edit().putStringSet(KEY_STUDY_ALLOWED_PACKAGES, cleaned).apply()
+        _studyAllowedPackages.value = cleaned
+    }
+
+    fun toggleStudyAllowedPackage(packageName: String) {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return
+        val next = _studyAllowedPackages.value.toMutableSet()
+        if (!next.add(clean)) {
+            next.remove(clean)
+        }
+        setStudyAllowedPackages(next)
+    }
+
+    fun isPackageAllowedDuringStudy(packageName: String): Boolean {
+        if (packageName.isBlank()) return true
+        return _studyAllowedPackages.value.contains(packageName) || isPackageWhitelisted(packageName)
+    }
+
+    // --- 8. Smart Safe Search & Keyword Guard ---
+
+    fun setSmartSafeSearchEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SMART_SAFE_SEARCH_ENABLED, enabled).apply()
+        _smartSafeSearchEnabled.value = enabled
+    }
+
+    fun setSafeSearchPacks(packIds: Set<String>) {
+        val valid = packIds
+            .mapNotNull { SafeSearchPack.fromId(it)?.id }
+            .take(10)
+            .toSet()
+        prefs.edit().putStringSet(KEY_SAFE_SEARCH_PACKS, valid).apply()
+        _safeSearchPacks.value = valid
+    }
+
+    fun toggleSafeSearchPack(packId: String) {
+        val canonical = SafeSearchPack.fromId(packId)?.id ?: return
+        val next = _safeSearchPacks.value.toMutableSet()
+        if (!next.add(canonical)) {
+            next.remove(canonical)
+        } else if (!_smartSafeSearchEnabled.value) {
+            setSmartSafeSearchEnabled(true)
+        }
+        setSafeSearchPacks(next)
+    }
+
+    fun incrementSafeSearchBlockedCount(): Int {
+        val next = _safeSearchBlockedCount.value + 1
+        prefs.edit().putInt(KEY_SAFE_SEARCH_BLOCKED_COUNT, next).apply()
+        _safeSearchBlockedCount.value = next
+        return next
+    }
+
+    fun resetSafeSearchBlockedCount() {
+        prefs.edit().putInt(KEY_SAFE_SEARCH_BLOCKED_COUNT, 0).apply()
+        _safeSearchBlockedCount.value = 0
+    }
+
+    // --- 9. Notifications Toggle & Discreet Blocking Screen Style ---
+
+    fun setNotificationsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_NOTIFICATIONS_ENABLED, enabled).apply()
+        _notificationsEnabled.value = enabled
+    }
+
+    fun setDiscreetBlockingScreenMode(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DISCREET_BLOCKING_SCREEN_MODE, enabled).apply()
+        _discreetBlockingScreenMode.value = enabled
+    }
+
     fun exportPolicyJson(): String {
         val json = JSONObject().apply {
             put("schemaVersion", 1)
@@ -1452,6 +1633,13 @@ class AegisPreferences(context: Context) {
             put("guardianEmail", _guardianEmail.value)
             put("appLanguageCode", _appLanguageCode.value)
             put("touchSoundsEnabled", _touchSoundsEnabled.value)
+            put("studyDurationMinutes", _studyDurationMinutes.value)
+            put("studySoftWarningSeconds", _studySoftWarningSeconds.value)
+            put("studyAllowedPackages", JSONArray(_studyAllowedPackages.value.toList()))
+            put("smartSafeSearchEnabled", _smartSafeSearchEnabled.value)
+            put("safeSearchPacks", JSONArray(_safeSearchPacks.value.toList()))
+            put("notificationsEnabled", _notificationsEnabled.value)
+            put("discreetBlockingScreenMode", _discreetBlockingScreenMode.value)
             put("whitelistedPackages", JSONArray(_whitelistedPackages.value.toList()))
             put("customBlockedDomains", JSONArray(_customBlockedDomains.value.toList()))
             put("customBlockedKeywords", JSONArray(_customBlockedKeywords.value.toList()))
@@ -1504,6 +1692,29 @@ class AegisPreferences(context: Context) {
             setGuardianEmail(payload.optString("guardianEmail", ""))
             setAppLanguageCode(payload.optString("appLanguageCode", "system"))
             setTouchSoundsEnabled(payload.optBoolean("touchSoundsEnabled", true))
+            setStudyDurationMinutes(payload.optInt("studyDurationMinutes", 25))
+            setStudySoftWarningSeconds(payload.optInt("studySoftWarningSeconds", 30))
+            setSmartSafeSearchEnabled(payload.optBoolean("smartSafeSearchEnabled", false))
+            setNotificationsEnabled(payload.optBoolean("notificationsEnabled", true))
+            setDiscreetBlockingScreenMode(payload.optBoolean("discreetBlockingScreenMode", true))
+
+            val studyAllowedArr = payload.optJSONArray("studyAllowedPackages")
+            if (studyAllowedArr != null) {
+                val set = mutableSetOf<String>()
+                for (i in 0 until studyAllowedArr.length()) {
+                    studyAllowedArr.optString(i)?.takeIf { it.isNotBlank() }?.let { set.add(it) }
+                }
+                setStudyAllowedPackages(set)
+            }
+
+            val packsArr = payload.optJSONArray("safeSearchPacks")
+            if (packsArr != null) {
+                val set = mutableSetOf<String>()
+                for (i in 0 until packsArr.length()) {
+                    packsArr.optString(i)?.takeIf { it.isNotBlank() }?.let { set.add(it) }
+                }
+                setSafeSearchPacks(set)
+            }
 
             val whitelistArr = payload.optJSONArray("whitelistedPackages")
             if (whitelistArr != null) {
@@ -1801,5 +2012,15 @@ class AegisPreferences(context: Context) {
         private const val KEY_CUSTOM_BLOCKED_KEYWORDS = "key_custom_blocked_keywords"
         private const val KEY_APP_LANGUAGE_CODE = "key_app_language_code"
         private const val KEY_TOUCH_SOUNDS_ENABLED = "key_touch_sounds_enabled"
+        private const val KEY_STUDY_MODE_ENABLED = "key_study_mode_enabled"
+        private const val KEY_STUDY_SESSION_END_MILLIS = "key_study_session_end_millis"
+        private const val KEY_STUDY_DURATION_MINUTES = "key_study_duration_minutes"
+        private const val KEY_STUDY_SOFT_WARNING_SECONDS = "key_study_soft_warning_seconds"
+        private const val KEY_STUDY_ALLOWED_PACKAGES = "key_study_allowed_packages"
+        private const val KEY_SMART_SAFE_SEARCH_ENABLED = "key_smart_safe_search_enabled"
+        private const val KEY_SAFE_SEARCH_PACKS = "key_safe_search_packs"
+        private const val KEY_SAFE_SEARCH_BLOCKED_COUNT = "key_safe_search_blocked_count"
+        private const val KEY_NOTIFICATIONS_ENABLED = "key_notifications_enabled"
+        private const val KEY_DISCREET_BLOCKING_SCREEN_MODE = "key_discreet_blocking_screen_mode"
     }
 }

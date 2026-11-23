@@ -77,11 +77,12 @@ class SheildlenzUiOverhaulRobolectricTest {
     }
 
     @Test
-    fun `home screen renders Status and Progress gateway buttons and triggers callbacks`() {
+    fun `home renders priority tiles and status screen triggers shifted gateway callbacks`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
-        var openedStatus = false
+        var openedFocusHub = false
         var openedProgress = false
+        var openedWellbeing = false
 
         composeRule.setContent {
             AegisShieldTheme {
@@ -89,19 +90,36 @@ class SheildlenzUiOverhaulRobolectricTest {
                     protectionRepo = container.protectionRepository,
                     modelManager = container.modelManager,
                     preferences = container.preferences,
-                    onNavigateToStatus = { openedStatus = true },
-                    onNavigateToProgress = { openedProgress = true }
+                    onNavigateToFocusHub = { openedFocusHub = true }
                 )
             }
         }
 
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_open_status_button"))
-        composeRule.onNodeWithTag("home_open_status_button").performClick()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_open_progress_button"))
-        composeRule.onNodeWithTag("home_open_progress_button").performClick()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_one_tap_priority_strip"))
+        composeRule.onNodeWithTag("home_one_tap_safe_dns").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_one_tap_bedtime").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_one_tap_strict").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_one_tap_budgets").performClick()
         composeRule.waitForIdle()
-        assertTrue(openedStatus)
+        assertTrue(openedFocusHub)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                LiveProtectionScreen(
+                    protectionRepo = container.protectionRepository,
+                    preferences = container.preferences,
+                    onNavigateToProgress = { openedProgress = true },
+                    onNavigateToWellbeing = { openedWellbeing = true }
+                )
+            }
+        }
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_open_progress_button"))
+        composeRule.onNodeWithTag("status_open_progress_button").performClick()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_open_wellbeing_button"))
+        composeRule.onNodeWithTag("status_open_wellbeing_button").performClick()
+        composeRule.waitForIdle()
         assertTrue(openedProgress)
+        assertTrue(openedWellbeing)
     }
 
     @Test
@@ -267,7 +285,7 @@ class SheildlenzUiOverhaulRobolectricTest {
     }
 
     @Test
-    fun `bottom navigation shows Home Edits Parents About and excludes Status and Progress tabs`() {
+    fun `bottom navigation shows Home Status Edits Parents About and excludes Progress tab`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         container.preferences.setOnboardingCompleted(true)
@@ -294,11 +312,15 @@ class SheildlenzUiOverhaulRobolectricTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag("nav_tab_${AegisDestinations.HOME}").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav_tab_${AegisDestinations.STATUS}").assertIsDisplayed()
         composeRule.onNodeWithTag("nav_tab_${AegisDestinations.EDITS}").assertIsDisplayed()
         composeRule.onNodeWithTag("nav_tab_${AegisDestinations.PARENTS}").assertIsDisplayed()
         composeRule.onNodeWithTag("nav_tab_${AegisDestinations.ABOUT}").assertIsDisplayed()
-        composeRule.onNodeWithTag("nav_tab_${AegisDestinations.STATUS}").assertDoesNotExist()
         composeRule.onNodeWithTag("nav_tab_${AegisDestinations.PROGRESS}").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("nav_tab_${AegisDestinations.STATUS}").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("live_protection_screen_root").assertIsDisplayed()
 
         composeRule.onNodeWithTag("nav_tab_${AegisDestinations.PARENTS}").performClick()
         composeRule.waitForIdle()

@@ -149,11 +149,18 @@ test("Child registers pairing code and parent claims pairing while stranger is d
       blockSuggestiveContent: true,
       blockSensitiveGraphic: true,
       blockGamblingKeywords: true,
+      studyModeEnabled: true,
+      studyModeDurationMinutes: 45,
+      studySoftWarningSeconds: 30,
+      studyAllowedPackages: ["com.google.android.calculator"],
+      smartSafeSearchEnabled: true,
+      safeSearchPacks: ["adult", "gambling", "bypass_proxy"],
+      discreetBlockingScreenMode: true,
       updatedAt: safePastTimestamp(),
     })
   );
 
-  // Invalid warningThresholdCount (> 5) is rejected by rules
+  // Invalid warningThresholdCount (> 5) or invalid studySoftWarningSeconds (> 120) is rejected
   await assertFails(
     parentDb.collection("users").doc(CHILD_UID).collection("remote_control").doc("settings").set({
       sensitivity: "STRICT",
@@ -163,6 +170,19 @@ test("Child registers pairing code and parent claims pairing while stranger is d
       childUninstallLocked: true,
       liveSeeEnabled: true,
       warningThresholdCount: 9,
+      updatedAt: safePastTimestamp(),
+    })
+  );
+
+  await assertFails(
+    parentDb.collection("users").doc(CHILD_UID).collection("remote_control").doc("settings").set({
+      sensitivity: "STRICT",
+      strictEverything: true,
+      lockdownDurationMinutes: 60,
+      antiTamperEnabled: true,
+      childUninstallLocked: true,
+      liveSeeEnabled: true,
+      studySoftWarningSeconds: 300,
       updatedAt: safePastTimestamp(),
     })
   );

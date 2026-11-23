@@ -3,6 +3,7 @@
     <string name="accessibility_service_description">Sheildlenz accessibility service identifies the active foreground application package and enables emergency return-to-home actions when inappropriate visual content is detected. No keystrokes or private messages are ever collected.</string>
     <string name="device_admin_description">Sheildlenz Device Administrator privileges allow Strict Device Owner application suspension policy enforcement.</string>
     <string name="nav_home">Home</string>
+    <string name="nav_status">Status</string>
     <string name="nav_edits">Edits</string>
     <string name="nav_parents">Parents</string>
     <string name="nav_about">About</string>

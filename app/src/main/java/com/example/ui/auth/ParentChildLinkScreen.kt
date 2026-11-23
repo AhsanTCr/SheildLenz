@@ -17,7 +17,13 @@ fun ParentChildLinkScreen(
     repository: ParentChildRepository,
     preferences: AegisPreferences,
     syncController: ParentChildSyncController? = null,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onRequestGoogleSignIn: ((
+        onSuccess: () -> Unit,
+        onCancelled: () -> Unit,
+        onError: (String) -> Unit
+    ) -> Unit)? = null,
+    onRequestGoogleSignOut: ((onComplete: () -> Unit) -> Unit)? = null
 ) {
     Scaffold(
         topBar = {
@@ -36,7 +42,9 @@ fun ParentChildLinkScreen(
             ParentsScreen(
                 repository = repository,
                 preferences = preferences,
-                syncController = syncController
+                syncController = syncController,
+                onRequestGoogleSignIn = onRequestGoogleSignIn,
+                onRequestGoogleSignOut = onRequestGoogleSignOut
             )
         }
     }

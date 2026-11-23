@@ -86,6 +86,13 @@
         "blockSuggestiveContent": { "type": "boolean" },
         "blockSensitiveGraphic": { "type": "boolean" },
         "blockGamblingKeywords": { "type": "boolean" },
+        "studyModeEnabled": { "type": "boolean" },
+        "studyModeDurationMinutes": { "type": "integer" },
+        "studySoftWarningSeconds": { "type": "integer" },
+        "studyAllowedPackages": { "type": "array" },
+        "smartSafeSearchEnabled": { "type": "boolean" },
+        "safeSearchPacks": { "type": "array" },
+        "discreetBlockingScreenMode": { "type": "boolean" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["sensitivity", "strictEverything", "lockdownDurationMinutes", "antiTamperEnabled", "childUninstallLocked", "liveSeeEnabled", "updatedAt"]

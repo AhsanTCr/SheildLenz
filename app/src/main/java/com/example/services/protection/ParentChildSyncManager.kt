@@ -93,6 +93,23 @@ class ParentChildSyncController(
                             preferences.setBlockSuggestiveContent(remote.blockSuggestiveContent)
                             preferences.setBlockSensitiveGraphic(remote.blockSensitiveGraphic)
                             preferences.setBlockGamblingKeywords(remote.blockGamblingKeywords)
+                            preferences.setStudySoftWarningSeconds(remote.studySoftWarningSeconds)
+                            preferences.setStudyDurationMinutes(remote.studyModeDurationMinutes)
+                            if (remote.studyAllowedPackages.isNotEmpty()) {
+                                preferences.setStudyAllowedPackages(remote.studyAllowedPackages)
+                            }
+                            if (remote.studyModeEnabled) {
+                                if (!preferences.isStudySessionActive()) {
+                                    preferences.startStudySession(remote.studyModeDurationMinutes)
+                                }
+                            } else {
+                                preferences.stopStudySession()
+                            }
+                            preferences.setSmartSafeSearchEnabled(remote.smartSafeSearchEnabled)
+                            if (remote.safeSearchPacks.isNotEmpty()) {
+                                preferences.setSafeSearchPacks(remote.safeSearchPacks)
+                            }
+                            preferences.setDiscreetBlockingScreenMode(remote.discreetBlockingScreenMode)
                             AegisDeviceAdminReceiver.setChildUninstallBlockedIfDeviceOwner(
                                 context,
                                 preferences.isChildUninstallBlocked()

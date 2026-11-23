@@ -14,6 +14,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.core.models.SafeSearchPack
+import com.example.core.notifications.AegisNotificationHelper
 import com.example.di.AegisContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -87,13 +89,22 @@ class AegisSafeDnsVpnService : VpnService() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
         )
 
-        val note: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notificationsOn = container.preferences.notificationsEnabled.value
+        val channelId = if (notificationsOn) {
+            CHANNEL_ID
+        } else {
+            AegisNotificationHelper.ensureSilentChannel(this)
+            AegisNotificationHelper.SILENT_MONITOR_CHANNEL_ID
+        }
+
+        val note: Notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Sheildlenz Safe DNS Active")
-            .setContentText("System-wide SafeSearch & blocklists filtering DNS queries locally")
+            .setContentTitle(if (notificationsOn) "Sheildlenz Safe DNS Active" else "Network Filter")
+            .setContentText(if (notificationsOn) "System-wide SafeSearch & blocklists filtering DNS queries locally" else "Active")
             .setContentIntent(pi)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(!notificationsOn)
+            .setPriority(if (notificationsOn) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_MIN)
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -162,6 +173,11 @@ class AegisSafeDnsVpnService : VpnService() {
 
                 val query = DnsPacketHelper.parseIpv4UdpDnsPacket(packet, len) ?: continue
                 val prefs = container.preferences
+                val packMatch = if (prefs.smartSafeSearchEnabled.value) {
+                    SafeSearchPack.matchesDomainInActivePacks(query.domain, prefs.safeSearchPacks.value)
+                } else {
+                    null
+                }
                 val blockMatch = DnsPacketHelper.matchesBlockedDomainDetailed(
                     rawDomain = query.domain,
                     customDomains = prefs.customBlockedDomains.value,
@@ -170,7 +186,13 @@ class AegisSafeDnsVpnService : VpnService() {
                     blockGambling = prefs.blockGamblingKeywords.value,
                     whitelistedDomains = emptySet(),
                     blockDohBypass = true
-                )
+                ) ?: packMatch?.let {
+                    BlockedDomainMatch(
+                        category = it.title,
+                        reason = it.title,
+                        matchedRule = query.domain
+                    )
+                }
 
                 if (blockMatch != null) {
                     val blockedDns = DnsPacketHelper.buildBlockedDnsResponsePayload(query.dnsPayload)
@@ -180,6 +202,9 @@ class AegisSafeDnsVpnService : VpnService() {
                             output.write(respPacket)
                         }
                         _blockedQueryCount.value += 1
+                        if (packMatch != null) {
+                            prefs.incrementSafeSearchBlockedCount()
+                        }
                         _lastBlockedDomain.value = "${query.domain} (${blockMatch.reason})"
                         container.blockedDnsLogRepository.recordBlockedQuery(
                             domain = query.domain,

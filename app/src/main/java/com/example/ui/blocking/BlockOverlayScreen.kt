@@ -107,6 +107,7 @@ fun BlockOverlayScreen(
     val doubleTimeLabel = remember(doubleTimeMinutes) { AegisPreferences.formatMinutesLabel(doubleTimeMinutes) }
     val challengeCode by preferences.recoveryChallengeCode.collectAsState()
     val savedEmail by preferences.guardianEmail.collectAsState()
+    val discreetMode by preferences.discreetBlockingScreenMode.collectAsState()
     var showPinDialog by remember { mutableStateOf(false) }
     var showForgotPinQr by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
@@ -129,18 +130,20 @@ fun BlockOverlayScreen(
         label = "PulseAlpha"
     )
 
+    val rootBgBrush = if (discreetMode) {
+        Brush.verticalGradient(listOf(Color(0xFFF3F5F8), Color(0xFFE9EEF5)))
+    } else {
+        Brush.verticalGradient(listOf(AegisVoidBackground, AegisLavenderSoft, AegisChampagneSoft))
+    }
+    val headingColor = if (discreetMode) Color(0xFF1E293B) else AegisTextPrimary
+    val bodyColor = if (discreetMode) Color(0xFF475569) else AegisTextSecondary
+    val primaryAccent = if (discreetMode) Color(0xFF334155) else AegisPrimaryCyan
+    val alertAccent = if (discreetMode) Color(0xFF475569) else AegisDangerRed
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        AegisVoidBackground,
-                        AegisLavenderSoft,
-                        AegisChampagneSoft
-                    )
-                )
-            )
+            .background(brush = rootBgBrush)
             .statusBarsPadding()
             .navigationBarsPadding()
             .testTag("block_overlay_screen_root"),
@@ -157,21 +160,29 @@ fun BlockOverlayScreen(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(AegisDangerRed.copy(alpha = 0.12f * pulseAlpha))
-                    .border(1.dp, AegisDangerRed.copy(alpha = 0.70f * pulseAlpha), RoundedCornerShape(50))
+                    .background(
+                        if (discreetMode) Color(0xFFE2E8F0)
+                        else AegisDangerRed.copy(alpha = 0.12f * pulseAlpha)
+                    )
+                    .border(
+                        1.dp,
+                        if (discreetMode) Color(0xFFCBD5E1)
+                        else AegisDangerRed.copy(alpha = 0.70f * pulseAlpha),
+                        RoundedCornerShape(50)
+                    )
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Warning,
+                        imageVector = if (discreetMode) Icons.Default.Lock else Icons.Default.Warning,
                         contentDescription = null,
-                        tint = AegisDangerRed,
+                        tint = alertAccent,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "SHEILDLENZ INTERVENTION ACTIVE",
-                        color = AegisDangerRed,
+                        text = if (discreetMode) "SYSTEM DISPLAY NOTICE" else "SHEILDLENZ INTERVENTION ACTIVE",
+                        color = alertAccent,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalBodyFont,
@@ -182,25 +193,43 @@ fun BlockOverlayScreen(
 
             Spacer(modifier = Modifier.height(22.dp))
 
-            AegisShieldGraphic(
-                isProtected = true,
-                isThreatActive = true,
-                size = 172.dp
-            )
+            if (discreetMode) {
+                Box(
+                    modifier = Modifier
+                        .size(88.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.White)
+                        .border(1.dp, Color(0xFFD8E0EA), RoundedCornerShape(24.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Display paused",
+                        tint = Color(0xFF334155),
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            } else {
+                AegisShieldGraphic(
+                    isProtected = true,
+                    isThreatActive = true,
+                    size = 172.dp
+                )
+            }
 
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = "Content Blocked",
-                color = AegisTextPrimary,
+                text = if (discreetMode) "Access Paused" else "Content Blocked",
+                color = headingColor,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = ClassicalDisplayFont
             )
 
             Text(
-                text = "Inappropriate Visual Content Detected",
-                color = AegisDangerRed,
+                text = if (discreetMode) "System display filter is active" else "Inappropriate Visual Content Detected",
+                color = alertAccent,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = ClassicalBodyFont,
@@ -209,14 +238,26 @@ fun BlockOverlayScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            CyberCard(
-                borderColor = AegisGoldBorder,
-                tone = CyberCardTone.GOLD
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (discreetMode) Color.White else AegisChampagneSoft)
+                    .border(
+                        1.dp,
+                        if (discreetMode) Color(0xFFD8E0EA) else AegisGoldBorder,
+                        RoundedCornerShape(20.dp)
+                    )
+                    .padding(18.dp)
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "Visual content matching ${category.displayName} was identified on the active display. The screen has been obscured to uphold protection policies.",
-                        color = AegisTextSecondary,
+                        text = if (discreetMode) {
+                            "This page or application was paused automatically by system display policy rules."
+                        } else {
+                            "Visual content matching ${category.displayName} was identified on the active display. The screen has been obscured to uphold protection policies."
+                        },
+                        color = bodyColor,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,
                         lineHeight = 19.sp,
@@ -226,8 +267,8 @@ fun BlockOverlayScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "TARGET: $targetAppName • ACTION: DISPLAY SHIELDED",
-                        color = AegisTextMuted,
+                        text = if (discreetMode) "STATUS: PAUSED ($targetAppName)" else "TARGET: $targetAppName • ACTION: DISPLAY SHIELDED",
+                        color = if (discreetMode) Color(0xFF64748B) else AegisTextMuted,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.SemiBold
@@ -236,8 +277,12 @@ fun BlockOverlayScreen(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "POLICY: Master Code or ${doubleTimeLabel.uppercase()} Double-Time Wait • Shield Remains ON",
-                        color = AegisPrimaryCyan,
+                        text = if (discreetMode) {
+                            "Enter access code or wait ${doubleTimeLabel.uppercase()} cooldown."
+                        } else {
+                            "POLICY: Master Code or ${doubleTimeLabel.uppercase()} Double-Time Wait • Shield Remains ON"
+                        },
+                        color = primaryAccent,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalBodyFont,
@@ -262,7 +307,7 @@ fun BlockOverlayScreen(
                     .height(50.dp)
                     .testTag("block_screen_return_home_button"),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AegisPrimaryCyan,
+                    containerColor = primaryAccent,
                     contentColor = AegisOnPrimaryWhite
                 ),
                 shape = RoundedCornerShape(14.dp)
@@ -291,15 +336,15 @@ fun BlockOverlayScreen(
                     .height(48.dp)
                     .testTag("block_screen_guardian_override_button"),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = AegisLavenderSoft,
-                    contentColor = AegisPurple
+                    containerColor = if (discreetMode) Color(0xFFE2E8F0) else AegisLavenderSoft,
+                    contentColor = if (discreetMode) Color(0xFF334155) else AegisPurple
                 ),
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "MASTER CODE OVERRIDE",
+                    text = if (discreetMode) "ENTER ACCESS CODE" else "MASTER CODE OVERRIDE",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont,
@@ -331,7 +376,11 @@ fun BlockOverlayScreen(
                         showPinDialog = false
                         onDismiss()
                     } else {
-                        pinError = "Incorrect Master Code. Use Double-Time Wait if unknown."
+                        pinError = if (discreetMode) {
+                            "Incorrect access code."
+                        } else {
+                            "Incorrect Master Code. Use Double-Time Wait if unknown."
+                        }
                         pinInput = ""
                     }
                 }
@@ -341,11 +390,15 @@ fun BlockOverlayScreen(
                     showPinDialog = false
                     showForgotPinQr = false
                 },
-                containerColor = AegisLavenderSoft,
-                titleContentColor = AegisTextPrimary,
+                containerColor = if (discreetMode) Color.White else AegisLavenderSoft,
+                titleContentColor = headingColor,
                 title = {
                     Text(
-                        text = if (showForgotPinQr) "Forgot PIN • QR Reset" else "Master Code Verification",
+                        text = when {
+                            showForgotPinQr -> "Recovery Reset"
+                            discreetMode -> "Access Code Required"
+                            else -> "Master Code Verification"
+                        },
                         fontFamily = ClassicalDisplayFont,
                         fontWeight = FontWeight.Bold
                     )
@@ -360,8 +413,12 @@ fun BlockOverlayScreen(
                                 preferences.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
                             }
                             Text(
-                                text = "Scan with Sheildlenz on a parent device signed in with ${savedEmail.ifBlank { "your Guardian email" }}.",
-                                color = AegisTextSecondary,
+                                text = if (discreetMode) {
+                                    "Scan with registered recovery device (${savedEmail.ifBlank { "admin email" }})."
+                                } else {
+                                    "Scan with Sheildlenz on a parent device signed in with ${savedEmail.ifBlank { "your Guardian email" }}."
+                                },
+                                color = bodyColor,
                                 fontSize = 12.sp,
                                 lineHeight = 17.sp,
                                 textAlign = TextAlign.Center,
@@ -373,7 +430,7 @@ fun BlockOverlayScreen(
                                 padding = 10.dp,
                                 modifier = Modifier
                                     .size(152.dp)
-                                    .border(1.2.dp, AegisGoldBorder, RoundedCornerShape(14.dp))
+                                    .border(1.2.dp, if (discreetMode) Color(0xFFCBD5E1) else AegisGoldBorder, RoundedCornerShape(14.dp))
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
@@ -381,7 +438,7 @@ fun BlockOverlayScreen(
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.5.sp,
-                                color = AegisTextPrimary
+                                color = headingColor
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedTextField(
@@ -426,8 +483,12 @@ fun BlockOverlayScreen(
                             }
                         } else {
                             Text(
-                                text = "Enter the Guardian Master Code to continue. If you do not know the Master Code, start a $doubleTimeLabel Double-Time Wait. Sheildlenz Shield remains ON after both.",
-                                color = AegisTextSecondary,
+                                text = if (discreetMode) {
+                                    "Enter the administrator access code to continue, or start the $doubleTimeLabel cooldown timer."
+                                } else {
+                                    "Enter the Guardian Master Code to continue. If you do not know the Master Code, start a $doubleTimeLabel Double-Time Wait. Sheildlenz Shield remains ON after both."
+                                },
+                                color = bodyColor,
                                 fontSize = 13.sp,
                                 lineHeight = 18.sp,
                                 fontFamily = ClassicalBodyFont
@@ -441,7 +502,7 @@ fun BlockOverlayScreen(
                                         pinError = null
                                     }
                                 },
-                                label = { Text("Master Code / PIN") },
+                                label = { Text(if (discreetMode) "Access Code" else "Master Code / PIN") },
                                 visualTransformation = PasswordVisualTransformation(),
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.NumberPassword,

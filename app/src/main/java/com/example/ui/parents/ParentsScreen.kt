@@ -1,6 +1,5 @@
 package com.example.ui.parents
 
-import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -8,7 +7,6 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -41,22 +39,28 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChildCare
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SupervisorAccount
@@ -106,12 +110,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.credentials.ClearCredentialStateRequest
-import androidx.credentials.CredentialManager
-import androidx.credentials.CustomCredential
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.exceptions.GetCredentialCancellationException
 import com.example.core.audio.AegisSoundEffects
+import com.example.core.models.SafeSearchPack
 import com.example.core.models.SecurityIncident
 import com.example.core.models.SensitivityLevel
 import com.example.data.preferences.AegisPreferences
@@ -121,18 +121,23 @@ import com.example.data.repository.ChildLiveThumbnail
 import com.example.data.repository.ParentChildRepository
 import com.example.data.repository.RemotePolicySettings
 import com.example.services.protection.ParentChildSyncController
+import com.example.ui.auth.GoogleSignInManager
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
 import com.example.ui.components.QrCodeImage
 import com.example.ui.components.QrScannerDialog
 import com.example.ui.components.SheildlenzBackdrop
+import com.example.ui.settings.InstalledAppEntry
+import com.example.ui.settings.loadInstalledLaunchableApps
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisDangerRed
 import com.example.ui.theme.AegisElectricBlue
+import com.example.ui.theme.AegisEmeraldBorder
+import com.example.ui.theme.AegisEmeraldTeal
 import com.example.ui.theme.AegisGoldBorder
 import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisGoldDeepTint
@@ -145,21 +150,17 @@ import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
 import com.example.ui.theme.AegisSkySoft
 import com.example.ui.theme.AegisSuccessGreen
+import com.example.ui.theme.AegisSurfaceElevated
 import com.example.ui.theme.AegisTextMuted
 import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.AegisTextSecondary
+import com.example.ui.theme.AegisWarningAmber
 import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
-import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -179,19 +180,31 @@ fun ParentsScreen(
     preferences: AegisPreferences,
     syncController: ParentChildSyncController? = null,
     pendingPairingCode: String? = null,
-    onConsumePendingPairingCode: () -> Unit = {}
+    onConsumePendingPairingCode: () -> Unit = {},
+    onRequestGoogleSignIn: ((
+        onSuccess: () -> Unit,
+        onCancelled: () -> Unit,
+        onError: (String) -> Unit
+    ) -> Unit)? = null,
+    onRequestGoogleSignOut: ((onComplete: () -> Unit) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var currentUser by remember {
         mutableStateOf(
-            runCatching { Firebase.auth.currentUser }.getOrNull()
+            runCatching {
+                GoogleSignInManager.ensureFirebaseInitialized(context)
+                Firebase.auth.currentUser
+            }.getOrNull()
         )
     }
 
     DisposableEffect(Unit) {
-        val auth = runCatching { Firebase.auth }.getOrNull()
+        val auth = runCatching {
+            GoogleSignInManager.ensureFirebaseInitialized(context)
+            Firebase.auth
+        }.getOrNull()
         val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
             currentUser = firebaseAuth.currentUser
         }
@@ -351,45 +364,30 @@ fun ParentsScreen(
     val signInWithGoogle: () -> Unit = {
         AegisSoundEffects.playTap(context)
         isSigningIn = true
-        scope.launch {
-            try {
-                val webClientResId = context.resources.getIdentifier(
-                    "default_web_client_id",
-                    "string",
-                    context.packageName
-                )
-                val clientId = if (webClientResId != 0) context.getString(webClientResId) else ""
-                if (clientId.isBlank()) {
-                    statusMessage = "Google Sign-In client ID missing."
-                } else {
-                    val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
-                    val request = GetCredentialRequest.Builder().addCredentialOption(signInOption).build()
-                    val credentialManager = CredentialManager.create(context)
-                    val activity = context as? Activity
-                    if (activity == null) {
-                        statusMessage = "Open Parents inside the app window to sign in."
-                    } else {
-                        val result = credentialManager.getCredential(activity, request)
-                        val credential = result.credential
-                        if (credential is CustomCredential &&
-                            credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-                        ) {
-                            val googleIdToken = GoogleIdTokenCredential.createFrom(credential.data).idToken
-                            val authCredential = GoogleAuthProvider.getCredential(googleIdToken, null)
-                            Firebase.auth.signInWithCredential(authCredential).await()
-                            syncController?.ensureStarted()
-                            Toast.makeText(context, "Signed in as Guardian!", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            } catch (e: GetCredentialCancellationException) {
-                Log.w("ParentsAuth", "Google Sign-In cancelled: ${e.message}", e)
-            } catch (e: Exception) {
-                Log.e("ParentsAuth", "Google Sign-In failed", e)
-                statusMessage = e.localizedMessage ?: "Google Sign-In failed."
-            } finally {
-                isSigningIn = false
-            }
+        statusMessage = null
+        val onAuthSuccess: () -> Unit = {
+            isSigningIn = false
+            statusMessage = null
+            syncController?.ensureStarted()
+            Toast.makeText(context, "Signed in as Guardian!", Toast.LENGTH_SHORT).show()
+        }
+        val onAuthCancelled: () -> Unit = {
+            isSigningIn = false
+        }
+        val onAuthError: (String) -> Unit = { msg ->
+            isSigningIn = false
+            statusMessage = msg
+        }
+        if (onRequestGoogleSignIn != null) {
+            onRequestGoogleSignIn(onAuthSuccess, onAuthCancelled, onAuthError)
+        } else {
+            GoogleSignInManager.signInWithGoogle(
+                context = context,
+                scope = scope,
+                onAuthSuccess = onAuthSuccess,
+                onAuthCancelled = onAuthCancelled,
+                onAuthError = onAuthError
+            )
         }
     }
 
@@ -516,15 +514,14 @@ fun ParentsScreen(
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         } else {
-                                            scope.launch {
-                                                withContext(NonCancellable) {
-                                                    runCatching {
-                                                        CredentialManager.create(context)
-                                                            .clearCredentialState(ClearCredentialStateRequest())
-                                                    }
-                                                    runCatching { Firebase.auth.signOut() }
-                                                    syncController?.stop()
-                                                }
+                                            if (onRequestGoogleSignOut != null) {
+                                                onRequestGoogleSignOut {}
+                                            } else {
+                                                GoogleSignInManager.signOut(
+                                                    context = context,
+                                                    scope = scope,
+                                                    onSignOutComplete = { syncController?.stop() }
+                                                )
                                             }
                                         }
                                     },
@@ -1841,11 +1838,13 @@ private fun ParentRemoteActionsContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ParentRemoteSettingsContent(
     currentRemote: RemotePolicySettings,
     onPushSettings: (RemotePolicySettings) -> Unit
 ) {
+    val context = LocalContext.current
     var sensitivity by remember(currentRemote) { mutableStateOf(currentRemote.sensitivity) }
     var strictEverything by remember(currentRemote) { mutableStateOf(currentRemote.strictEverything) }
     var antiTamper by remember(currentRemote) { mutableStateOf(currentRemote.antiTamperEnabled) }
@@ -1863,11 +1862,30 @@ private fun ParentRemoteSettingsContent(
     var safeDnsEnabled by remember(currentRemote) { mutableStateOf(currentRemote.safeDnsEnabled) }
     var domainsCsv by remember(currentRemote) { mutableStateOf(currentRemote.customBlockedDomains.joinToString(", ")) }
     var keywordsCsv by remember(currentRemote) { mutableStateOf(currentRemote.customBlockedKeywords.joinToString(", ")) }
-    var budgetsCsv by remember(currentRemote) {
-        mutableStateOf(currentRemote.appTimeBudgets.entries.joinToString(", ") { "${it.key}=${it.value}" })
-    }
+    var appBudgetsMap by remember(currentRemote) { mutableStateOf(currentRemote.appTimeBudgets) }
     var whitelistCsv by remember(currentRemote) {
         mutableStateOf(currentRemote.whitelistedPackages.joinToString(", "))
+    }
+
+    var studyModeEnabled by remember(currentRemote) { mutableStateOf(currentRemote.studyModeEnabled) }
+    var studyModeDurationMinutes by remember(currentRemote) { mutableIntStateOf(currentRemote.studyModeDurationMinutes) }
+    var studySoftWarningSeconds by remember(currentRemote) { mutableIntStateOf(currentRemote.studySoftWarningSeconds) }
+    var studyAllowedPackages by remember(currentRemote) { mutableStateOf(currentRemote.studyAllowedPackages) }
+    var smartSafeSearchEnabled by remember(currentRemote) { mutableStateOf(currentRemote.smartSafeSearchEnabled) }
+    var safeSearchPacks by remember(currentRemote) { mutableStateOf(currentRemote.safeSearchPacks) }
+    var discreetBlockingScreenMode by remember(currentRemote) { mutableStateOf(currentRemote.discreetBlockingScreenMode) }
+
+    var showBudgetAppPicker by remember { mutableStateOf(false) }
+    var showStudyAppsPicker by remember { mutableStateOf(false) }
+    var installedApps by remember { mutableStateOf<List<InstalledAppEntry>>(emptyList()) }
+    var isLoadingApps by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showBudgetAppPicker, showStudyAppsPicker) {
+        if ((showBudgetAppPicker || showStudyAppsPicker) && installedApps.isEmpty()) {
+            isLoadingApps = true
+            installedApps = loadInstalledLaunchableApps(context)
+            isLoadingApps = false
+        }
     }
 
     Text(
@@ -1887,7 +1905,7 @@ private fun ParentRemoteSettingsContent(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(40.dp)
+                    .height(48.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(if (selected) AegisPrimaryCyan else AegisCardBackground)
                     .border(1.dp, if (selected) AegisPrimaryCyan else AegisCardBorder, RoundedCornerShape(10.dp))
@@ -1923,7 +1941,7 @@ private fun ParentRemoteSettingsContent(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(38.dp)
+                    .height(48.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(if (selected) AegisChampagneGold else AegisCardBackground)
                     .border(1.dp, if (selected) AegisChampagneGold else AegisCardBorder, RoundedCornerShape(10.dp))
@@ -1960,7 +1978,7 @@ private fun ParentRemoteSettingsContent(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(38.dp)
+                    .height(48.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(if (selected) AegisPurple else AegisCardBackground)
                     .border(1.dp, if (selected) AegisPurple else AegisCardBorder, RoundedCornerShape(10.dp))
@@ -1979,6 +1997,111 @@ private fun ParentRemoteSettingsContent(
 
     Spacer(modifier = Modifier.height(10.dp))
 
+    RemoteSwitchRow("Non-Suspicious Blocking Screens (Hide App Name)", discreetBlockingScreenMode) {
+        discreetBlockingScreenMode = it
+    }
+    RemoteSwitchRow("Remote Study Mode Lock", studyModeEnabled) { studyModeEnabled = it }
+    AnimatedVisibility(visible = studyModeEnabled) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(AegisLavenderSoft)
+                .border(1.dp, AegisLavenderBorder, RoundedCornerShape(12.dp))
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Study Session Length & Soft Warning",
+                color = AegisTextPrimary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(15, 25, 45, 60).forEach { mins ->
+                    val picked = studyModeDurationMinutes == mins
+                    OutlinedButton(
+                        onClick = { studyModeDurationMinutes = mins },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (picked) AegisPurple else AegisCardBackground,
+                            contentColor = if (picked) AegisOnPrimaryWhite else AegisTextPrimary
+                        ),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) {
+                        Text("${mins}m", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(15, 30, 60).forEach { sec ->
+                    val picked = studySoftWarningSeconds == sec
+                    OutlinedButton(
+                        onClick = { studySoftWarningSeconds = sec },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (picked) AegisPrimaryCyan else AegisCardBackground,
+                            contentColor = if (picked) AegisOnPrimaryWhite else AegisTextPrimary
+                        ),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) {
+                        Text("${sec}s Warn", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            OutlinedButton(
+                onClick = { showStudyAppsPicker = true },
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = AegisCardBackground,
+                    contentColor = AegisTextPrimary
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("parent_study_allowed_apps_button")
+            ) {
+                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp), tint = AegisPurple)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "ALLOWED STUDY APPS (${studyAllowedPackages.size})",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+
+    RemoteSwitchRow("Smart Safe Search Guard", smartSafeSearchEnabled) { smartSafeSearchEnabled = it }
+    AnimatedVisibility(visible = smartSafeSearchEnabled) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            SafeSearchPack.entries.forEach { pack ->
+                val active = pack.id in safeSearchPacks
+                FilterChip(
+                    selected = active,
+                    onClick = {
+                        val next = safeSearchPacks.toMutableSet()
+                        if (!next.add(pack.id)) next.remove(pack.id)
+                        safeSearchPacks = next
+                    },
+                    label = { Text(pack.title, fontSize = 11.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = AegisPrimaryCyan,
+                        selectedLabelColor = AegisOnPrimaryWhite
+                    ),
+                    modifier = Modifier.heightIn(min = 48.dp)
+                )
+            }
+        }
+    }
+
     RemoteSwitchRow("Warn Only (Don't Lockout)", warningOnlyNoLockout) { warningOnlyNoLockout = it }
     RemoteSwitchRow("Strict Everything Filter", strictEverything) { strictEverything = it }
     RemoteSwitchRow("Anti-Tamper Guard", antiTamper) { antiTamper = it }
@@ -1992,6 +2115,137 @@ private fun ParentRemoteSettingsContent(
         "Bedtime Lock (${AegisPreferences.formatClockTime(bedtimeStartMinutes)}-${AegisPreferences.formatClockTime(bedtimeEndMinutes)})",
         bedtimeEnabled
     ) { bedtimeEnabled = it }
+
+    Spacer(modifier = Modifier.height(10.dp))
+
+    // Visual Child App Time Budgets Sync Section
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(AegisCardBackground)
+            .border(1.dp, AegisEmeraldBorder, RoundedCornerShape(14.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = "Child App Time Budgets",
+                    color = AegisTextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont
+                )
+                Text(
+                    text = if (appBudgetsMap.isEmpty()) "No child app limits configured" else "${appBudgetsMap.size} limit(s) synced with child",
+                    color = AegisTextSecondary,
+                    fontSize = 11.sp,
+                    fontFamily = ClassicalBodyFont
+                )
+            }
+            Button(
+                onClick = {
+                    AegisSoundEffects.playTap(context)
+                    showBudgetAppPicker = true
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = AegisEmeraldTeal, contentColor = AegisOnPrimaryWhite),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .height(48.dp)
+                    .testTag("parent_add_app_budget_button")
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("ADD BUDGET", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        if (appBudgetsMap.isNotEmpty()) {
+            appBudgetsMap.entries.sortedBy { it.key }.forEach { (pkg, mins) ->
+                val friendlyLabel = remember(pkg, installedApps) {
+                    installedApps.firstOrNull { it.packageName == pkg }?.label
+                        ?: SafeSearchPack.POPULAR_BUDGET_APP_PRESETS.firstOrNull { it.first == pkg }?.second
+                        ?: runCatching {
+                            val ai = context.packageManager.getApplicationInfo(pkg, 0)
+                            context.packageManager.getApplicationLabel(ai).toString()
+                        }.getOrDefault(pkg)
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AegisSurfaceElevated)
+                        .border(1.dp, AegisEmeraldBorder, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 6.dp)) {
+                        Text(
+                            text = friendlyLabel,
+                            color = AegisTextPrimary,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${mins} min / day",
+                            color = AegisEmeraldTeal,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val nextMins = (mins - 15).coerceAtLeast(15)
+                                appBudgetsMap = appBudgetsMap.toMutableMap().apply { put(pkg, nextMins) }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(48.dp)
+                        ) {
+                            Text("-15m", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val nextMins = (mins + 15).coerceAtMost(720)
+                                appBudgetsMap = appBudgetsMap.toMutableMap().apply { put(pkg, nextMins) }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(48.dp)
+                        ) {
+                            Text("+15m", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                        }
+                        IconButton(
+                            onClick = {
+                                appBudgetsMap = appBudgetsMap.toMutableMap().apply { remove(pkg) }
+                            },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Remove budget for $friendlyLabel",
+                                tint = AegisWarningAmber,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     Spacer(modifier = Modifier.height(8.dp))
 
@@ -2010,17 +2264,6 @@ private fun ParentRemoteSettingsContent(
         value = keywordsCsv,
         onValueChange = { keywordsCsv = it },
         label = { Text("Blocked Keywords (comma-separated)") },
-        singleLine = true,
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
-    )
-
-    Spacer(modifier = Modifier.height(8.dp))
-
-    OutlinedTextField(
-        value = budgetsCsv,
-        onValueChange = { budgetsCsv = it },
-        label = { Text("App Time Budgets (pkg=mins, comma-separated)") },
         singleLine = true,
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
@@ -2052,16 +2295,6 @@ private fun ParentRemoteSettingsContent(
                 .map { it.trim().lowercase(Locale.US) }
                 .filter { it.length >= 2 }
                 .toSet()
-            val parsedBudgets = budgetsCsv.split(",")
-                .mapNotNull { entry ->
-                    val parts = entry.split("=")
-                    if (parts.size == 2) {
-                        val pkg = parts[0].trim()
-                        val mins = parts[1].trim().toIntOrNull()
-                        if (pkg.isNotBlank() && mins != null && mins > 0) pkg to mins.coerceIn(1, 720) else null
-                    } else null
-                }
-                .toMap()
             onPushSettings(
                 RemotePolicySettings(
                     sensitivity = sensitivity,
@@ -2076,14 +2309,21 @@ private fun ParentRemoteSettingsContent(
                     bedtimeEnabled = bedtimeEnabled,
                     bedtimeStartMinutes = bedtimeStartMinutes,
                     bedtimeEndMinutes = bedtimeEndMinutes,
-                    appTimeBudgets = parsedBudgets,
+                    appTimeBudgets = appBudgetsMap,
                     customBlockedDomains = parsedDomains,
                     customBlockedKeywords = parsedKeywords,
                     safeDnsEnabled = safeDnsEnabled,
                     blockExplicitAdult = blockExplicit,
                     blockSuggestiveContent = blockSuggestive,
                     blockSensitiveGraphic = blockGraphic,
-                    blockGamblingKeywords = blockGambling
+                    blockGamblingKeywords = blockGambling,
+                    studyModeEnabled = studyModeEnabled,
+                    studyModeDurationMinutes = studyModeDurationMinutes,
+                    studySoftWarningSeconds = studySoftWarningSeconds,
+                    studyAllowedPackages = studyAllowedPackages,
+                    smartSafeSearchEnabled = smartSafeSearchEnabled,
+                    safeSearchPacks = safeSearchPacks,
+                    discreetBlockingScreenMode = discreetBlockingScreenMode
                 )
             )
         },
@@ -2097,6 +2337,281 @@ private fun ParentRemoteSettingsContent(
         Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(6.dp))
         Text("PUSH SETTINGS TO CHILD", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+
+    if (showBudgetAppPicker) {
+        var search by remember { mutableStateOf("") }
+        var pickedPkg by remember { mutableStateOf<String?>(null) }
+        var pickedMinutes by remember { mutableIntStateOf(30) }
+
+        val entries = remember(installedApps, search) {
+            val existing = installedApps.map { it.packageName }.toSet()
+            val extras = SafeSearchPack.POPULAR_BUDGET_APP_PRESETS
+                .filter { it.first !in existing }
+                .map { InstalledAppEntry(packageName = it.first, label = it.second, icon = null) }
+            val combined = installedApps + extras
+            val q = search.trim().lowercase(Locale.US)
+            if (q.isEmpty()) combined else combined.filter {
+                it.label.lowercase(Locale.US).contains(q) || it.packageName.lowercase(Locale.US).contains(q)
+            }
+        }
+
+        AlertDialog(
+            onDismissRequest = { showBudgetAppPicker = false },
+            containerColor = AegisChampagneSoft,
+            title = {
+                Text(
+                    text = "Pick App & Daily Limit",
+                    fontFamily = ClassicalDisplayFont,
+                    fontWeight = FontWeight.Bold,
+                    color = AegisTextPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = search,
+                        onValueChange = { search = it },
+                        placeholder = { Text("Search apps or presets...", fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = AegisEmeraldTeal) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(15, 30, 60, 120).forEach { mins ->
+                            val isSelected = pickedMinutes == mins
+                            OutlinedButton(
+                                onClick = { pickedMinutes = mins },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(0.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) AegisEmeraldTeal else AegisCardBackground,
+                                    contentColor = if (isSelected) AegisOnPrimaryWhite else AegisTextPrimary
+                                ),
+                                modifier = Modifier.weight(1f).height(48.dp)
+                            ) {
+                                Text("${mins}m", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    if (isLoadingApps) {
+                        Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = AegisEmeraldTeal)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().height(210.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(entries, key = { it.packageName }) { app ->
+                                val isPicked = pickedPkg == app.packageName
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isPicked) AegisEmeraldTeal.copy(alpha = 0.16f) else AegisCardBackground)
+                                        .border(
+                                            width = if (isPicked) 1.4.dp else 1.dp,
+                                            color = if (isPicked) AegisEmeraldTeal else AegisGoldBorder,
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable { pickedPkg = app.packageName }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f).padding(end = 6.dp)
+                                    ) {
+                                        if (app.icon != null) {
+                                            Image(
+                                                bitmap = app.icon,
+                                                contentDescription = app.label,
+                                                modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp))
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                        }
+                                        Column {
+                                            Text(
+                                                text = app.label,
+                                                color = AegisTextPrimary,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = app.packageName,
+                                                color = AegisTextMuted,
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = if (isPicked) "Selected" else "Pick",
+                                        tint = if (isPicked) AegisEmeraldTeal else AegisCardBorder,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = pickedPkg != null,
+                    onClick = {
+                        val target = pickedPkg ?: return@Button
+                        appBudgetsMap = appBudgetsMap.toMutableMap().apply { put(target, pickedMinutes) }
+                        showBudgetAppPicker = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AegisEmeraldTeal, contentColor = AegisOnPrimaryWhite)
+                ) {
+                    Text("ADD LIMIT", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showBudgetAppPicker = false }) {
+                    Text("CANCEL")
+                }
+            }
+        )
+    }
+
+    if (showStudyAppsPicker) {
+        var studySearch by remember { mutableStateOf("") }
+        val entries = remember(installedApps, studySearch, studyAllowedPackages) {
+            val existing = installedApps.map { it.packageName }.toSet()
+            val defaults = SafeSearchPack.DEFAULT_STUDY_FRIENDLY_PACKAGES
+                .filter { it !in existing }
+                .map { pkg ->
+                    val friendly = pkg.substringAfterLast('.').replaceFirstChar { it.uppercase() }
+                    InstalledAppEntry(packageName = pkg, label = friendly, icon = null)
+                }
+            val combined = installedApps + defaults
+            val q = studySearch.trim().lowercase(Locale.US)
+            val filtered = if (q.isEmpty()) combined else combined.filter {
+                it.label.lowercase(Locale.US).contains(q) || it.packageName.lowercase(Locale.US).contains(q)
+            }
+            filtered.sortedByDescending { it.packageName in studyAllowedPackages }
+        }
+
+        AlertDialog(
+            onDismissRequest = { showStudyAppsPicker = false },
+            containerColor = AegisLavenderSoft,
+            title = {
+                Text(
+                    text = "Child Allowed Study Apps",
+                    fontFamily = ClassicalDisplayFont,
+                    fontWeight = FontWeight.Bold,
+                    color = AegisTextPrimary
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = studySearch,
+                        onValueChange = { studySearch = it },
+                        placeholder = { Text("Search apps to allow during study...", fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = AegisPurple) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (isLoadingApps) {
+                        Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = AegisPurple)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().height(230.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(entries, key = { it.packageName }) { app ->
+                                val isAllowed = app.packageName in studyAllowedPackages
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 48.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isAllowed) AegisPurple.copy(alpha = 0.16f) else AegisCardBackground)
+                                        .border(
+                                            width = if (isAllowed) 1.4.dp else 1.dp,
+                                            color = if (isAllowed) AegisPurple else AegisLavenderBorder,
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable {
+                                            val next = studyAllowedPackages.toMutableSet()
+                                            if (!next.add(app.packageName)) next.remove(app.packageName)
+                                            studyAllowedPackages = next
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f).padding(end = 6.dp)
+                                    ) {
+                                        if (app.icon != null) {
+                                            Image(
+                                                bitmap = app.icon,
+                                                contentDescription = app.label,
+                                                modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp))
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                        }
+                                        Column {
+                                            Text(
+                                                text = app.label,
+                                                color = AegisTextPrimary,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = app.packageName,
+                                                color = AegisTextMuted,
+                                                fontSize = 10.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = if (isAllowed) "Allowed" else "Blocked",
+                                        tint = if (isAllowed) AegisPurple else AegisCardBorder,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showStudyAppsPicker = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = AegisPurple, contentColor = AegisOnPrimaryWhite)
+                ) {
+                    Text("DONE", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 }
 

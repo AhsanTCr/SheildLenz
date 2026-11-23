@@ -1,5 +1,6 @@
 package com.example.ui.settings
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -54,13 +55,20 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -75,6 +83,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -113,8 +122,10 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.core.audio.AegisSoundEffects
 import com.example.core.models.SensitivityLevel
+import com.example.core.notifications.AegisNotificationHelper
 import com.example.data.preferences.AegisPreferences
 import com.example.data.preferences.PowerMode
+import com.example.data.preferences.RecoveryQrMode
 import com.example.data.repository.ProtectionRepository
 import com.example.detection.classifier.ModelManager
 import com.example.security.deviceowner.AegisDeviceAdminReceiver
@@ -124,6 +135,7 @@ import com.example.ui.components.CyberTopBar
 import com.example.ui.components.LuxurySectionHeader
 import com.example.ui.components.MasterKeyGateState
 import com.example.ui.components.ModelManagerCard
+import com.example.ui.components.QrCodeImage
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.components.StatusPill
 import com.example.ui.components.rememberMasterKeyGate
@@ -153,13 +165,13 @@ import com.example.ui.theme.ClassicalDisplayFont
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private data class InstalledAppEntry(
+internal data class InstalledAppEntry(
     val packageName: String,
     val label: String,
     val icon: ImageBitmap?
 )
 
-private fun drawableToScaledBitmap(drawable: Drawable, sizePx: Int = 72): ImageBitmap? {
+internal fun drawableToScaledBitmap(drawable: Drawable, sizePx: Int = 72): ImageBitmap? {
     return try {
         val raw = if (drawable is BitmapDrawable && drawable.bitmap != null) {
             drawable.bitmap
@@ -180,13 +192,41 @@ private fun drawableToScaledBitmap(drawable: Drawable, sizePx: Int = 72): ImageB
     }
 }
 
+internal suspend fun loadInstalledLaunchableApps(context: Context): List<InstalledAppEntry> =
+    withContext(Dispatchers.IO) {
+        val pm = context.packageManager
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val activities = pm.queryIntentActivities(intent, 0)
+        activities
+            .mapNotNull { resolveInfo ->
+                val pkg = resolveInfo.activityInfo?.packageName ?: return@mapNotNull null
+                if (pkg == context.packageName) return@mapNotNull null
+                val label = resolveInfo.loadLabel(pm)?.toString()?.trim().orEmpty().ifBlank { pkg }
+                val icon = try {
+                    drawableToScaledBitmap(resolveInfo.loadIcon(pm))
+                } catch (_: Exception) {
+                    null
+                }
+                InstalledAppEntry(packageName = pkg, label = label, icon = icon)
+            }
+            .distinctBy { it.packageName }
+            .sortedBy { it.label.lowercase() }
+    }
+
+internal fun shouldLockEditsScreen(
+    hasGuardianPin: Boolean,
+    isSessionUnlocked: Boolean
+): Boolean = hasGuardianPin && !isSessionUnlocked
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     preferences: AegisPreferences,
     modelManager: ModelManager,
     protectionRepo: ProtectionRepository,
-    onModelUpdated: () -> Unit = {}
+    onModelUpdated: () -> Unit = {},
+    onNavigateToStatus: () -> Unit = {},
+    onNavigateToParents: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val telemetry by protectionRepo.telemetry.collectAsState()
@@ -195,6 +235,11 @@ fun SettingsScreen(
     val isStrictEverything by preferences.strictEverything.collectAsState()
     val isAutoStart by preferences.autoStart.collectAsState()
     val hasPin by preferences.hasGuardianPin.collectAsState()
+    val isGuardianUnlocked by preferences.isGuardianSessionUnlocked.collectAsState()
+    val parentalRole by preferences.parentalRole.collectAsState()
+    val pairedParentName by preferences.pairedParentName.collectAsState()
+    val guardianEmail by preferences.guardianEmail.collectAsState()
+    val challengeCode by preferences.recoveryChallengeCode.collectAsState()
     val isMaintenanceMode by preferences.maintenanceMode.collectAsState()
     val lockdownDurationMinutes by preferences.lockdownDurationMinutes.collectAsState()
     val waitCooldownBeforePin by preferences.waitCooldownBeforePassword.collectAsState()
@@ -207,6 +252,7 @@ fun SettingsScreen(
     val autoThrottleLowBattery by preferences.autoThrottleLowBattery.collectAsState()
     val isAdvancedUnlocked by preferences.advancedOptionsUnlocked.collectAsState()
 
+    val isEditsLocked = shouldLockEditsScreen(hasPin, isGuardianUnlocked)
     val stage1DurationLabel = AegisPreferences.formatMinutesLabel(lockdownDurationMinutes)
 
     var showModelDialog by remember { mutableStateOf(false) }
@@ -224,10 +270,28 @@ fun SettingsScreen(
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars,
             topBar = {
-                CyberTopBar(title = stringResource(R.string.nav_edits))
+                CyberTopBar(
+                    title = stringResource(R.string.nav_edits),
+                    subtitle = if (isEditsLocked) "Password & Parent Protected" else "Protection & Policy Controls"
+                )
             },
             containerColor = Color.Transparent
         ) { innerPadding ->
+            if (isEditsLocked) {
+                EditsPasswordLockGate(
+                    preferences = preferences,
+                    parentalRole = parentalRole,
+                    pairedParentName = pairedParentName,
+                    guardianEmail = guardianEmail,
+                    challengeCode = challengeCode,
+                    onNavigateToStatus = onNavigateToStatus,
+                    onNavigateToParents = onNavigateToParents,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(horizontal = 16.dp)
+                )
+            } else {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -236,6 +300,83 @@ fun SettingsScreen(
                 contentPadding = PaddingValues(top = 10.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (hasPin) {
+                    item {
+                        CyberCard(
+                            borderColor = AegisEmeraldBorder,
+                            tone = CyberCardTone.SKY,
+                            modifier = Modifier.testTag("edits_unlocked_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f).padding(end = 10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(AegisEmeraldTeal),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.LockOpen,
+                                            contentDescription = "Edits Unlocked",
+                                            tint = AegisOnPrimaryWhite,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "Guardian Edits Unlocked",
+                                            color = AegisTextPrimary,
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = ClassicalDisplayFont
+                                        )
+                                        Text(
+                                            text = if (parentalRole == "child") {
+                                                "Also syncs remotely from Parent phone"
+                                            } else {
+                                                "Lock again before handing phone back"
+                                            },
+                                            color = AegisTextSecondary,
+                                            fontSize = 11.sp,
+                                            fontFamily = ClassicalBodyFont
+                                        )
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        AegisSoundEffects.playTap(context)
+                                        preferences.lockGuardianSession()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AegisPurple,
+                                        contentColor = AegisOnPrimaryWhite
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .height(48.dp)
+                                        .testTag("edits_lock_now_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lock,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("LOCK EDITS", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
                 // 1. AI Classification
                 item {
                     LuxurySectionHeader(title = "AI Classification", accentColor = AegisPurple)
@@ -767,6 +908,18 @@ fun SettingsScreen(
                     LuxurySectionHeader(title = "System & Language", accentColor = AegisIndigo)
                 }
                 item {
+                    NotificationsControlCard(
+                        preferences = preferences,
+                        masterKeyGate = masterKeyGate
+                    )
+                }
+                item {
+                    BlockingScreenStyleCard(
+                        preferences = preferences,
+                        masterKeyGate = masterKeyGate
+                    )
+                }
+                item {
                     TouchSoundsCard(preferences = preferences, compactPillMode = true)
                 }
                 item {
@@ -992,18 +1145,412 @@ fun SettingsScreen(
                             Text(text = "SAVE PIN", fontWeight = FontWeight.Bold)
                         }
                     },
-                    dismissButton = {
-                        OutlinedButton(
-                            onClick = { showPinDialog = false },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = AegisChampagneSoft,
-                                contentColor = AegisTextPrimary
-                            )
-                        ) {
-                            Text(text = "CANCEL", fontWeight = FontWeight.SemiBold)
+                        dismissButton = {
+                            OutlinedButton(
+                                onClick = { showPinDialog = false },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = AegisChampagneSoft,
+                                    contentColor = AegisTextPrimary
+                                )
+                            ) {
+                                Text(text = "CANCEL", fontWeight = FontWeight.SemiBold)
+                            }
                         }
-                    }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditsPasswordLockGate(
+    preferences: AegisPreferences,
+    parentalRole: String?,
+    pairedParentName: String?,
+    guardianEmail: String,
+    challengeCode: String,
+    onNavigateToStatus: () -> Unit,
+    onNavigateToParents: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var passwordInput by remember { mutableStateOf("") }
+    var recoveryCodeInput by remember { mutableStateOf("") }
+    var newPinInput by remember { mutableStateOf("") }
+    var showForgotQr by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val submitUnlock: () -> Unit = {
+        if (showForgotQr) {
+            val cleanPin = newPinInput.trim()
+            if (cleanPin.length !in 4..8 || !cleanPin.all { it.isDigit() }) {
+                errorMessage = "Enter a new 4–8 digit Guardian Password"
+            } else if (!preferences.resetPinWithRecoveryToken(recoveryCodeInput, cleanPin)) {
+                errorMessage = "Invalid recovery code for Challenge ID $challengeCode"
+            } else {
+                AegisSoundEffects.playModeOn(context)
+                preferences.unlockGuardianSession()
+                errorMessage = null
+            }
+        } else {
+            if (passwordInput.isEmpty() || !preferences.verifyGuardianPin(passwordInput)) {
+                errorMessage = "Incorrect Guardian Password"
+                passwordInput = ""
+            } else {
+                AegisSoundEffects.playModeOn(context)
+                preferences.unlockGuardianSession()
+                errorMessage = null
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        CyberCard(
+            borderColor = AegisGoldBorder,
+            tone = CyberCardTone.LAVENDER,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("edits_lock_gate_card")
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            brush = Brush.linearGradient(
+                                colors = listOf(AegisChampagneGold, AegisPurple)
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Edits Password Protected",
+                        tint = AegisOnPrimaryWhite,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = if (showForgotQr) "Parent QR Password Reset" else "Edits Screen Locked",
+                    color = AegisTextPrimary,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont,
+                    textAlign = TextAlign.Center
                 )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = if (parentalRole == "child") {
+                        "Child View Only • Edit permissions require the Guardian Password or remote update from ${pairedParentName?.takeIf { it.isNotBlank() } ?: "Parent"}'s mobile phone."
+                    } else {
+                        "Enter Guardian Password to view & edit protection policies."
+                    },
+                    color = AegisTextSecondary,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp,
+                    fontFamily = ClassicalBodyFont,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("edits_child_parent_notice")
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (parentalRole == "child") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(AegisChampagneSoft)
+                            .border(1.dp, AegisGoldBorder, RoundedCornerShape(14.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SupervisorAccount,
+                            contentDescription = "Controlled by Parent Phone",
+                            tint = AegisChampagneGold,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Managed remotely from Parent Mobile Phone (${pairedParentName?.takeIf { it.isNotBlank() } ?: "Family Link"})",
+                            color = AegisTextPrimary,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = ClassicalBodyFont
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                if (showForgotQr) {
+                    val qrPayload = remember(challengeCode, guardianEmail) {
+                        preferences.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
+                    }
+                    Text(
+                        text = "Scan on parent's phone (${guardianEmail.ifBlank { "Guardian Google account" }}) to generate an 8-char reset code.",
+                        color = AegisTextSecondary,
+                        fontSize = 11.5.sp,
+                        fontFamily = ClassicalBodyFont,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    QrCodeImage(
+                        payload = qrPayload,
+                        padding = 10.dp,
+                        modifier = Modifier
+                            .size(164.dp)
+                            .border(1.2.dp, AegisGoldBorder, RoundedCornerShape(16.dp)),
+                        testTag = "edits_forgot_qr_matrix"
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Challenge ID: $challengeCode",
+                        color = AegisTextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = recoveryCodeInput,
+                        onValueChange = {
+                            recoveryCodeInput = it.uppercase()
+                            errorMessage = null
+                        },
+                        label = { Text("8-Char One-Time Code", fontFamily = ClassicalBodyFont) },
+                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = AegisChampagneGold) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AegisChampagneGold,
+                            unfocusedBorderColor = AegisLavenderBorder,
+                            focusedContainerColor = AegisCardBackground,
+                            unfocusedContainerColor = AegisCardBackground
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("edits_recovery_code_input")
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newPinInput,
+                        onValueChange = {
+                            if (it.length <= 8 && it.all { ch -> ch.isDigit() }) {
+                                newPinInput = it
+                                errorMessage = null
+                            }
+                        },
+                        label = { Text("New Guardian Password (4–8 digits)", fontFamily = ClassicalBodyFont) },
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AegisPurple) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.NumberPassword,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { submitUnlock() }),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AegisPurple,
+                            unfocusedBorderColor = AegisLavenderBorder,
+                            focusedContainerColor = AegisCardBackground,
+                            unfocusedContainerColor = AegisCardBackground
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("edits_new_pin_input")
+                    )
+                } else {
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = {
+                            if (it.length <= 8 && it.all { ch -> ch.isDigit() }) {
+                                passwordInput = it
+                                errorMessage = null
+                            }
+                        },
+                        label = { Text("Guardian Password (4–8 digits)", fontFamily = ClassicalBodyFont) },
+                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = AegisPurple) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.NumberPassword,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { submitUnlock() }),
+                        singleLine = true,
+                        isError = errorMessage != null,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AegisPurple,
+                            unfocusedBorderColor = AegisLavenderBorder,
+                            focusedContainerColor = AegisCardBackground,
+                            unfocusedContainerColor = AegisCardBackground,
+                            focusedTextColor = AegisTextPrimary,
+                            unfocusedTextColor = AegisTextPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onPreviewKeyEvent { event ->
+                                if (event.key == Key.Enter || event.key == Key.NumPadEnter) {
+                                    if (event.type == KeyEventType.KeyDown) {
+                                        submitUnlock()
+                                    }
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            .testTag("edits_unlock_pin_input")
+                    )
+                }
+
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = errorMessage!!,
+                        color = AegisDangerRed,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = ClassicalBodyFont,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Button(
+                    onClick = submitUnlock,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (showForgotQr) AegisChampagneGold else AegisPurple,
+                        contentColor = AegisOnPrimaryWhite
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("edits_unlock_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LockOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (showForgotQr) "RESET PASSWORD & UNLOCK" else "UNLOCK EDITS",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                TextButton(
+                    onClick = {
+                        showForgotQr = !showForgotQr
+                        errorMessage = null
+                    },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("edits_forgot_pin_button")
+                ) {
+                    Text(
+                        text = if (showForgotQr) "Back to Password Entry" else "Forgot Password? Parent QR Unlock",
+                        color = AegisPurple,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+        }
+
+        CyberCard(
+            borderColor = AegisCardBorder,
+            tone = CyberCardTone.SKY,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Only want to check current settings?",
+                    color = AegisTextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont
+                )
+                Text(
+                    text = "The Status tab displays every active protection policy, DNS state, study timer, and parent link in read-only mode without needing the password.",
+                    color = AegisTextSecondary,
+                    fontSize = 12.sp,
+                    fontFamily = ClassicalBodyFont
+                )
+                OutlinedButton(
+                    onClick = {
+                        AegisSoundEffects.playTap(context)
+                        onNavigateToStatus()
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = AegisCardBackground,
+                        contentColor = AegisPrimaryCyan
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("edits_view_status_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MonitorHeart,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "VIEW STATUS (READ-ONLY)",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+
+                if (parentalRole == "child") {
+                    TextButton(
+                        onClick = {
+                            AegisSoundEffects.playTap(context)
+                            onNavigateToParents()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .heightIn(min = 48.dp)
+                            .testTag("edits_open_parents_button")
+                    ) {
+                        Text(
+                            text = "Open Parents Link Screen",
+                            color = AegisEmeraldTeal,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalBodyFont
+                        )
+                    }
+                }
             }
         }
     }
@@ -1897,6 +2444,147 @@ internal fun CompactSwitchRow(
                 uncheckedTrackColor = AegisCardBorder
             )
         )
+    }
+}
+
+@Composable
+private fun NotificationsControlCard(
+    preferences: AegisPreferences,
+    masterKeyGate: MasterKeyGateState
+) {
+    val context = LocalContext.current
+    val notificationsEnabled by preferences.notificationsEnabled.collectAsState()
+    var showPopup by remember { mutableStateOf(false) }
+
+    val handleToggle: (Boolean) -> Unit = { nextEnabled ->
+        if (!nextEnabled) {
+            masterKeyGate.request("silence notifications") {
+                preferences.setNotificationsEnabled(false)
+                AegisNotificationHelper.cancelOptionalAlerts(context)
+                Toast.makeText(context, "Optional alerts silenced", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            AegisSoundEffects.playModeOn(context)
+            preferences.setNotificationsEnabled(true)
+            Toast.makeText(context, "Notifications enabled", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    ToggleEditsActionCard(
+        title = "Notifications",
+        summary = if (notificationsEnabled) {
+            "ON • Alerts & resume reminders active"
+        } else {
+            "OFF • Quiet background service only"
+        },
+        icon = if (notificationsEnabled) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+        accentColor = AegisIndigo,
+        tone = CyberCardTone.INDIGO,
+        borderColor = AegisIndigoBorder,
+        checked = notificationsEnabled,
+        onCheckedChange = handleToggle,
+        onOpenEdits = {
+            AegisSoundEffects.playTap(context)
+            showPopup = true
+        },
+        cardTestTag = "edits_notifications_card",
+        switchTestTag = "edits_notifications_switch",
+        buttonTestTag = "edits_notifications_button"
+    )
+
+    if (showPopup) {
+        EditsPopupDialog(
+            title = "App Notifications",
+            subtitle = if (notificationsEnabled) "Alerts & Shield Reminders ON" else "Quiet Mode Active (Silenced)",
+            icon = if (notificationsEnabled) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+            accentColor = AegisIndigo,
+            onDismiss = { showPopup = false },
+            testTag = "edits_notifications_dialog"
+        ) {
+            Text(
+                text = "Turn OFF to dismiss pause/resume alert banners and switch required foreground monitoring into silent minimal-priority mode.",
+                color = AegisTextSecondary,
+                fontSize = 12.5.sp,
+                fontFamily = ClassicalBodyFont
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            CompactSwitchRow(
+                title = "Show Alert Notifications",
+                checked = notificationsEnabled,
+                activeColor = AegisIndigo,
+                onCheckedChange = handleToggle,
+                testTag = "edits_notifications_dialog_switch"
+            )
+        }
+    }
+}
+
+@Composable
+private fun BlockingScreenStyleCard(
+    preferences: AegisPreferences,
+    masterKeyGate: MasterKeyGateState
+) {
+    val context = LocalContext.current
+    val discreetMode by preferences.discreetBlockingScreenMode.collectAsState()
+    var showPopup by remember { mutableStateOf(false) }
+
+    val handleStyleChange: (Boolean) -> Unit = { nextDiscreet ->
+        masterKeyGate.request("change blocking screen style") {
+            preferences.setDiscreetBlockingScreenMode(nextDiscreet)
+            Toast.makeText(
+                context,
+                if (nextDiscreet) "System Notice style enabled" else "Branded Shield style enabled",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    ToggleEditsActionCard(
+        title = "Discreet Lock Screens",
+        summary = if (discreetMode) {
+            "System Notice • Non-suspicious (hides app name)"
+        } else {
+            "Branded • Shows Sheildlenz Shield badge"
+        },
+        icon = if (discreetMode) Icons.Default.VisibilityOff else Icons.Default.Shield,
+        accentColor = AegisIndigo,
+        tone = CyberCardTone.INDIGO,
+        borderColor = AegisIndigoBorder,
+        checked = discreetMode,
+        onCheckedChange = handleStyleChange,
+        onOpenEdits = {
+            AegisSoundEffects.playTap(context)
+            showPopup = true
+        },
+        cardTestTag = "edits_discreet_blocking_card",
+        switchTestTag = "edits_discreet_blocking_switch",
+        buttonTestTag = "edits_discreet_blocking_button"
+    )
+
+    if (showPopup) {
+        EditsPopupDialog(
+            title = "Parent Blocking Screen Style",
+            subtitle = if (discreetMode) "Non-Suspicious System Notice" else "Sheildlenz Branded Shield",
+            icon = if (discreetMode) Icons.Default.VisibilityOff else Icons.Default.Shield,
+            accentColor = AegisIndigo,
+            onDismiss = { showPopup = false },
+            testTag = "edits_discreet_blocking_dialog"
+        ) {
+            Text(
+                text = "When System Notice is ON, every block, warning, bedtime, app limit, and lockdown screen uses neutral system-style wording with zero app name or parental branding.",
+                color = AegisTextSecondary,
+                fontSize = 12.5.sp,
+                fontFamily = ClassicalBodyFont
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            CompactSwitchRow(
+                title = "System Notice (Non-Suspicious)",
+                checked = discreetMode,
+                activeColor = AegisIndigo,
+                onCheckedChange = handleStyleChange,
+                testTag = "edits_discreet_blocking_dialog_switch"
+            )
+        }
     }
 }
 

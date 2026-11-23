@@ -19,6 +19,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.credentials.CredentialManager
+import androidx.lifecycle.lifecycleScope
 import com.example.core.audio.AegisSoundEffects
 import com.example.core.permissions.PermissionHelper
 import com.example.core.update.UpdateChecker
@@ -27,12 +29,15 @@ import com.example.data.repository.ParentChildRepository
 import com.example.di.AegisContainer
 import com.example.services.protection.AegisLockdownService
 import com.example.services.protection.AegisProtectionService
+import com.example.ui.auth.GoogleSignInManager
 import com.example.ui.navigation.AegisNavHost
 import com.example.ui.theme.AegisShieldTheme
 import com.example.ui.theme.AegisVoidBackground
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val container by lazy { AegisContainer.getInstance(this) }
+    private val credentialManager by lazy { CredentialManager.create(this) }
     private var promptedShieldRearmInSession = false
 
     override fun attachBaseContext(newBase: Context) {
@@ -68,8 +73,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        GoogleSignInManager.ensureFirebaseInitialized(this)
         handlePairingDeepLink(intent)
         container.parentChildSyncController.ensureStarted()
+        lifecycleScope.launch {
+            GoogleSignInManager.attemptAutoSignIn(
+                context = this@MainActivity,
+                credentialManager = credentialManager,
+                onAuthSuccess = { container.parentChildSyncController.ensureStarted() }
+            )
+        }
         AegisSoundEffects.setEnabled(container.preferences.touchSoundsEnabled.value)
         AegisSoundEffects.prewarm(this.applicationContext)
         // Silently check latest GitHub release vs current app version on startup & pre-download at 100 KB/s
@@ -87,7 +100,31 @@ class MainActivity : ComponentActivity() {
                     AegisNavHost(
                         container = container,
                         onRequestStartProtection = { requestStartProtection() },
-                        onRequestStopProtection = { requestStopProtection() }
+                        onRequestStopProtection = { requestStopProtection() },
+                        onRequestGoogleSignIn = { onSuccess, onCancelled, onError ->
+                            GoogleSignInManager.signInWithGoogle(
+                                context = this@MainActivity,
+                                credentialManager = credentialManager,
+                                scope = lifecycleScope,
+                                onAuthSuccess = {
+                                    container.parentChildSyncController.ensureStarted()
+                                    onSuccess()
+                                },
+                                onAuthCancelled = onCancelled,
+                                onAuthError = onError
+                            )
+                        },
+                        onRequestGoogleSignOut = { onComplete ->
+                            GoogleSignInManager.signOut(
+                                context = this@MainActivity,
+                                credentialManager = credentialManager,
+                                scope = lifecycleScope,
+                                onSignOutComplete = {
+                                    container.parentChildSyncController.stop()
+                                    onComplete()
+                                }
+                            )
+                        }
                     )
                 }
             }

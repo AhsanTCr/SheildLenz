@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.core.models.SafeSearchPack
 import com.example.core.models.SecurityIncident
 import com.example.core.models.ThreatCategory
 import com.example.core.models.ThreatSeverity
@@ -32,6 +33,9 @@ class AegisAccessibilityService : AccessibilityService() {
     private var lastRecentsInterceptTimeMs: Long = 0L
     private var lastBrowserScanTimeMs: Long = 0L
     private var lastBrowserBlockTimeMs: Long = 0L
+    private val studyLockedPackagesThisSession = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    @Volatile
+    private var activeSoftWarningPkg: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -153,10 +157,65 @@ class AegisAccessibilityService : AccessibilityService() {
             }
         }
 
+        // 4c. Study Mode & Focus Lock Timer with Soft Warning Countdown
+        val studyActive = prefs.isStudySessionActive()
+        if (!studyActive) {
+            if (studyLockedPackagesThisSession.isNotEmpty()) {
+                studyLockedPackagesThisSession.clear()
+            }
+            if (activeSoftWarningPkg != null) {
+                activeSoftWarningPkg = null
+            }
+        } else if (!prefs.maintenanceMode.value && !isTransientOverlayPackage(resolvedPkg)) {
+            val isAllowedForStudy = isExemptSystemOrLauncherPackage(resolvedPkg) ||
+                prefs.isPackageAllowedDuringStudy(resolvedPkg)
+            if (isAllowedForStudy) {
+                if (activeSoftWarningPkg != null) {
+                    activeSoftWarningPkg = null
+                    overlayController.dismissBlockOverlay()
+                }
+            } else {
+                val appLabel = getAppLabel(resolvedPkg)
+                if (resolvedPkg in studyLockedPackagesThisSession) {
+                    if (now - lastLockdownInterceptTimeMs > 800L) {
+                        lastLockdownInterceptTimeMs = now
+                        performGlobalAction(GLOBAL_ACTION_HOME)
+                        killBackgroundApp(this, resolvedPkg)
+                        overlayController.showStudyLockOverlay(appLabel, resolvedPkg)
+                    }
+                    return
+                } else if (activeSoftWarningPkg != resolvedPkg) {
+                    activeSoftWarningPkg = resolvedPkg
+                    val softWarnSec = prefs.studySoftWarningSeconds.value
+                    overlayController.showStudySoftWarningOverlay(
+                        appName = appLabel,
+                        packageName = resolvedPkg,
+                        softWarningSeconds = softWarnSec
+                    ) {
+                        studyLockedPackagesThisSession.add(resolvedPkg)
+                        if (activeSoftWarningPkg == resolvedPkg) {
+                            activeSoftWarningPkg = null
+                        }
+                        if (prefs.isStudySessionActive()) {
+                            val currentForeground = safeGetRootPackageName() ?: resolvedPkg
+                            val stillDistracting = !isExemptSystemOrLauncherPackage(currentForeground) &&
+                                !prefs.isPackageAllowedDuringStudy(currentForeground)
+                            if (stillDistracting) {
+                                performGlobalAction(GLOBAL_ACTION_HOME)
+                                killBackgroundApp(this@AegisAccessibilityService, resolvedPkg)
+                                overlayController.showStudyLockOverlay(appLabel, resolvedPkg)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 5. Real-time Chrome & Third-Party Browser URL / Search Safety Guard
         val isShieldArmed = prefs.isShieldDesiredActive.value ||
             container.protectionRepository.telemetry.value.isProtectionEnabled
-        if (isShieldArmed &&
+        val smartSafeActive = prefs.smartSafeSearchEnabled.value
+        if ((isShieldArmed || smartSafeActive) &&
             !prefs.maintenanceMode.value &&
             !prefs.isPackageWhitelisted(resolvedPkg) &&
             isBrowserPackage(resolvedPkg)
@@ -269,11 +328,16 @@ class AegisAccessibilityService : AccessibilityService() {
             rawText = candidate,
             customDomains = prefs.customBlockedDomains.value,
             customKeywords = prefs.customBlockedKeywords.value,
-            blockGamblingKeywords = prefs.blockGamblingKeywords.value
+            blockGamblingKeywords = prefs.blockGamblingKeywords.value,
+            smartSafeSearchEnabled = prefs.smartSafeSearchEnabled.value,
+            safeSearchPacks = prefs.safeSearchPacks.value
         ) ?: return
         if (nowUptime - lastBrowserBlockTimeMs < 1500L) return
         lastBrowserBlockTimeMs = nowUptime
 
+        if (matchedReason.startsWith("Smart Safe Search")) {
+            prefs.incrementSafeSearchBlockedCount()
+        }
         triggerBrowserLockdown(browserPkg, matchedReason)
     }
 
@@ -568,7 +632,9 @@ class AegisAccessibilityService : AccessibilityService() {
             rawText: String?,
             customDomains: Set<String> = emptySet(),
             customKeywords: Set<String> = emptySet(),
-            blockGamblingKeywords: Boolean = true
+            blockGamblingKeywords: Boolean = true,
+            smartSafeSearchEnabled: Boolean = false,
+            safeSearchPacks: Set<String> = emptySet()
         ): String? {
             if (rawText.isNullOrBlank()) return null
             val normalized = rawText.lowercase()
@@ -594,6 +660,13 @@ class AegisAccessibilityService : AccessibilityService() {
                     if (kwRegex.containsMatchIn(normalized)) {
                         return "Custom Blocklist Guard blocked keyword '$kw'."
                     }
+                }
+            }
+
+            if (smartSafeSearchEnabled && safeSearchPacks.isNotEmpty()) {
+                val packHit = SafeSearchPack.detectMatchInText(normalized, safeSearchPacks)
+                if (packHit != null) {
+                    return packHit.second
                 }
             }
 
