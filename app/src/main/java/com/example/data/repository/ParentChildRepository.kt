@@ -113,8 +113,7 @@ class ParentChildRepository(
 
     private fun ensureFirebaseInitialized(): Boolean {
         if (dbOverride != null && authOverride != null) return true
-        if (FirebaseApp.getApps(appContext).isNotEmpty()) return true
-        return runCatching { FirebaseApp.initializeApp(appContext) != null }.getOrDefault(false)
+        return com.example.ui.auth.GoogleSignInManager.ensureFirebaseInitialized(appContext)
     }
 
     private val firestoreOrNull: FirebaseFirestore? by lazy {
@@ -124,7 +123,12 @@ class ParentChildRepository(
                     val resId = appContext.resources.getIdentifier("firestore_database_id", "string", appContext.packageName)
                     if (resId != 0) appContext.getString(resId).trim() else null
                 }.getOrNull()?.takeIf { it.isNotBlank() } ?: "ai-studio-android-sheildle-445b68c5-4463-4bd1-939c-33931bb3fc12"
-                FirebaseFirestore.getInstance(dbId)
+                runCatching {
+                    val app = FirebaseApp.getInstance()
+                    FirebaseFirestore.getInstance(app, dbId)
+                }.getOrElse {
+                    FirebaseFirestore.getInstance(dbId)
+                }
             } else {
                 null
             }
