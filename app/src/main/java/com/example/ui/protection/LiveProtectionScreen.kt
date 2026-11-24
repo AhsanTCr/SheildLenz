@@ -157,6 +157,7 @@ fun LiveProtectionScreen(
     val notificationsEnabled by preferences.notificationsEnabled.collectAsState()
     val discreetBlockingScreenMode by preferences.discreetBlockingScreenMode.collectAsState()
     val appLanguageCode by preferences.appLanguageCode.collectAsState()
+    val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
 
     var hasOverlay by remember { mutableStateOf(PermissionHelper.hasOverlayPermission(context)) }
     var hasAccessibility by remember {
@@ -251,10 +252,18 @@ fun LiveProtectionScreen(
                         report = healthReport,
                         preferences = preferences,
                         onRequestArmShield = {
-                            if (!telemetry.isProtectionEnabled) {
-                                AegisSoundEffects.playModeOn(context)
+                            if (!isMasterPowerOn) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Master Power is OFF in About. Turn Master Power ON first.",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                if (!telemetry.isProtectionEnabled) {
+                                    AegisSoundEffects.playModeOn(context)
+                                }
+                                onRequestArmShield()
                             }
-                            onRequestArmShield()
                         }
                     )
                 }
@@ -482,6 +491,11 @@ fun LiveProtectionScreen(
                             modifier = Modifier.padding(vertical = 10.dp)
                         )
 
+                        StatusKeyValueRow(
+                            label = "Master App Power",
+                            value = if (isMasterPowerOn) "ON" else "OFF (0% Battery • No Background)",
+                            valueColor = if (isMasterPowerOn) AegisSuccessGreen else AegisWarningAmber
+                        )
                         StatusKeyValueRow(
                             label = "AI Model",
                             value = if (telemetry.isModelLoaded) telemetry.loadedModelName ?: "Loaded" else "Not Loaded",

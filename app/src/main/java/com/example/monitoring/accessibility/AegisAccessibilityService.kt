@@ -39,6 +39,11 @@ class AegisAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        if (!container.preferences.masterPowerEnabled.value) {
+            Log.i(TAG, "Master Power is OFF — disconnecting AegisAccessibilityService immediately.")
+            disableSelf()
+            return
+        }
         instance = this
         Log.i(TAG, "AegisAccessibilityService connected with Chrome Web Guard, anti-tamper & app eviction.")
         container.protectionRepository.updateAccessibilityState(true)
@@ -59,6 +64,10 @@ class AegisAccessibilityService : AccessibilityService() {
             ?: safeGetRootPackageName()
             ?: return
         val prefs = container.preferences
+        if (!prefs.masterPowerEnabled.value) {
+            disableSelf()
+            return
+        }
         val now = SystemClock.uptimeMillis()
 
         // 1. Whole-Device Lockdown Enforcement
@@ -754,6 +763,16 @@ class AegisAccessibilityService : AccessibilityService() {
         private var instance: AegisAccessibilityService? = null
 
         fun isServiceRunning(): Boolean = instance != null
+
+        fun disableServiceIfRunning() {
+            val service = instance ?: return
+            try {
+                service.disableSelf()
+                Log.i(TAG, "Disabled AegisAccessibilityService via Master Power OFF.")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed disabling AegisAccessibilityService: ${e.message}")
+            }
+        }
 
         fun performEmergencyHomeAction(): Boolean {
             val service = instance

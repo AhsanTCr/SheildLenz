@@ -32,15 +32,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -80,7 +77,6 @@ import com.example.ui.components.CyberTopBar
 import com.example.ui.components.SeverityTag
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.components.ThreatCategoryBadge
-import com.example.ui.components.rememberMasterKeyGate
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
@@ -126,9 +122,7 @@ fun SecurityHistoryScreen(
     val totalDetections by historyRepo.getTotalDetectionsCount().collectAsState(initial = 0)
     val blockedAppCount by historyRepo.getBlockedAppCount().collectAsState(initial = 0)
     val scope = rememberCoroutineScope()
-    var showClearDialog by remember { mutableStateOf(false) }
     var isHistoryExpanded by remember { mutableStateOf(false) }
-    val masterKeyGate = rememberMasterKeyGate(preferences)
 
     val blockedAppsBreakdown = remember(incidents) {
         incidents
@@ -181,22 +175,6 @@ fun SecurityHistoryScreen(
                                 contentDescription = "Export Audit Report",
                                 tint = AegisPrimaryCyan
                             )
-                        }
-                        if (incidents.isNotEmpty()) {
-                            IconButton(
-                                onClick = {
-                                    masterKeyGate.request("clear security history") {
-                                        showClearDialog = true
-                                    }
-                                },
-                                modifier = Modifier.testTag("clear_history_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.DeleteSweep,
-                                    contentDescription = "Clear History",
-                                    tint = AegisDangerRed
-                                )
-                            }
                         }
                     }
                 )
@@ -525,49 +503,6 @@ fun SecurityHistoryScreen(
                         }
                     }
                 }
-            }
-
-            if (showClearDialog) {
-                AlertDialog(
-                    onDismissRequest = { showClearDialog = false },
-                    containerColor = AegisChampagneSoft,
-                    titleContentColor = AegisTextPrimary,
-                    textContentColor = AegisTextSecondary,
-                    title = { Text(text = "Clear Security Audit Log?", fontFamily = ClassicalDisplayFont, fontWeight = FontWeight.Bold) },
-                    text = {
-                        Text(
-                            text = "This will permanently purge all recorded detection history and threat timestamps from local SQLite storage.",
-                            fontFamily = ClassicalBodyFont
-                        )
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    historyRepo.clearHistory()
-                                    showClearDialog = false
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = AegisChampagneGold,
-                                contentColor = AegisOnPrimaryWhite
-                            )
-                        ) {
-                            Text(text = "PURGE LOG", fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        OutlinedButton(
-                            onClick = { showClearDialog = false },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = AegisCardBackground,
-                                contentColor = AegisTextPrimary
-                            )
-                        ) {
-                            Text(text = "CANCEL", fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                )
             }
         }
     }

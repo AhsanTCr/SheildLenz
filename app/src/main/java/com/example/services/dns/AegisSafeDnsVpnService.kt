@@ -46,6 +46,11 @@ class AegisSafeDnsVpnService : VpnService() {
     private var isRunningInternal: Boolean = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!container.preferences.masterPowerEnabled.value) {
+            stopVpnTunnel()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> {
                 stopVpnTunnel()
@@ -334,6 +339,7 @@ class AegisSafeDnsVpnService : VpnService() {
         val lastBlockedDomain: StateFlow<String?> = _lastBlockedDomain.asStateFlow()
 
         fun start(context: Context) {
+            if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) return
             val intent = Intent(context, AegisSafeDnsVpnService::class.java).apply {
                 action = ACTION_START
             }
@@ -345,12 +351,15 @@ class AegisSafeDnsVpnService : VpnService() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, AegisSafeDnsVpnService::class.java).apply {
-                action = ACTION_STOP
+            val appContext = context.applicationContext
+            if (_isTunnelActive.value) {
+                val intent = Intent(appContext, AegisSafeDnsVpnService::class.java).apply {
+                    action = ACTION_STOP
+                }
+                runCatching { appContext.startService(intent) }
             }
-            try {
-                context.startService(intent)
-            } catch (_: Exception) {
+            runCatching {
+                appContext.stopService(Intent(appContext, AegisSafeDnsVpnService::class.java))
             }
         }
     }

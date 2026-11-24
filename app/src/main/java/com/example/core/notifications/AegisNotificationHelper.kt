@@ -18,6 +18,17 @@ object AegisNotificationHelper {
         }
     }
 
+    fun cancelAllProtectionNotifications(context: Context) {
+        val nm = context.getSystemService(NotificationManager::class.java) ?: return
+        runCatching {
+            nm.cancel(1001) // AegisProtectionService
+            nm.cancel(1002) // AegisLockdownService
+            nm.cancel(REBOOT_SHIELD_NOTIFICATION_ID)
+            nm.cancel(PAUSED_ALERT_NOTIFICATION_ID)
+            nm.cancel(1009) // AegisSafeDnsVpnService
+        }
+    }
+
     fun ensureSilentChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = context.getSystemService(NotificationManager::class.java) ?: return

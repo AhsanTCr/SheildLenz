@@ -34,6 +34,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import android.widget.Toast
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Code
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
@@ -63,6 +65,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -92,9 +96,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
 import com.example.R
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.update.ApkDownloadState
 import com.example.core.update.UpdateChecker
 import com.example.data.preferences.AegisPreferences
+import com.example.services.protection.MasterPowerController
 import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.AhsanTcrBrandingPill
 import com.example.ui.components.CyberCard
@@ -102,15 +108,22 @@ import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
 import com.example.ui.components.LuxurySectionHeader
 import com.example.ui.components.SheildlenzBackdrop
-import com.example.ui.settings.AdvancedPrecisionLabSection
-import com.example.ui.settings.AppVersionSecretCard
+import com.example.ui.components.rememberMasterKeyGate
+import com.example.ui.settings.LanguageSelectorSection
+import com.example.ui.settings.TouchSoundsCard
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisElectricBlue
+import com.example.ui.theme.AegisEmeraldBorder
+import com.example.ui.theme.AegisEmeraldSoft
+import com.example.ui.theme.AegisEmeraldSurface
+import com.example.ui.theme.AegisEmeraldTeal
 import com.example.ui.theme.AegisGoldBorder
 import com.example.ui.theme.AegisGoldBright
+import com.example.ui.theme.AegisGoldDeepTint
+import com.example.ui.theme.AegisIndigo
 import com.example.ui.theme.AegisLavenderBorder
 import com.example.ui.theme.AegisLavenderLight
 import com.example.ui.theme.AegisLavenderSoft
@@ -120,6 +133,7 @@ import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
 import com.example.ui.theme.AegisSkySoft
 import com.example.ui.theme.AegisSuccessGreen
+import com.example.ui.theme.AegisTextMuted
 import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.AegisTextSecondary
 import com.example.ui.theme.AegisWarningAmber
@@ -180,6 +194,9 @@ private val SheildlenzFaqs = listOf(
 fun AboutScreen(
     preferences: AegisPreferences
 ) {
+    val context = LocalContext.current
+    val masterKeyGate = rememberMasterKeyGate(preferences)
+    val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
     var expandedFaqIndex by remember { mutableIntStateOf(0) }
 
     SheildlenzBackdrop(modifier = Modifier.testTag("about_screen_root")) {
@@ -199,6 +216,133 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Top Minimalist Shutdown Switch Pill/Card (0% Battery / Zero Background Process Switch)
+                item {
+                    val cardShape = RoundedCornerShape(24.dp)
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(max = 560.dp)
+                            .shadow(
+                                elevation = if (isMasterPowerOn) 8.dp else 4.dp,
+                                shape = cardShape,
+                                ambientColor = (if (isMasterPowerOn) AegisEmeraldTeal else AegisChampagneGold).copy(alpha = 0.18f),
+                                spotColor = (if (isMasterPowerOn) AegisPrimaryCyan else AegisWarningAmber).copy(alpha = 0.16f)
+                            )
+                            .testTag("master_power_card"),
+                        shape = cardShape,
+                        color = Color.Transparent,
+                        border = BorderStroke(
+                            width = 1.4.dp,
+                            color = if (isMasterPowerOn) AegisEmeraldBorder else AegisGoldBorder
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        colors = if (isMasterPowerOn) {
+                                            listOf(AegisEmeraldSoft, AegisEmeraldSurface)
+                                        } else {
+                                            listOf(AegisChampagneSoft, AegisGoldDeepTint)
+                                        }
+                                    )
+                                )
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(
+                                            brush = Brush.linearGradient(
+                                                colors = if (isMasterPowerOn) {
+                                                    listOf(AegisEmeraldTeal, AegisPrimaryCyan)
+                                                } else {
+                                                    listOf(AegisChampagneGold, AegisWarningAmber)
+                                                }
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PowerSettingsNew,
+                                        contentDescription = if (isMasterPowerOn) "Shutdown Switch On" else "Shutdown Switch Off",
+                                        tint = AegisOnPrimaryWhite,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Shutdown",
+                                        color = AegisTextPrimary,
+                                        fontSize = 16.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalDisplayFont,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = if (isMasterPowerOn) {
+                                            "On • App running normally"
+                                        } else {
+                                            "Off • 0% background battery"
+                                        },
+                                        color = if (isMasterPowerOn) AegisEmeraldTeal else AegisWarningAmber,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = ClassicalBodyFont,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Switch(
+                                checked = isMasterPowerOn,
+                                onCheckedChange = { targetEnabled ->
+                                    if (!targetEnabled) {
+                                        masterKeyGate.request("shutdown app to 0% battery") {
+                                            MasterPowerController.setMasterPowerEnabled(context, false)
+                                            Toast.makeText(
+                                                context,
+                                                "App shutdown complete (0% background battery).",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    } else {
+                                        AegisSoundEffects.playModeOn(context)
+                                        MasterPowerController.setMasterPowerEnabled(context, true)
+                                        Toast.makeText(
+                                            context,
+                                            "Sheildlenz powered back ON.",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = AegisOnPrimaryWhite,
+                                    checkedTrackColor = AegisEmeraldTeal,
+                                    uncheckedThumbColor = AegisOnPrimaryWhite,
+                                    uncheckedTrackColor = AegisWarningAmber.copy(alpha = 0.72f),
+                                    uncheckedBorderColor = AegisGoldBorder
+                                ),
+                                modifier = Modifier.testTag("master_power_switch")
+                            )
+                        }
+                    }
+                }
+
                 // 1. Charming Luminous Hero Showcase Card
                 item {
                     val heroShape = RoundedCornerShape(30.dp)
@@ -356,24 +500,30 @@ fun AboutScreen(
                     }
                 }
 
-                // 2. Build, Precision Lab & Live Release Channel
+                // 2. Live Release Channel (Update System untouched) & Open Preferences
                 item {
                     Column(modifier = Modifier.widthIn(max = 560.dp)) {
-                        LuxurySectionHeader(title = "Build & Live Updates", accentColor = AegisPurple)
+                        LuxurySectionHeader(title = "Live Updates", accentColor = AegisPurple)
                         Spacer(modifier = Modifier.height(8.dp))
-                        AppVersionSecretCard(preferences = preferences)
-                    }
-                }
-
-                item {
-                    Box(modifier = Modifier.widthIn(max = 560.dp)) {
-                        AdvancedPrecisionLabSection(preferences = preferences)
-                    }
-                }
-
-                item {
-                    Box(modifier = Modifier.widthIn(max = 560.dp)) {
                         AppUpdateCheckerCard()
+                    }
+                }
+
+                // 3. Open User Preferences (Sounds & Language — no PIN needed)
+                item {
+                    Column(
+                        modifier = Modifier.widthIn(max = 560.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        LuxurySectionHeader(title = "Preferences", accentColor = AegisIndigo)
+                        TouchSoundsCard(
+                            preferences = preferences,
+                            compactPillMode = false
+                        )
+                        LanguageSelectorSection(
+                            preferences = preferences,
+                            compactPillMode = false
+                        )
                     }
                 }
 

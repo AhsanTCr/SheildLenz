@@ -171,10 +171,7 @@ fun WellbeingHubScreen(
                                             vpnLauncher.launch(prep)
                                         }
                                     } else {
-                                        masterKeyGate.request("disable Safe DNS") {
-                                            preferences.setSafeDnsEnabled(false)
-                                            AegisSafeDnsVpnService.stop(context)
-                                        }
+                                        Toast.makeText(context, "Safe DNS active • Disable in Edits", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 modifier = Modifier
@@ -189,9 +186,7 @@ fun WellbeingHubScreen(
                                 active = bedtimeEnabled,
                                 onClick = {
                                     if (bedtimeEnabled) {
-                                        masterKeyGate.request("disable Bedtime Lock") {
-                                            preferences.setBedtimeEnabled(false)
-                                        }
+                                        Toast.makeText(context, "Bedtime active • Disable in Edits", Toast.LENGTH_SHORT).show()
                                     } else {
                                         AegisSoundEffects.playModeOn(context)
                                         preferences.setBedtimeEnabled(true)
@@ -224,16 +219,12 @@ fun WellbeingHubScreen(
                                             preferences.setWarningOnlyNoLockout(false)
                                             preferences.setWarningThresholdCount(0)
                                         }
-                                        warningThreshold >= 3 -> {
-                                            masterKeyGate.request("enable Warn-Only (no lockout)") {
-                                                preferences.setWarningOnlyNoLockout(true)
-                                            }
+                                        warningThreshold > 0 -> {
+                                            AegisSoundEffects.playModeOn(context)
+                                            preferences.setWarningThresholdCount(0)
                                         }
                                         else -> {
-                                            val next = warningThreshold + 1
-                                            masterKeyGate.request("increase warnings before lock") {
-                                                preferences.setWarningThresholdCount(next)
-                                            }
+                                            Toast.makeText(context, "0 Warnings Instant Lock • Adjust in Edits", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
@@ -262,7 +253,8 @@ fun WellbeingHubScreen(
                         preferences = preferences,
                         masterKeyGate = masterKeyGate,
                         initiallyExpanded = true,
-                        compactPillMode = false
+                        compactPillMode = false,
+                        allowDisableOrWeaken = false
                     )
                 }
 
@@ -394,7 +386,8 @@ fun WellbeingHubScreen(
                     BedtimeAndBudgetsSection(
                         preferences = preferences,
                         masterKeyGate = masterKeyGate,
-                        initiallyExpanded = true
+                        initiallyExpanded = true,
+                        allowDisableOrWeaken = false
                     )
                 }
 
@@ -403,7 +396,8 @@ fun WellbeingHubScreen(
                     WarningThresholdsSection(
                         preferences = preferences,
                         masterKeyGate = masterKeyGate,
-                        initiallyExpanded = true
+                        initiallyExpanded = true,
+                        allowDisableOrWeaken = false
                     )
                 }
             }

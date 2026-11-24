@@ -9,6 +9,7 @@ import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.widget.Toast
 import java.util.Locale
 import androidx.activity.ComponentActivity
@@ -75,15 +76,20 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         GoogleSignInManager.ensureFirebaseInitialized(this)
         handlePairingDeepLink(intent)
-        container.parentChildSyncController.ensureStarted()
-        lifecycleScope.launch {
-            GoogleSignInManager.attemptAutoSignIn(
-                context = this@MainActivity,
-                credentialManager = credentialManager,
-                onAuthSuccess = { container.parentChildSyncController.ensureStarted() }
-            )
+        if (container.preferences.masterPowerEnabled.value) {
+            container.parentChildSyncController.ensureStarted()
+            lifecycleScope.launch {
+                GoogleSignInManager.attemptAutoSignIn(
+                    context = this@MainActivity,
+                    credentialManager = credentialManager,
+                    onAuthSuccess = { container.parentChildSyncController.ensureStarted() }
+                )
+            }
+        } else {
+            com.example.services.protection.MasterPowerController.engageZeroBatteryShutdown(this, container)
         }
         AegisSoundEffects.setEnabled(container.preferences.touchSoundsEnabled.value)
+        AegisSoundEffects.setAutoSelectorEnabled(container.preferences.autoSoundSelectorEnabled.value)
         AegisSoundEffects.prewarm(this.applicationContext)
         // Silently check latest GitHub release vs current app version on startup & pre-download at 100 KB/s
         UpdateChecker.startCheckForUpdates(this, showUpToDatePopup = false)
@@ -132,6 +138,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestStartProtection() {
+        if (!container.preferences.masterPowerEnabled.value) {
+            Toast.makeText(this, "Master Power is OFF. Turn ON Main Switch in About first.", Toast.LENGTH_SHORT).show()
+            return
+        }
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
         if (projectionManager != null) {
             container.preferences.beginAuthorizedExternalFlow()
@@ -177,7 +187,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        container.preferences.consumeAuthorizedExternalFlow()
         container.protectionRepository.refreshPermissionHealth()
+        if (!container.preferences.masterPowerEnabled.value) {
+            com.example.services.protection.MasterPowerController.engageZeroBatteryShutdown(this, container)
+            UpdateChecker.retryPendingInstallIfAuthorized(this)
+            return
+        }
         container.parentChildSyncController.ensureStarted()
         UpdateChecker.retryPendingInstallIfAuthorized(this)
         if (container.preferences.isLockdownActive()) {
@@ -194,9 +210,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Require Guardian re-authentication whenever the app leaves the foreground
+        // Require Guardian re-authentication whenever screen turns off or app leaves foreground
         if (!isChangingConfigurations) {
-            container.preferences.onAppBackgrounded()
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val isScreenOff = powerManager?.isInteractive == false
+            container.preferences.onAppBackgrounded(forceLock = isScreenOff)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (!isChangingConfigurations) {
+            container.preferences.lockGuardianSession()
         }
     }
 

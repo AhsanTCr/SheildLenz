@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Warning
@@ -103,11 +104,27 @@ fun BlockOverlayScreen(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val doubleTimeMinutes = remember(preferences) { preferences.getDoubleTimeDurationMinutes() }
+    val lockdownMinutes by preferences.lockdownDurationMinutes.collectAsState()
+    val doubleTimeMultiplier by preferences.doubleTimeMultiplier.collectAsState()
+    val doubleTimeMinutes = remember(lockdownMinutes, doubleTimeMultiplier) {
+        (lockdownMinutes * doubleTimeMultiplier).toInt().coerceAtLeast(1)
+    }
+    val stage1Label = remember(lockdownMinutes) { AegisPreferences.formatMinutesLabel(lockdownMinutes) }
     val doubleTimeLabel = remember(doubleTimeMinutes) { AegisPreferences.formatMinutesLabel(doubleTimeMinutes) }
     val challengeCode by preferences.recoveryChallengeCode.collectAsState()
     val savedEmail by preferences.guardianEmail.collectAsState()
     val discreetMode by preferences.discreetBlockingScreenMode.collectAsState()
+    val customHeadline by preferences.blockCustomHeadline.collectAsState()
+    val customMessage by preferences.blockCustomMessage.collectAsState()
+    val showTimer by preferences.blockShowTimer.collectAsState()
+    val showAppBadge by preferences.blockShowAppBadge.collectAsState()
+    val showQrUnlock by preferences.blockShowQrUnlock.collectAsState()
+    val showQuickActions by preferences.blockShowQuickActions.collectAsState()
+    val showReturnHome by preferences.blockShowReturnHome.collectAsState()
+    val showEmergencyDialer by preferences.showEmergencyDialerOnLockdown.collectAsState()
+
+    val effectiveReturnHome = showReturnHome || (!showQuickActions && !showEmergencyDialer)
+
     var showPinDialog by remember { mutableStateOf(false) }
     var showForgotPinQr by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
@@ -116,7 +133,16 @@ fun BlockOverlayScreen(
     var pinError by remember { mutableStateOf<String?>(null) }
 
     BackHandler {
-        showPinDialog = true
+        if (showQuickActions || showQrUnlock) {
+            showPinDialog = true
+        } else {
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(homeIntent)
+            onDismiss()
+        }
     }
 
     val pulseTransition = rememberInfiniteTransition(label = "WarningPulse")
@@ -140,6 +166,17 @@ fun BlockOverlayScreen(
     val primaryAccent = if (discreetMode) Color(0xFF334155) else AegisPrimaryCyan
     val alertAccent = if (discreetMode) Color(0xFF475569) else AegisDangerRed
 
+    val resolvedHeadline = customHeadline.trim().ifBlank {
+        if (discreetMode) "Access Paused" else "Content Blocked"
+    }
+    val resolvedMessage = customMessage.trim().ifBlank {
+        if (discreetMode) {
+            "This page or application was paused automatically by system display policy rules."
+        } else {
+            "Visual content matching ${category.displayName} was identified on the active display. The screen has been obscured to uphold protection policies."
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -157,41 +194,44 @@ fun BlockOverlayScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(
-                        if (discreetMode) Color(0xFFE2E8F0)
-                        else AegisDangerRed.copy(alpha = 0.12f * pulseAlpha)
-                    )
-                    .border(
-                        1.dp,
-                        if (discreetMode) Color(0xFFCBD5E1)
-                        else AegisDangerRed.copy(alpha = 0.70f * pulseAlpha),
-                        RoundedCornerShape(50)
-                    )
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = if (discreetMode) Icons.Default.Lock else Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = alertAccent,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (discreetMode) "SYSTEM DISPLAY NOTICE" else "SHEILDLENZ INTERVENTION ACTIVE",
-                        color = alertAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalBodyFont,
-                        letterSpacing = 1.sp
-                    )
+            if (showAppBadge) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (discreetMode) Color(0xFFE2E8F0)
+                            else AegisDangerRed.copy(alpha = 0.12f * pulseAlpha)
+                        )
+                        .border(
+                            1.dp,
+                            if (discreetMode) Color(0xFFCBD5E1)
+                            else AegisDangerRed.copy(alpha = 0.70f * pulseAlpha),
+                            RoundedCornerShape(50)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("block_screen_app_badge")
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (discreetMode) Icons.Default.Lock else Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = alertAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (discreetMode) "SYSTEM DISPLAY NOTICE" else "SHEILDLENZ INTERVENTION ACTIVE",
+                            color = alertAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalBodyFont,
+                            letterSpacing = 1.sp
+                        )
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(22.dp))
+                Spacer(modifier = Modifier.height(22.dp))
+            }
 
             if (discreetMode) {
                 Box(
@@ -220,21 +260,25 @@ fun BlockOverlayScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             Text(
-                text = if (discreetMode) "Access Paused" else "Content Blocked",
+                text = resolvedHeadline,
                 color = headingColor,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = ClassicalDisplayFont
+                fontFamily = ClassicalDisplayFont,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.testTag("block_screen_headline")
             )
 
-            Text(
-                text = if (discreetMode) "System display filter is active" else "Inappropriate Visual Content Detected",
-                color = alertAccent,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = ClassicalBodyFont,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            if (showAppBadge) {
+                Text(
+                    text = if (discreetMode) "System display filter is active" else "Inappropriate Visual Content Detected",
+                    color = alertAccent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalBodyFont,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(18.dp))
 
@@ -252,104 +296,144 @@ fun BlockOverlayScreen(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = if (discreetMode) {
-                            "This page or application was paused automatically by system display policy rules."
-                        } else {
-                            "Visual content matching ${category.displayName} was identified on the active display. The screen has been obscured to uphold protection policies."
-                        },
+                        text = resolvedMessage,
                         color = bodyColor,
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center,
                         lineHeight = 19.sp,
-                        fontFamily = ClassicalBodyFont
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = if (discreetMode) "STATUS: PAUSED ($targetAppName)" else "TARGET: $targetAppName • ACTION: DISPLAY SHIELDED",
-                        color = if (discreetMode) Color(0xFF64748B) else AegisTextMuted,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = if (discreetMode) {
-                            "Enter access code or wait ${doubleTimeLabel.uppercase()} cooldown."
-                        } else {
-                            "POLICY: Master Code or ${doubleTimeLabel.uppercase()} Double-Time Wait • Shield Remains ON"
-                        },
-                        color = primaryAccent,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalBodyFont,
-                        textAlign = TextAlign.Center
+                        modifier = Modifier.testTag("block_screen_message")
                     )
+
+                    if (showAppBadge) {
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = if (discreetMode) "STATUS: PAUSED ($targetAppName)" else "TARGET: $targetAppName • ACTION: DISPLAY SHIELDED",
+                            color = if (discreetMode) Color(0xFF64748B) else AegisTextMuted,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.testTag("block_screen_target_label")
+                        )
+                    }
+
+                    if (showTimer) {
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = if (discreetMode) {
+                                "Cooldown: ${stage1Label.uppercase()} • Extended wait: ${doubleTimeLabel.uppercase()}"
+                            } else {
+                                "TIMER: ${stage1Label.uppercase()} Lock or ${doubleTimeLabel.uppercase()} Double-Time Wait • Shield Remains ON"
+                            },
+                            color = primaryAccent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalBodyFont,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.testTag("block_screen_timer_badge")
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Button(
-                onClick = {
-                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_HOME)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    context.startActivity(homeIntent)
-                    onDismiss()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("block_screen_return_home_button"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = primaryAccent,
-                    contentColor = AegisOnPrimaryWhite
-                ),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(imageVector = Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "RETURN TO HOME SCREEN",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalBodyFont,
-                    letterSpacing = 0.8.sp
-                )
+            if (effectiveReturnHome) {
+                Button(
+                    onClick = {
+                        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                            addCategory(Intent.CATEGORY_HOME)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        context.startActivity(homeIntent)
+                        onDismiss()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .testTag("block_screen_return_home_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = primaryAccent,
+                        contentColor = AegisOnPrimaryWhite
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "RETURN TO HOME SCREEN",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont,
+                        letterSpacing = 0.8.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            if (showQuickActions) {
+                Button(
+                    onClick = {
+                        pinInput = ""
+                        pinError = null
+                        showForgotPinQr = false
+                        showPinDialog = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("block_screen_guardian_override_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (discreetMode) Color(0xFFE2E8F0) else AegisLavenderSoft,
+                        contentColor = if (discreetMode) Color(0xFF334155) else AegisPurple
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (discreetMode) "ENTER ACCESS CODE" else "MASTER CODE OVERRIDE",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont,
+                        letterSpacing = 0.6.sp
+                    )
+                }
 
-            Button(
-                onClick = {
-                    pinInput = ""
-                    pinError = null
-                    showPinDialog = true
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("block_screen_guardian_override_button"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (discreetMode) Color(0xFFE2E8F0) else AegisLavenderSoft,
-                    contentColor = if (discreetMode) Color(0xFF334155) else AegisPurple
-                ),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (discreetMode) "ENTER ACCESS CODE" else "MASTER CODE OVERRIDE",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalBodyFont,
-                    letterSpacing = 0.6.sp
-                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            if (showEmergencyDialer) {
+                OutlinedButton(
+                    onClick = {
+                        val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        runCatching { context.startActivity(dialIntent) }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("block_screen_emergency_dialer_button"),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color.White.copy(alpha = 0.72f),
+                        contentColor = if (discreetMode) Color(0xFF334155) else AegisWarningAmber
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "EMERGENCY DIALER",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont,
+                        letterSpacing = 0.6.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -357,7 +441,7 @@ fun BlockOverlayScreen(
 
         if (showPinDialog) {
             val verifyMasterCode: () -> Unit = {
-                if (showForgotPinQr) {
+                if (showForgotPinQr && showQrUnlock) {
                     val cleanNewPin = newPinInput.trim()
                     if (cleanNewPin.length !in 4..8 || !cleanNewPin.all { it.isDigit() }) {
                         pinError = "Enter a new 4–8 digit PIN."
@@ -395,7 +479,7 @@ fun BlockOverlayScreen(
                 title = {
                     Text(
                         text = when {
-                            showForgotPinQr -> "Recovery Reset"
+                            showForgotPinQr && showQrUnlock -> "Recovery Reset"
                             discreetMode -> "Access Code Required"
                             else -> "Master Code Verification"
                         },
@@ -408,7 +492,7 @@ fun BlockOverlayScreen(
                         modifier = Modifier.verticalScroll(rememberScrollState()),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        if (showForgotPinQr) {
+                        if (showForgotPinQr && showQrUnlock) {
                             val pinQrPayload = remember(challengeCode, savedEmail) {
                                 preferences.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
                             }
@@ -531,46 +615,50 @@ fun BlockOverlayScreen(
                                         }
                                     }
                             )
-                            TextButton(
-                                onClick = {
-                                    showForgotPinQr = true
-                                    pinError = null
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.End)
-                                    .testTag("block_screen_forgot_pin_button")
-                            ) {
-                                Text("Forgot PIN?", color = AegisPurple, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            if (showQrUnlock) {
+                                TextButton(
+                                    onClick = {
+                                        showForgotPinQr = true
+                                        pinError = null
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.End)
+                                        .testTag("block_screen_forgot_pin_button")
+                                ) {
+                                    Text("Forgot PIN?", color = AegisPurple, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            OutlinedButton(
-                                onClick = {
-                                    preferences.engageFullDeviceLockdown(
-                                        appName = targetAppName,
-                                        packageName = "",
-                                        categoryName = category.displayName,
-                                        details = "Double-Time Wait ($doubleTimeLabel) selected because Master Code was unknown."
+                            if (showQuickActions) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        preferences.engageFullDeviceLockdown(
+                                            appName = targetAppName,
+                                            packageName = "",
+                                            categoryName = category.displayName,
+                                            details = "Double-Time Wait ($doubleTimeLabel) selected because Master Code was unknown."
+                                        )
+                                        preferences.engageDoubleTimeLockdown()
+                                        AegisLockdownService.start(context)
+                                        showPinDialog = false
+                                        onDismiss()
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = AegisChampagneGold.copy(alpha = 0.12f),
+                                        contentColor = AegisWarningAmber
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("block_screen_double_time_button")
+                                ) {
+                                    Text(
+                                        text = "DON'T KNOW CODE? WAIT DOUBLE TIME (${doubleTimeLabel.uppercase()})",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center
                                     )
-                                    preferences.engageDoubleTimeLockdown()
-                                    AegisLockdownService.start(context)
-                                    showPinDialog = false
-                                    onDismiss()
-                                },
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = AegisChampagneGold.copy(alpha = 0.12f),
-                                    contentColor = AegisWarningAmber
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("block_screen_double_time_button")
-                            ) {
-                                Text(
-                                    text = "DON'T KNOW CODE? WAIT DOUBLE TIME (${doubleTimeLabel.uppercase()})",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center
-                                )
+                                }
                             }
                         }
                         if (pinError != null) {
@@ -594,7 +682,7 @@ fun BlockOverlayScreen(
                         )
                     ) {
                         Text(
-                            text = if (showForgotPinQr) "RESET & CONTINUE" else "VERIFY (SHIELD ON)",
+                            text = if (showForgotPinQr && showQrUnlock) "RESET & CONTINUE" else "VERIFY (SHIELD ON)",
                             fontWeight = FontWeight.Bold
                         )
                     }

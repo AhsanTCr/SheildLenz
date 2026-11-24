@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -47,7 +46,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -86,7 +84,6 @@ import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
 import com.example.ui.components.LuxurySectionHeader
 import com.example.ui.components.SheildlenzBackdrop
-import com.example.ui.components.rememberMasterKeyGate
 import com.example.ui.settings.InstalledAppEntry
 import com.example.ui.settings.loadInstalledLaunchableApps
 import com.example.ui.theme.AegisCardBackground
@@ -119,7 +116,6 @@ fun FocusSafetyHubScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val masterKeyGate = rememberMasterKeyGate(preferences)
 
     val studyModeEnabled by preferences.studyModeEnabled.collectAsState()
     val studySessionEndMillis by preferences.studySessionEndMillis.collectAsState()
@@ -285,9 +281,11 @@ fun FocusSafetyHubScreen(
                                     onClick = {
                                         AegisSoundEffects.playTap(context)
                                         if (isStudyActive && mins < studyDurationMinutes) {
-                                            masterKeyGate.request("shorten active Study Mode duration") {
-                                                preferences.setStudyDurationMinutes(mins)
-                                            }
+                                            Toast.makeText(
+                                                context,
+                                                "Extend time here or stop in Edits",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
                                         } else {
                                             preferences.setStudyDurationMinutes(mins)
                                         }
@@ -381,10 +379,9 @@ fun FocusSafetyHubScreen(
                             Button(
                                 onClick = {
                                     if (isStudyActive) {
-                                        masterKeyGate.request("end Study Session early") {
-                                            preferences.stopStudySession()
-                                            Toast.makeText(context, "Study session ended", Toast.LENGTH_SHORT).show()
-                                        }
+                                        AegisSoundEffects.playModeOn(context)
+                                        preferences.extendActiveStudySession(15)
+                                        Toast.makeText(context, "Study session extended +15m", Toast.LENGTH_SHORT).show()
                                     } else if (!PermissionHelper.hasOverlayPermission(context)) {
                                         showOverlayRequiredDialog = true
                                     } else {
@@ -398,23 +395,23 @@ fun FocusSafetyHubScreen(
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isStudyActive) AegisChampagneGold else AegisPurple,
+                                    containerColor = if (isStudyActive) AegisEmeraldTeal else AegisPurple,
                                     contentColor = AegisOnPrimaryWhite
                                 ),
                                 shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
                                     .weight(1f)
                                     .height(48.dp)
-                                    .testTag("focus_study_toggle_button")
+                                    .testTag(if (isStudyActive) "focus_study_extend_button" else "focus_study_toggle_button")
                             ) {
                                 Icon(
-                                    imageVector = if (isStudyActive) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                    imageVector = if (isStudyActive) Icons.Default.Add else Icons.Default.PlayArrow,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isStudyActive) "END EARLY" else "START STUDY",
+                                    text = if (isStudyActive) "EXTEND +15M" else "START STUDY",
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
@@ -491,9 +488,11 @@ fun FocusSafetyHubScreen(
                                 checked = smartSafeSearchEnabled,
                                 onCheckedChange = { next ->
                                     if (!next) {
-                                        masterKeyGate.request("disable Smart Safe Search") {
-                                            preferences.setSmartSafeSearchEnabled(false)
-                                        }
+                                        Toast.makeText(
+                                            context,
+                                            "Safe Search active • Turn off in Edits",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     } else {
                                         AegisSoundEffects.playModeOn(context)
                                         preferences.setSmartSafeSearchEnabled(true)
@@ -530,9 +529,11 @@ fun FocusSafetyHubScreen(
                                         )
                                         .clickable {
                                             if (packEnabled) {
-                                                masterKeyGate.request("turn off ${pack.title}") {
-                                                    preferences.toggleSafeSearchPack(pack.id)
-                                                }
+                                                Toast.makeText(
+                                                    context,
+                                                    "${pack.title} active • Disable in Edits",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
                                             } else {
                                                 AegisSoundEffects.playModeOn(context)
                                                 preferences.toggleSafeSearchPack(pack.id)
@@ -629,16 +630,11 @@ fun FocusSafetyHubScreen(
                                     customKeywords.sorted().forEach { kw ->
                                         Row(
                                             modifier = Modifier
-                                                .heightIn(min = 36.dp)
+                                                .heightIn(min = 32.dp)
                                                 .clip(RoundedCornerShape(50))
                                                 .background(AegisSurfaceElevated)
                                                 .border(1.dp, AegisCardBorder, RoundedCornerShape(50))
-                                                .clickable {
-                                                    masterKeyGate.request("remove blocked keyword '$kw'") {
-                                                        preferences.removeCustomBlockedKeyword(kw)
-                                                    }
-                                                }
-                                                .padding(start = 10.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
@@ -646,13 +642,6 @@ fun FocusSafetyHubScreen(
                                                 color = AegisTextPrimary,
                                                 fontSize = 11.5.sp,
                                                 fontWeight = FontWeight.SemiBold
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "Remove $kw",
-                                                tint = AegisWarningAmber,
-                                                modifier = Modifier.size(14.dp)
                                             )
                                         }
                                     }
@@ -800,7 +789,7 @@ fun FocusSafetyHubScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                            Column(modifier = Modifier.fillMaxWidth()) {
                                                 Text(
                                                     text = label,
                                                     color = AegisTextPrimary,
@@ -811,45 +800,12 @@ fun FocusSafetyHubScreen(
                                                     overflow = TextOverflow.Ellipsis
                                                 )
                                                 Text(
-                                                    text = "${usedMins}m used today / ${limitMins}m limit",
+                                                    text = "${usedMins}m used today / ${limitMins}m limit • Manage in Edits",
                                                     color = if (usedMins >= limitMins) AegisWarningAmber else AegisEmeraldTeal,
                                                     fontSize = 11.5.sp,
                                                     fontWeight = FontWeight.SemiBold,
                                                     fontFamily = ClassicalBodyFont
                                                 )
-                                            }
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        masterKeyGate.request("extend $label by +15m") {
-                                                            preferences.grantTemporaryBudgetExtension(pkg, 15)
-                                                            Toast.makeText(context, "+15m granted for $label", Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    },
-                                                    shape = RoundedCornerShape(10.dp),
-                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                                    modifier = Modifier.height(48.dp)
-                                                ) {
-                                                    Text("+15m", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                                IconButton(
-                                                    onClick = {
-                                                        masterKeyGate.request("remove budget for $label") {
-                                                            preferences.removeAppTimeBudget(pkg)
-                                                        }
-                                                    },
-                                                    modifier = Modifier.size(48.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "Remove limit for $label",
-                                                        tint = AegisWarningAmber,
-                                                        modifier = Modifier.size(18.dp)
-                                                    )
-                                                }
                                             }
                                         }
                                         Spacer(modifier = Modifier.height(6.dp))
@@ -964,9 +920,11 @@ fun FocusSafetyHubScreen(
                                         )
                                         .clickable {
                                             if (isStudyActive && !allowed) {
-                                                masterKeyGate.request("allow ${app.label} during active Study Mode") {
-                                                    preferences.toggleStudyAllowedPackage(app.packageName)
-                                                }
+                                                Toast.makeText(
+                                                    context,
+                                                    "Add study apps in Edits during active session",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
                                             } else {
                                                 preferences.toggleStudyAllowedPackage(app.packageName)
                                             }
@@ -1198,10 +1156,11 @@ fun FocusSafetyHubScreen(
                         val target = selectedPkg ?: return@Button
                         val currentLimit = appTimeBudgets[target]
                         if (currentLimit != null && selectedMinutes > currentLimit) {
-                            masterKeyGate.request("raise limit for $selectedLabel to ${selectedMinutes}m") {
-                                preferences.setAppTimeBudget(target, selectedMinutes)
-                                showBudgetPickerDialog = false
-                            }
+                            Toast.makeText(
+                                context,
+                                "Limit active (${currentLimit}m) • Raise in Edits",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         } else {
                             preferences.setAppTimeBudget(target, selectedMinutes)
                             showBudgetPickerDialog = false

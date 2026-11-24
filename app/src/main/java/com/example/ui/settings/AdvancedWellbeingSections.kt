@@ -126,7 +126,8 @@ internal fun SafeDnsAndBlocklistSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState,
     initiallyExpanded: Boolean = false,
-    compactPillMode: Boolean = true
+    compactPillMode: Boolean = true,
+    allowDisableOrWeaken: Boolean = true
 ) {
     val context = LocalContext.current
     val safeDnsEnabled by preferences.safeDnsEnabled.collectAsState()
@@ -169,6 +170,8 @@ internal fun SafeDnsAndBlocklistSection(
                 preferences.beginAuthorizedExternalFlow()
                 vpnPermissionLauncher.launch(prepIntent)
             }
+        } else if (!allowDisableOrWeaken) {
+            Toast.makeText(context, "Safe DNS active • Disable in Edits", Toast.LENGTH_SHORT).show()
         } else {
             masterKeyGate.request("disable Safe DNS filter") {
                 preferences.setSafeDnsEnabled(false)
@@ -379,10 +382,14 @@ internal fun SafeDnsAndBlocklistSection(
                 blockedDomains.forEach { domain ->
                     BlocklistTokenChip(
                         text = domain,
-                        onRemove = {
-                            masterKeyGate.request("remove blocked domain $domain") {
-                                preferences.removeCustomBlockedDomain(domain)
+                        onRemove = if (allowDisableOrWeaken) {
+                            {
+                                masterKeyGate.request("remove blocked domain $domain") {
+                                    preferences.removeCustomBlockedDomain(domain)
+                                }
                             }
+                        } else {
+                            null
                         }
                     )
                 }
@@ -441,10 +448,14 @@ internal fun SafeDnsAndBlocklistSection(
                 blockedKeywords.forEach { kw ->
                     BlocklistTokenChip(
                         text = kw,
-                        onRemove = {
-                            masterKeyGate.request("remove blocked keyword $kw") {
-                                preferences.removeCustomBlockedKeyword(kw)
+                        onRemove = if (allowDisableOrWeaken) {
+                            {
+                                masterKeyGate.request("remove blocked keyword $kw") {
+                                    preferences.removeCustomBlockedKeyword(kw)
+                                }
                             }
+                        } else {
+                            null
                         }
                     )
                 }
@@ -456,14 +467,14 @@ internal fun SafeDnsAndBlocklistSection(
 @Composable
 private fun BlocklistTokenChip(
     text: String,
-    onRemove: () -> Unit
+    onRemove: (() -> Unit)?
 ) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(AegisSurfaceElevated)
             .border(1.dp, AegisLavenderBorder, RoundedCornerShape(50))
-            .padding(start = 10.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+            .padding(start = 10.dp, end = if (onRemove != null) 4.dp else 10.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -473,16 +484,18 @@ private fun BlocklistTokenChip(
             fontWeight = FontWeight.SemiBold,
             fontFamily = FontFamily.Monospace
         )
-        IconButton(
-            onClick = onRemove,
-            modifier = Modifier.size(30.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Remove $text",
-                tint = AegisWarningAmber,
-                modifier = Modifier.size(14.dp)
-            )
+        if (onRemove != null) {
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(30.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Remove $text",
+                    tint = AegisWarningAmber,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
         }
     }
 }
@@ -497,7 +510,8 @@ internal fun BedtimeAndBudgetsSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState,
     initiallyExpanded: Boolean = false,
-    compactPillMode: Boolean = true
+    compactPillMode: Boolean = true,
+    allowDisableOrWeaken: Boolean = true
 ) {
     val context = LocalContext.current
     val bedtimeEnabled by preferences.bedtimeEnabled.collectAsState()
@@ -544,8 +558,12 @@ internal fun BedtimeAndBudgetsSection(
         checked = bedtimeEnabled,
         onCheckedChange = { enable ->
             if (!enable) {
-                masterKeyGate.request("disable Bedtime Lock") {
-                    preferences.setBedtimeEnabled(false)
+                if (!allowDisableOrWeaken) {
+                    Toast.makeText(context, "Bedtime active • Disable in Edits", Toast.LENGTH_SHORT).show()
+                } else {
+                    masterKeyGate.request("disable Bedtime Lock") {
+                        preferences.setBedtimeEnabled(false)
+                    }
                 }
             } else {
                 AegisSoundEffects.playModeOn(context)
@@ -561,54 +579,64 @@ internal fun BedtimeAndBudgetsSection(
         dialogTitle = stringResource(R.string.section_bedtime_budgets)
     ) {
         if (bedtimeEnabled) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                listOf(
-                    Triple("9P–7A", 21 * 60, 7 * 60),
-                    Triple("10P–6A", 22 * 60, 6 * 60),
-                    Triple("11P–7A", 23 * 60, 7 * 60)
-                ).forEach { (label, s, e) ->
-                    val isSelected = bedtimeStart == s && bedtimeEnd == e
-                    OutlinedButton(
-                        onClick = {
-                            preferences.setBedtimeWindow(s, e)
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isSelected) AegisEmeraldTeal else AegisCardBackground,
-                            contentColor = if (isSelected) AegisOnPrimaryWhite else AegisTextPrimary
-                        ),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                    ) {
-                        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            if (allowDisableOrWeaken) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        Triple("9P–7A", 21 * 60, 7 * 60),
+                        Triple("10P–6A", 22 * 60, 6 * 60),
+                        Triple("11P–7A", 23 * 60, 7 * 60)
+                    ).forEach { (label, s, e) ->
+                        val isSelected = bedtimeStart == s && bedtimeEnd == e
+                        OutlinedButton(
+                            onClick = {
+                                preferences.setBedtimeWindow(s, e)
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSelected) AegisEmeraldTeal else AegisCardBackground,
+                                contentColor = if (isSelected) AegisOnPrimaryWhite else AegisTextPrimary
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                ScheduleHourStepper(
-                    label = "Bedtime",
-                    minuteOfDay = bedtimeStart,
-                    onMinusHour = { preferences.setBedtimeWindow((bedtimeStart - 60 + 1440) % 1440, bedtimeEnd) },
-                    onPlusHour = { preferences.setBedtimeWindow((bedtimeStart + 60) % 1440, bedtimeEnd) },
-                    modifier = Modifier.weight(1f)
-                )
-                ScheduleHourStepper(
-                    label = "Wake",
-                    minuteOfDay = bedtimeEnd,
-                    onMinusHour = { preferences.setBedtimeWindow(bedtimeStart, (bedtimeEnd - 60 + 1440) % 1440) },
-                    onPlusHour = { preferences.setBedtimeWindow(bedtimeStart, (bedtimeEnd + 60) % 1440) },
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ScheduleHourStepper(
+                        label = "Bedtime",
+                        minuteOfDay = bedtimeStart,
+                        onMinusHour = { preferences.setBedtimeWindow((bedtimeStart - 60 + 1440) % 1440, bedtimeEnd) },
+                        onPlusHour = { preferences.setBedtimeWindow((bedtimeStart + 60) % 1440, bedtimeEnd) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ScheduleHourStepper(
+                        label = "Wake",
+                        minuteOfDay = bedtimeEnd,
+                        onMinusHour = { preferences.setBedtimeWindow(bedtimeStart, (bedtimeEnd - 60 + 1440) % 1440) },
+                        onPlusHour = { preferences.setBedtimeWindow(bedtimeStart, (bedtimeEnd + 60) % 1440) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            } else {
+                Text(
+                    text = "Active Window: $bedtimeWindowLabel • Modify or turn off in Edits",
+                    color = AegisEmeraldTeal,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = ClassicalBodyFont
                 )
             }
 
@@ -686,20 +714,22 @@ internal fun BedtimeAndBudgetsSection(
                                 fontFamily = ClassicalBodyFont
                             )
                         }
-                        IconButton(
-                            onClick = {
-                                masterKeyGate.request("remove time limit for $appLabel") {
-                                    preferences.removeAppTimeBudget(pkg)
-                                }
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Remove budget for $appLabel",
-                                tint = AegisWarningAmber,
-                                modifier = Modifier.size(16.dp)
-                            )
+                        if (allowDisableOrWeaken) {
+                            IconButton(
+                                onClick = {
+                                    masterKeyGate.request("remove time limit for $appLabel") {
+                                        preferences.removeAppTimeBudget(pkg)
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove budget for $appLabel",
+                                    tint = AegisWarningAmber,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -774,12 +804,20 @@ internal fun BedtimeAndBudgetsSection(
                                         .background(if (existing != null) AegisPrimaryCyan.copy(alpha = 0.14f) else AegisCardBackground)
                                         .border(1.dp, AegisLavenderBorder, RoundedCornerShape(12.dp))
                                         .clickable {
-                                            preferences.setAppTimeBudget(app.packageName, selectedMinutes)
-                                            Toast.makeText(
-                                                context,
-                                                "${app.label}: ${selectedMinutes}m/day limit set",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            if (!allowDisableOrWeaken && existing != null && selectedMinutes > existing) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Limit active (${existing}m) • Raise or remove in Edits",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } else {
+                                                preferences.setAppTimeBudget(app.packageName, selectedMinutes)
+                                                Toast.makeText(
+                                                    context,
+                                                    "${app.label}: ${selectedMinutes}m/day limit set",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
                                         }
                                         .padding(horizontal = 10.dp, vertical = 10.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -899,7 +937,8 @@ internal fun WarningThresholdsSection(
     preferences: AegisPreferences,
     masterKeyGate: MasterKeyGateState,
     initiallyExpanded: Boolean = false,
-    compactPillMode: Boolean = true
+    compactPillMode: Boolean = true,
+    allowDisableOrWeaken: Boolean = true
 ) {
     val context = LocalContext.current
     val warningThreshold by preferences.warningThresholdCount.collectAsState()
@@ -923,24 +962,30 @@ internal fun WarningThresholdsSection(
         isPillActive = warningOnlyNoLockout || warningThreshold > 0,
         dialogTitle = "Warning Thresholds"
     ) {
-        CompactSwitchRow(
-            title = "Warn Only (Don't Lockout)",
-            checked = warningOnlyNoLockout,
-            activeColor = AegisPrimaryCyan,
-            onCheckedChange = { enabled ->
-                if (enabled) {
-                    masterKeyGate.request("enable Warn-Only (no lockout)") {
-                        preferences.setWarningOnlyNoLockout(true)
+        if (allowDisableOrWeaken || warningOnlyNoLockout) {
+            CompactSwitchRow(
+                title = "Warn Only (Don't Lockout)",
+                checked = warningOnlyNoLockout,
+                activeColor = AegisPrimaryCyan,
+                onCheckedChange = { enabled ->
+                    if (enabled) {
+                        if (!allowDisableOrWeaken) {
+                            Toast.makeText(context, "Manage Warn-Only in Edits", Toast.LENGTH_SHORT).show()
+                        } else {
+                            masterKeyGate.request("enable Warn-Only (no lockout)") {
+                                preferences.setWarningOnlyNoLockout(true)
+                            }
+                        }
+                    } else {
+                        AegisSoundEffects.playModeOn(context)
+                        preferences.setWarningOnlyNoLockout(false)
                     }
-                } else {
-                    AegisSoundEffects.playModeOn(context)
-                    preferences.setWarningOnlyNoLockout(false)
-                }
-            },
-            testTag = "warning_only_no_lockout_switch"
-        )
+                },
+                testTag = "warning_only_no_lockout_switch"
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
 
-        Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = if (warningOnlyNoLockout) {
                 "Apps are closed with a warning alert. Full device lockout never triggers."
@@ -972,8 +1017,12 @@ internal fun WarningThresholdsSection(
                                 preferences.setWarningOnlyNoLockout(false)
                                 preferences.setWarningThresholdCount(count)
                             } else if (count > warningThreshold) {
-                                masterKeyGate.request("increase warnings before lock to $count") {
-                                    preferences.setWarningThresholdCount(count)
+                                if (!allowDisableOrWeaken) {
+                                    Toast.makeText(context, "Raise warnings in Edits", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    masterKeyGate.request("increase warnings before lock to $count") {
+                                        preferences.setWarningThresholdCount(count)
+                                    }
                                 }
                             } else if (count < warningThreshold) {
                                 AegisSoundEffects.playModeOn(context)

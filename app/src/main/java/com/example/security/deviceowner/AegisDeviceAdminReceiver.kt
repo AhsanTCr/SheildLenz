@@ -21,6 +21,9 @@ class AegisDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence {
         val prefs = AegisContainer.getInstance(context).preferences
+        if (!prefs.masterPowerEnabled.value) {
+            return "Sheildlenz Master Power is currently OFF. Device Administrator can be deactivated."
+        }
         val childLocked = prefs.isChildUninstallBlocked()
         val authorized = prefs.isGuardianAuthorizedForSystemSettings() && !prefs.isLockdownActive() && !childLocked
         if (!authorized) {

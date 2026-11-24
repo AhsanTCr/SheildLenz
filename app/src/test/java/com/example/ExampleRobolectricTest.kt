@@ -1380,5 +1380,62 @@ class ExampleRobolectricTest {
         // Restore default cleanly for subsequent tests
         reloaded.setTouchSoundsEnabled(true)
     }
+
+    @Test
+    fun `auto sound selector cycles varied short tile ticks persists and syncs with AegisSoundEffects`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+
+        // All 8 curated auto tile tones must be short (< 2500 samples), soft (< 9000 peak), and fade cleanly
+        AegisSoundEffects.AUTO_TILE_PALETTE.forEach { spec ->
+            val pcm = AegisSoundEffects.synthesizeTileTick(spec)
+            assertTrue("${spec.name} should be crisp & short", pcm.size in 1500..2500)
+            val peak = pcm.maxOf { kotlin.math.abs(it.toInt()) }
+            assertTrue("${spec.name} peak $peak should be gentle (< 9000)", peak < 9000)
+            val tailMax = pcm.takeLast(120).maxOf { kotlin.math.abs(it.toInt()) }
+            assertTrue("${spec.name} tail should fade cleanly", tailMax < peak / 4)
+        }
+
+        // Consecutive touches in Auto Sound Selector mode select distinct tone indices
+        val indices = (0 until 8).map { AegisSoundEffects.nextAutoVariationIndex() }
+        for (i in 1 until indices.size) {
+            assertTrue("Consecutive tap sounds must differ", indices[i] != indices[i - 1])
+        }
+        assertEquals(8, indices.toSet().size)
+
+        prefs.setAutoSoundSelectorEnabled(true)
+        assertTrue(prefs.autoSoundSelectorEnabled.value)
+        assertTrue(AegisSoundEffects.isAutoSelectorEnabled())
+        AegisSoundEffects.playPreviewTap(context)
+
+        val reloaded = AegisPreferences(context)
+        assertTrue(reloaded.autoSoundSelectorEnabled.value)
+        assertTrue(AegisSoundEffects.isAutoSelectorEnabled())
+
+        reloaded.setAutoSoundSelectorEnabled(false)
+        assertFalse(reloaded.autoSoundSelectorEnabled.value)
+        assertFalse(AegisSoundEffects.isAutoSelectorEnabled())
+    }
+
+    @Test
+    fun `guardian session locks on consumed external flow and forced screen off background`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+        prefs.setGuardianPin("1234")
+        prefs.unlockGuardianSession()
+        assertTrue(prefs.isGuardianSessionUnlocked.value)
+
+        // Even if an external flow window was granted earlier, resuming consumes it
+        prefs.grantTemporarySettingsAuthorization(5)
+        prefs.consumeAuthorizedExternalFlow()
+        prefs.onAppBackgrounded(forceLock = false)
+        assertFalse("Returning from external flow then backgrounding must lock Edits", prefs.isGuardianSessionUnlocked.value)
+
+        // Screen off / forceLock bypasses any pending window
+        prefs.unlockGuardianSession()
+        prefs.grantTemporarySettingsAuthorization(5)
+        prefs.onAppBackgrounded(forceLock = true)
+        assertFalse("Screen off / session close must always lock Edits", prefs.isGuardianSessionUnlocked.value)
+    }
 }
 

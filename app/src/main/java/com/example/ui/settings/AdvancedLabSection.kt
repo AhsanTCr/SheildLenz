@@ -6,6 +6,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,16 +15,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Speed
@@ -34,8 +38,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -55,6 +62,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
@@ -106,7 +114,7 @@ fun AppVersionSecretCard(
                 if (isUnlocked) {
                     Toast.makeText(
                         context,
-                        "Advanced Precision Lab is open below (and in Edits).",
+                        "Advanced Precision Lab is unlocked in Edits.",
                         Toast.LENGTH_SHORT
                     ).show()
                 } else {
@@ -215,6 +223,13 @@ fun AdvancedPrecisionLabSection(
     val showEmergencyDialer by preferences.showEmergencyDialerOnLockdown.collectAsState()
     val evictAppOnThreat by preferences.evictAppOnThreat.collectAsState()
     val guardianWindowMinutes by preferences.guardianSettingsWindowMinutes.collectAsState()
+    val blockCustomHeadline by preferences.blockCustomHeadline.collectAsState()
+    val blockCustomMessage by preferences.blockCustomMessage.collectAsState()
+    val blockShowTimer by preferences.blockShowTimer.collectAsState()
+    val blockShowAppBadge by preferences.blockShowAppBadge.collectAsState()
+    val blockShowQrUnlock by preferences.blockShowQrUnlock.collectAsState()
+    val blockShowQuickActions by preferences.blockShowQuickActions.collectAsState()
+    val blockShowReturnHome by preferences.blockShowReturnHome.collectAsState()
 
     val masterKeyGate = rememberMasterKeyGate(preferences)
 
@@ -230,6 +245,30 @@ fun AdvancedPrecisionLabSection(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             LuxurySectionHeader(title = "Advanced Precision Lab", accentColor = AegisChampagneGold)
+
+            // 0. Block Screen Editor (Custom Headline, Calming Copy, Widget & Button Toggles)
+            BlockScreenEditorCard(
+                customHeadline = blockCustomHeadline,
+                customMessage = blockCustomMessage,
+                showTimer = blockShowTimer,
+                showAppBadge = blockShowAppBadge,
+                showQrUnlock = blockShowQrUnlock,
+                showEmergencyDialer = showEmergencyDialer,
+                showQuickActions = blockShowQuickActions,
+                showReturnHome = blockShowReturnHome,
+                onHeadlineChange = { preferences.setBlockCustomHeadline(it) },
+                onMessageChange = { preferences.setBlockCustomMessage(it) },
+                onShowTimerChange = { preferences.setBlockShowTimer(it) },
+                onShowAppBadgeChange = { preferences.setBlockShowAppBadge(it) },
+                onShowQrUnlockChange = { preferences.setBlockShowQrUnlock(it) },
+                onShowEmergencyDialerChange = { preferences.setShowEmergencyDialerOnLockdown(it) },
+                onShowQuickActionsChange = { preferences.setBlockShowQuickActions(it) },
+                onShowReturnHomeChange = { preferences.setBlockShowReturnHome(it) },
+                onReset = {
+                    preferences.resetBlockScreenCustomizations()
+                    Toast.makeText(context, "Block Screen restored to defaults.", Toast.LENGTH_SHORT).show()
+                }
+            )
 
             // 1. Exact Lockdown Duration Specificity (Hours + Minutes + Multiplier)
             CyberCard(borderColor = AegisGoldBorder, tone = CyberCardTone.GOLD) {
@@ -727,19 +766,6 @@ fun AdvancedPrecisionLabSection(
                     }
                 )
 
-                HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.6f), modifier = Modifier.padding(vertical = 10.dp))
-
-                LabSwitchRow(
-                    title = "Emergency Dialer on Lockscreen",
-                    subtitle = "Show Emergency button during lockdown",
-                    checked = showEmergencyDialer,
-                    onCheckedChange = { enabled ->
-                        masterKeyGate.request("${if (enabled) "show" else "hide"} Emergency dialer") {
-                            preferences.setShowEmergencyDialerOnLockdown(enabled)
-                        }
-                    }
-                )
-
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Row(
@@ -818,14 +844,268 @@ private fun LabChip(
 }
 
 @Composable
+private fun BlockScreenEditorCard(
+    customHeadline: String,
+    customMessage: String,
+    showTimer: Boolean,
+    showAppBadge: Boolean,
+    showQrUnlock: Boolean,
+    showEmergencyDialer: Boolean,
+    showQuickActions: Boolean,
+    showReturnHome: Boolean,
+    onHeadlineChange: (String) -> Unit,
+    onMessageChange: (String) -> Unit,
+    onShowTimerChange: (Boolean) -> Unit,
+    onShowAppBadgeChange: (Boolean) -> Unit,
+    onShowQrUnlockChange: (Boolean) -> Unit,
+    onShowEmergencyDialerChange: (Boolean) -> Unit,
+    onShowQuickActionsChange: (Boolean) -> Unit,
+    onShowReturnHomeChange: (Boolean) -> Unit,
+    onReset: () -> Unit
+) {
+    val context = LocalContext.current
+    CyberCard(
+        borderColor = AegisLavenderBorder,
+        tone = CyberCardTone.LAVENDER,
+        modifier = Modifier.testTag("block_screen_editor_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = null,
+                    tint = AegisPurple,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Block Screen Editor",
+                        color = AegisTextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Text(
+                        text = "Customize headline, message, widgets & buttons",
+                        color = AegisTextSecondary,
+                        fontSize = 11.5.sp,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    AegisSoundEffects.playTap(context)
+                    onReset()
+                },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AegisWarningAmber),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("block_editor_reset_button")
+            ) {
+                Icon(imageVector = Icons.Default.RestartAlt, contentDescription = "Reset block screen", modifier = Modifier.size(15.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("RESET", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Live Mini-Preview of Block Screen layout
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("block_screen_editor_preview"),
+            shape = RoundedCornerShape(16.dp),
+            color = AegisCardBackground,
+            border = BorderStroke(1.dp, AegisLavenderBorder)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (showAppBadge) "SHIELD BADGE • APP" else "BADGE HIDDEN",
+                        color = if (showAppBadge) AegisPrimaryCyan else AegisTextMuted,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    if (showTimer) {
+                        Text(
+                            text = "09:59:42",
+                            color = AegisWarningAmber,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Text(
+                    text = customHeadline.ifBlank { "Shield Intervention Active" },
+                    color = AegisTextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = customMessage.ifBlank { "Pause for a mindful moment. Your device remains safe." },
+                    color = AegisTextSecondary,
+                    fontSize = 11.5.sp,
+                    fontFamily = ClassicalBodyFont,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val visibleControls = buildList {
+                    if (showQrUnlock) add("QR Unlock")
+                    if (showQuickActions) add("Quick Actions")
+                    if (showReturnHome) add("Home")
+                    if (showEmergencyDialer) add("Emergency")
+                }
+                Text(
+                    text = "Visible controls: ${if (visibleControls.isEmpty()) "Safe Exit Fallback" else visibleControls.joinToString(" • ")}",
+                    color = AegisPurple,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = ClassicalBodyFont,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedTextField(
+            value = customHeadline,
+            onValueChange = onHeadlineChange,
+            label = { Text("Custom Block Headline", fontFamily = ClassicalBodyFont, fontSize = 12.sp) },
+            placeholder = { Text("Default adaptive headline", fontSize = 12.sp) },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = AegisPurple,
+                unfocusedBorderColor = AegisLavenderBorder,
+                focusedContainerColor = AegisCardBackground,
+                unfocusedContainerColor = AegisCardBackground,
+                focusedTextColor = AegisTextPrimary,
+                unfocusedTextColor = AegisTextPrimary
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("block_editor_headline_input")
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = customMessage,
+            onValueChange = onMessageChange,
+            label = { Text("Custom Calming Message", fontFamily = ClassicalBodyFont, fontSize = 12.sp) },
+            placeholder = { Text("Default calming reminder", fontSize = 12.sp) },
+            maxLines = 3,
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = AegisPurple,
+                unfocusedBorderColor = AegisLavenderBorder,
+                focusedContainerColor = AegisCardBackground,
+                unfocusedContainerColor = AegisCardBackground,
+                focusedTextColor = AegisTextPrimary,
+                unfocusedTextColor = AegisTextPrimary
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("block_editor_message_input")
+        )
+
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.55f), modifier = Modifier.padding(vertical = 10.dp))
+
+        LabSwitchRow(
+            title = "Show Countdown / Timer",
+            subtitle = "Display live release clock on block & lock overlays",
+            checked = showTimer,
+            onCheckedChange = onShowTimerChange,
+            switchTestTag = "block_editor_timer_switch"
+        )
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 6.dp))
+
+        LabSwitchRow(
+            title = "Show App Badge & Reason",
+            subtitle = "Display target app label and category pill",
+            checked = showAppBadge,
+            onCheckedChange = onShowAppBadgeChange,
+            switchTestTag = "block_editor_app_badge_switch"
+        )
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 6.dp))
+
+        LabSwitchRow(
+            title = "Show Parent QR Recovery",
+            subtitle = "Show scannable Guardian Challenge QR card",
+            checked = showQrUnlock,
+            onCheckedChange = onShowQrUnlockChange,
+            switchTestTag = "block_editor_qr_switch"
+        )
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 6.dp))
+
+        LabSwitchRow(
+            title = "Show Emergency Dialer",
+            subtitle = "Keep Emergency call button accessible on lockdown",
+            checked = showEmergencyDialer,
+            onCheckedChange = onShowEmergencyDialerChange,
+            switchTestTag = "block_editor_emergency_switch"
+        )
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 6.dp))
+
+        LabSwitchRow(
+            title = "Show Quick Action Buttons",
+            subtitle = "Master PIN unlock, Double-Time & +15m extend actions",
+            checked = showQuickActions,
+            onCheckedChange = onShowQuickActionsChange,
+            switchTestTag = "block_editor_quick_actions_switch"
+        )
+        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 6.dp))
+
+        LabSwitchRow(
+            title = "Show Return to Home Button",
+            subtitle = "Display one-tap Return to Home on warning overlays",
+            checked = showReturnHome,
+            onCheckedChange = onShowReturnHomeChange,
+            switchTestTag = "block_editor_return_home_switch"
+        )
+    }
+}
+
+@Composable
 private fun LabSwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    switchTestTag: String = ""
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -852,6 +1132,7 @@ private fun LabSwitchRow(
                 AegisSoundEffects.playTap(context)
                 onCheckedChange(next)
             },
+            modifier = if (switchTestTag.isNotBlank()) Modifier.testTag(switchTestTag) else Modifier,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = AegisOnPrimaryWhite,
                 checkedTrackColor = AegisPrimaryCyan,

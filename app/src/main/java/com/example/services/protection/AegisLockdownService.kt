@@ -27,6 +27,13 @@ class AegisLockdownService : Service() {
 
     private val watchdogRunnable = object : Runnable {
         override fun run() {
+            if (!container.preferences.masterPowerEnabled.value) {
+                overlayController.dismissBlockOverlay()
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+                stopSelf()
+                return
+            }
             if (container.preferences.isLockdownActive()) {
                 overlayController.showLockdownOverlay(container.preferences.lockdownIncidentInfo.value)
                 watchdogHandler.postDelayed(this, 2000L)
@@ -45,6 +52,14 @@ class AegisLockdownService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!container.preferences.masterPowerEnabled.value) {
+            watchdogHandler.removeCallbacks(watchdogRunnable)
+            overlayController.dismissBlockOverlay()
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP_LOCKDOWN -> {
                 watchdogHandler.removeCallbacks(watchdogRunnable)
@@ -153,6 +168,7 @@ class AegisLockdownService : Service() {
         const val ACTION_STOP_LOCKDOWN = "com.example.action.STOP_LOCKDOWN"
 
         fun start(context: Context) {
+            if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) return
             val intent = Intent(context, AegisLockdownService::class.java).apply {
                 action = ACTION_START_LOCKDOWN
             }
@@ -166,7 +182,7 @@ class AegisLockdownService : Service() {
                 Log.w(TAG, "Unable to start foreground lockdown service directly; trying overlay fallback: ${t.message}")
                 try {
                     val container = AegisContainer.getInstance(context)
-                    if (container.preferences.isLockdownActive()) {
+                    if (container.preferences.masterPowerEnabled.value && container.preferences.isLockdownActive()) {
                         container.overlayController.showLockdownOverlay(container.preferences.lockdownIncidentInfo.value)
                     }
                 } catch (_: Throwable) {
@@ -175,12 +191,9 @@ class AegisLockdownService : Service() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, AegisLockdownService::class.java).apply {
-                action = ACTION_STOP_LOCKDOWN
-            }
-            try {
-                context.startService(intent)
-            } catch (_: Throwable) {
+            val appContext = context.applicationContext
+            runCatching {
+                appContext.stopService(Intent(appContext, AegisLockdownService::class.java))
             }
         }
     }

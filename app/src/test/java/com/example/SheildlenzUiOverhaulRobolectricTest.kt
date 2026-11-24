@@ -27,6 +27,7 @@ import com.example.core.models.ThreatCategory
 import com.example.core.models.ThreatSeverity
 import com.example.data.repository.ParentChildRepository
 import com.example.di.AegisContainer
+import com.example.ui.about.AboutScreen
 import com.example.ui.components.CyberTopBar
 import com.example.ui.components.QrCodeGenerator
 import com.example.ui.components.SeverityTag
@@ -77,12 +78,10 @@ class SheildlenzUiOverhaulRobolectricTest {
     }
 
     @Test
-    fun `home renders priority tiles and status screen triggers shifted gateway callbacks`() {
+    fun `home renders priority tiles and triggers focus hub navigation`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         var openedFocusHub = false
-        var openedProgress = false
-        var openedWellbeing = false
 
         composeRule.setContent {
             AegisShieldTheme {
@@ -102,6 +101,14 @@ class SheildlenzUiOverhaulRobolectricTest {
         composeRule.onNodeWithTag("home_one_tap_budgets").performClick()
         composeRule.waitForIdle()
         assertTrue(openedFocusHub)
+    }
+
+    @Test
+    fun `status screen triggers progress and wellbeing gateway callbacks`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        var openedProgress = false
+        var openedWellbeing = false
 
         composeRule.setContent {
             AegisShieldTheme {
@@ -383,26 +390,23 @@ class SheildlenzUiOverhaulRobolectricTest {
     }
 
     @Test
-    fun `edits screen shows Touch Sounds pill and toggles sound state inside popup`() {
+    fun `about screen shows inline Touch Sounds card with Ceramic Tile Tick and Auto Sound Selector`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         container.preferences.setTouchSoundsEnabled(true)
 
         composeRule.setContent {
             AegisShieldTheme {
-                SettingsScreen(
-                    preferences = container.preferences,
-                    modelManager = container.modelManager,
-                    protectionRepo = container.protectionRepository
+                AboutScreen(
+                    preferences = container.preferences
                 )
             }
         }
 
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("touch_sounds_card"))
-        composeRule.onNodeWithTag("touch_sounds_card").performClick()
+        composeRule.onNodeWithTag("touch_sounds_card").performScrollTo()
         composeRule.waitForIdle()
-
-        composeRule.onNodeWithTag("touch_sounds_card_dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("touch_sounds_card").assertIsDisplayed()
         composeRule.onNodeWithTag("touch_sounds_switch").assertIsDisplayed()
 
         // Toggle OFF
@@ -410,14 +414,25 @@ class SheildlenzUiOverhaulRobolectricTest {
         composeRule.waitForIdle()
         assertFalse(container.preferences.touchSoundsEnabled.value)
         assertFalse(AegisSoundEffects.isEnabled())
-        composeRule.onNodeWithText("Muted").assertIsDisplayed()
+        composeRule.onNodeWithText("Off • Touch feedback muted").assertIsDisplayed()
 
-        // Toggle back ON via row tap
-        composeRule.onNodeWithText("Bubbly Glassy Tap").performClick()
+        // Toggle back ON via switch & verify Auto Sound Selector and Test Sound controls
+        composeRule.onNodeWithTag("touch_sounds_switch").performClick()
         composeRule.waitForIdle()
         assertTrue(container.preferences.touchSoundsEnabled.value)
         assertTrue(AegisSoundEffects.isEnabled())
-        composeRule.onNodeWithText("DONE").performClick()
+        composeRule.onNodeWithText("On • Ceramic Tile Tick").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("auto_sound_selector_switch").performScrollTo()
+        composeRule.onNodeWithTag("auto_sound_selector_switch").assertIsDisplayed()
+        composeRule.onNodeWithTag("auto_sound_selector_switch").performClick()
+        composeRule.waitForIdle()
+        assertTrue(container.preferences.autoSoundSelectorEnabled.value)
+        assertTrue(AegisSoundEffects.isAutoSelectorEnabled())
+
+        composeRule.onNodeWithTag("test_sound_button").performScrollTo()
+        composeRule.onNodeWithTag("test_sound_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("test_sound_button").performClick()
     }
 
     @Test
@@ -517,5 +532,39 @@ class SheildlenzUiOverhaulRobolectricTest {
         val sevWide = sevNodes[1].getUnclippedBoundsInRoot()
         assertEquals(sevWide.right - sevWide.left, sevTight.right - sevTight.left)
         assertEquals(sevWide.bottom - sevWide.top, sevTight.bottom - sevTight.top)
+    }
+
+    @Test
+    fun `leaving edits tab in nav host automatically locks guardian edits session`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setOnboardingCompleted(true)
+        container.preferences.setGuardianPin("2580")
+        container.preferences.unlockGuardianSession()
+        container.preferences.setGuardianPin("2580")
+
+        lateinit var navController: androidx.navigation.NavHostController
+        composeRule.setContent {
+            AegisShieldTheme {
+                navController = androidx.navigation.compose.rememberNavController()
+                com.example.ui.navigation.AegisNavHost(
+                    container = container,
+                    navController = navController
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.runOnUiThread {
+            navController.navigate(com.example.ui.navigation.AegisDestinations.EDITS)
+        }
+        composeRule.waitForIdle()
+        assertTrue(container.preferences.isGuardianSessionUnlocked.value)
+
+        // Switching away from Edits to Home must lock Edits immediately
+        composeRule.runOnUiThread {
+            navController.navigate(com.example.ui.navigation.AegisDestinations.HOME)
+        }
+        composeRule.waitForIdle()
+        assertFalse(container.preferences.isGuardianSessionUnlocked.value)
     }
 }

@@ -41,7 +41,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.annotation.StringRes
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -152,6 +155,14 @@ fun AegisNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val showMainNavigation = MainTabItems.any { it.route == currentRoute }
+
+    var previousRoute by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentRoute) {
+        if (previousRoute == AegisDestinations.EDITS && currentRoute != null && currentRoute != AegisDestinations.EDITS) {
+            container.preferences.lockGuardianSession()
+        }
+        previousRoute = currentRoute
+    }
 
     LaunchedEffect(pendingPairingCode) {
         if (!pendingPairingCode.isNullOrBlank()) {

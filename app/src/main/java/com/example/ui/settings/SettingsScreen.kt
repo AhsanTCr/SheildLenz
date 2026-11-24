@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.os.PowerManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -37,6 +38,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -59,7 +61,6 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Schedule
@@ -85,6 +86,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -119,6 +121,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.core.audio.AegisSoundEffects
 import com.example.core.models.SensitivityLevel
@@ -250,13 +255,11 @@ fun SettingsScreen(
     val pauseWhenScreenOff by preferences.pauseWhenScreenOff.collectAsState()
     val adaptiveCadenceEnabled by preferences.adaptiveCadenceEnabled.collectAsState()
     val autoThrottleLowBattery by preferences.autoThrottleLowBattery.collectAsState()
-    val isAdvancedUnlocked by preferences.advancedOptionsUnlocked.collectAsState()
 
     val isEditsLocked = shouldLockEditsScreen(hasPin, isGuardianUnlocked)
     val stage1DurationLabel = AegisPreferences.formatMinutesLabel(lockdownDurationMinutes)
 
     var showModelDialog by remember { mutableStateOf(false) }
-    var showPrecisionLabDialog by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
     var confirmPinInput by remember { mutableStateOf("") }
@@ -265,6 +268,27 @@ fun SettingsScreen(
 
     var isDeviceAdmin by remember { mutableStateOf(AegisDeviceAdminReceiver.isDeviceAdmin(context)) }
     val masterKeyGate = rememberMasterKeyGate(preferences)
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(isEditsLocked) {
+        if (isEditsLocked) {
+            showModelDialog = false
+            showPinDialog = false
+            showDeviceOwnerWizard = false
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, preferences) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+                val isScreenOff = powerManager?.isInteractive == false
+                preferences.onAppBackgrounded(forceLock = isScreenOff)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     SheildlenzBackdrop(modifier = Modifier.testTag("settings_screen_root")) {
         Scaffold(
@@ -284,8 +308,6 @@ fun SettingsScreen(
                     pairedParentName = pairedParentName,
                     guardianEmail = guardianEmail,
                     challengeCode = challengeCode,
-                    onNavigateToStatus = onNavigateToStatus,
-                    onNavigateToParents = onNavigateToParents,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
@@ -903,9 +925,9 @@ fun SettingsScreen(
                     )
                 }
 
-                // 5. System & Language
+                // 5. System & Developer Options (7-tap)
                 item {
-                    LuxurySectionHeader(title = "System & Language", accentColor = AegisIndigo)
+                    LuxurySectionHeader(title = "System", accentColor = AegisIndigo)
                 }
                 item {
                     NotificationsControlCard(
@@ -920,9 +942,6 @@ fun SettingsScreen(
                     )
                 }
                 item {
-                    TouchSoundsCard(preferences = preferences, compactPillMode = true)
-                }
-                item {
                     PolicyBackupRestoreSection(
                         preferences = preferences,
                         masterKeyGate = masterKeyGate,
@@ -930,28 +949,10 @@ fun SettingsScreen(
                     )
                 }
                 item {
-                    LanguageSelectorSection(
-                        preferences = preferences,
-                        compactPillMode = true
-                    )
+                    AppVersionSecretCard(preferences = preferences)
                 }
-                if (isAdvancedUnlocked) {
-                    item {
-                        EditsActionCard(
-                            title = "Precision Lab",
-                            summary = "Fine-grained model thresholds & screen frame pacing",
-                            icon = Icons.Default.AutoAwesome,
-                            accentColor = AegisIndigo,
-                            tone = CyberCardTone.INDIGO,
-                            borderColor = AegisIndigoBorder,
-                            testTag = "precision_lab_pill",
-                            buttonTestTag = "precision_lab_button",
-                            onClick = {
-                                AegisSoundEffects.playTap(context)
-                                showPrecisionLabDialog = true
-                            }
-                        )
-                    }
+                item {
+                    AdvancedPrecisionLabSection(preferences = preferences)
                 }
             }
 
@@ -976,19 +977,6 @@ fun SettingsScreen(
                             masterKeyGate.request(label) { action() }
                         }
                     )
-                }
-            }
-
-            if (showPrecisionLabDialog && isAdvancedUnlocked) {
-                EditsPopupDialog(
-                    title = "Advanced Precision Lab",
-                    subtitle = "Custom sensitivity & frame tuning",
-                    icon = Icons.Default.AutoAwesome,
-                    accentColor = AegisChampagneGold,
-                    onDismiss = { showPrecisionLabDialog = false },
-                    testTag = "precision_lab_dialog"
-                ) {
-                    AdvancedPrecisionLabSection(preferences = preferences)
                 }
             }
 
@@ -1170,8 +1158,6 @@ private fun EditsPasswordLockGate(
     pairedParentName: String?,
     guardianEmail: String,
     challengeCode: String,
-    onNavigateToStatus: () -> Unit,
-    onNavigateToParents: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1185,9 +1171,9 @@ private fun EditsPasswordLockGate(
         if (showForgotQr) {
             val cleanPin = newPinInput.trim()
             if (cleanPin.length !in 4..8 || !cleanPin.all { it.isDigit() }) {
-                errorMessage = "Enter a new 4–8 digit Guardian Password"
+                errorMessage = "Enter a new 4–8 digit Guardian PIN"
             } else if (!preferences.resetPinWithRecoveryToken(recoveryCodeInput, cleanPin)) {
-                errorMessage = "Invalid recovery code for Challenge ID $challengeCode"
+                errorMessage = "Invalid code for Challenge ID $challengeCode"
             } else {
                 AegisSoundEffects.playModeOn(context)
                 preferences.unlockGuardianSession()
@@ -1195,7 +1181,7 @@ private fun EditsPasswordLockGate(
             }
         } else {
             if (passwordInput.isEmpty() || !preferences.verifyGuardianPin(passwordInput)) {
-                errorMessage = "Incorrect Guardian Password"
+                errorMessage = "Incorrect Guardian PIN"
                 passwordInput = ""
             } else {
                 AegisSoundEffects.playModeOn(context)
@@ -1205,18 +1191,17 @@ private fun EditsPasswordLockGate(
         }
     }
 
-    Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    Box(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        contentAlignment = Alignment.Center
     ) {
         CyberCard(
-            borderColor = AegisGoldBorder,
+            borderColor = AegisLavenderBorder,
             tone = CyberCardTone.LAVENDER,
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 440.dp)
+                .padding(vertical = 16.dp)
                 .testTag("edits_lock_gate_card")
         ) {
             Column(
@@ -1225,8 +1210,8 @@ private fun EditsPasswordLockGate(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(16.dp))
                         .background(
                             brush = Brush.linearGradient(
                                 colors = listOf(AegisChampagneGold, AegisPurple)
@@ -1236,16 +1221,16 @@ private fun EditsPasswordLockGate(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Lock,
-                        contentDescription = "Edits Password Protected",
+                        contentDescription = "Edits Locked",
                         tint = AegisOnPrimaryWhite,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(25.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Text(
-                    text = if (showForgotQr) "Parent QR Password Reset" else "Edits Screen Locked",
+                    text = if (showForgotQr) "Parent QR Reset" else "Edits Locked",
                     color = AegisTextPrimary,
                     fontSize = 19.sp,
                     fontWeight = FontWeight.Bold,
@@ -1253,58 +1238,52 @@ private fun EditsPasswordLockGate(
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    text = if (parentalRole == "child") {
-                        "Child View Only • Edit permissions require the Guardian Password or remote update from ${pairedParentName?.takeIf { it.isNotBlank() } ?: "Parent"}'s mobile phone."
-                    } else {
-                        "Enter Guardian Password to view & edit protection policies."
-                    },
-                    color = AegisTextSecondary,
-                    fontSize = 12.5.sp,
-                    lineHeight = 18.sp,
-                    fontFamily = ClassicalBodyFont,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("edits_child_parent_notice")
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 if (parentalRole == "child") {
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(RoundedCornerShape(50))
                             .background(AegisChampagneSoft)
-                            .border(1.dp, AegisGoldBorder, RoundedCornerShape(14.dp))
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                            .border(1.dp, AegisGoldBorder, RoundedCornerShape(50))
+                            .padding(horizontal = 12.dp, vertical = 5.dp)
+                            .testTag("edits_child_parent_notice"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.SupervisorAccount,
-                            contentDescription = "Controlled by Parent Phone",
+                            contentDescription = "Parent Linked",
                             tint = AegisChampagneGold,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Managed remotely from Parent Mobile Phone (${pairedParentName?.takeIf { it.isNotBlank() } ?: "Family Link"})",
+                            text = "Parent-linked • ${pairedParentName?.takeIf { it.isNotBlank() } ?: "Guardian"}",
                             color = AegisTextPrimary,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = ClassicalBodyFont
                         )
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
+                } else {
+                    Text(
+                        text = if (showForgotQr) "Verify Parent recovery code below" else "Enter Guardian PIN to unlock",
+                        color = AegisTextSecondary,
+                        fontSize = 12.5.sp,
+                        fontFamily = ClassicalBodyFont,
+                        textAlign = TextAlign.Center
+                    )
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 if (showForgotQr) {
                     val qrPayload = remember(challengeCode, guardianEmail) {
                         preferences.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
                     }
                     Text(
-                        text = "Scan on parent's phone (${guardianEmail.ifBlank { "Guardian Google account" }}) to generate an 8-char reset code.",
+                        text = "Scan on parent's phone (${guardianEmail.ifBlank { "Guardian Google account" }}) to generate reset code.",
                         color = AegisTextSecondary,
                         fontSize = 11.5.sp,
                         fontFamily = ClassicalBodyFont,
@@ -1315,7 +1294,7 @@ private fun EditsPasswordLockGate(
                         payload = qrPayload,
                         padding = 10.dp,
                         modifier = Modifier
-                            .size(164.dp)
+                            .size(156.dp)
                             .border(1.2.dp, AegisGoldBorder, RoundedCornerShape(16.dp)),
                         testTag = "edits_forgot_qr_matrix"
                     )
@@ -1357,7 +1336,7 @@ private fun EditsPasswordLockGate(
                                 errorMessage = null
                             }
                         },
-                        label = { Text("New Guardian Password (4–8 digits)", fontFamily = ClassicalBodyFont) },
+                        label = { Text("New Guardian PIN (4–8 digits)", fontFamily = ClassicalBodyFont) },
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AegisPurple) },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(
@@ -1386,7 +1365,7 @@ private fun EditsPasswordLockGate(
                                 errorMessage = null
                             }
                         },
-                        label = { Text("Guardian Password (4–8 digits)", fontFamily = ClassicalBodyFont) },
+                        label = { Text("Guardian PIN", fontFamily = ClassicalBodyFont) },
                         leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = AegisPurple) },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(
@@ -1454,14 +1433,14 @@ private fun EditsPasswordLockGate(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (showForgotQr) "RESET PASSWORD & UNLOCK" else "UNLOCK EDITS",
+                        text = if (showForgotQr) "RESET & UNLOCK" else "UNLOCK EDITS",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalBodyFont
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 TextButton(
                     onClick = {
@@ -1473,83 +1452,12 @@ private fun EditsPasswordLockGate(
                         .testTag("edits_forgot_pin_button")
                 ) {
                     Text(
-                        text = if (showForgotQr) "Back to Password Entry" else "Forgot Password? Parent QR Unlock",
+                        text = if (showForgotQr) "Back to PIN Entry" else "Forgot Password?",
                         color = AegisPurple,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalBodyFont
                     )
-                }
-            }
-        }
-
-        CyberCard(
-            borderColor = AegisCardBorder,
-            tone = CyberCardTone.SKY,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Only want to check current settings?",
-                    color = AegisTextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalDisplayFont
-                )
-                Text(
-                    text = "The Status tab displays every active protection policy, DNS state, study timer, and parent link in read-only mode without needing the password.",
-                    color = AegisTextSecondary,
-                    fontSize = 12.sp,
-                    fontFamily = ClassicalBodyFont
-                )
-                OutlinedButton(
-                    onClick = {
-                        AegisSoundEffects.playTap(context)
-                        onNavigateToStatus()
-                    },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = AegisCardBackground,
-                        contentColor = AegisPrimaryCyan
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("edits_view_status_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MonitorHeart,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "VIEW STATUS (READ-ONLY)",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalBodyFont
-                    )
-                }
-
-                if (parentalRole == "child") {
-                    TextButton(
-                        onClick = {
-                            AegisSoundEffects.playTap(context)
-                            onNavigateToParents()
-                        },
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .heightIn(min = 48.dp)
-                            .testTag("edits_open_parents_button")
-                    ) {
-                        Text(
-                            text = "Open Parents Link Screen",
-                            color = AegisEmeraldTeal,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = ClassicalBodyFont
-                        )
-                    }
                 }
             }
         }
@@ -2589,18 +2497,25 @@ private fun BlockingScreenStyleCard(
 }
 
 @Composable
-private fun TouchSoundsCard(
+internal fun TouchSoundsCard(
     preferences: AegisPreferences,
     compactPillMode: Boolean = false
 ) {
     val context = LocalContext.current
     val touchSoundsEnabled by preferences.touchSoundsEnabled.collectAsState()
+    val autoSoundSelectorEnabled by preferences.autoSoundSelectorEnabled.collectAsState()
     var showPopup by remember { mutableStateOf(false) }
+
+    val activeSummary = when {
+        !touchSoundsEnabled -> "Off • Touch feedback muted"
+        autoSoundSelectorEnabled -> "On • Auto Sound Selector"
+        else -> "On • Ceramic Tile Tick"
+    }
 
     if (compactPillMode) {
         ToggleEditsActionCard(
             title = "Touch Sounds",
-            summary = if (touchSoundsEnabled) "On • Bubbly glassy pop" else "Off • Touch feedback muted",
+            summary = activeSummary,
             icon = if (touchSoundsEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
             accentColor = AegisIndigo,
             tone = CyberCardTone.INDIGO,
@@ -2623,7 +2538,11 @@ private fun TouchSoundsCard(
                 OutlinedButton(
                     onClick = {
                         AegisSoundEffects.playPreviewTap(context)
-                        Toast.makeText(context, "Playing bubbly pop...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (autoSoundSelectorEnabled) "Playing auto tile variation..." else "Playing ceramic tile tick...",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     },
                     shape = RoundedCornerShape(14.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
@@ -2655,7 +2574,11 @@ private fun TouchSoundsCard(
         if (showPopup) {
             EditsPopupDialog(
                 title = "Touch Feedback Sounds",
-                subtitle = if (touchSoundsEnabled) "Bubbly Glassy Pop Enabled" else "Touch Feedback Muted",
+                subtitle = when {
+                    !touchSoundsEnabled -> "Touch Feedback Muted"
+                    autoSoundSelectorEnabled -> "Auto Sound Selector Enabled (8 Tones)"
+                    else -> "Ceramic Tile Tick Enabled"
+                },
                 icon = if (touchSoundsEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                 accentColor = AegisIndigo,
                 onDismiss = { showPopup = false },
@@ -2681,14 +2604,14 @@ private fun TouchSoundsCard(
                 ) {
                     Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                         Text(
-                            text = "Bubbly Glassy Tap",
+                            text = "Ceramic Tile Tick",
                             color = AegisTextPrimary,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = ClassicalDisplayFont
                         )
                         Text(
-                            text = if (touchSoundsEnabled) "On • Bubbly glassy pop" else "Muted",
+                            text = if (touchSoundsEnabled) "On • Crisp cool tile tick" else "Muted",
                             color = if (touchSoundsEnabled) AegisPrimaryCyan else AegisTextSecondary,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -2713,12 +2636,89 @@ private fun TouchSoundsCard(
                     )
                 }
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(AegisCardBackground)
+                        .border(
+                            1.dp,
+                            if (autoSoundSelectorEnabled) AegisPurple.copy(alpha = 0.45f) else AegisLavenderBorder,
+                            RoundedCornerShape(14.dp)
+                        )
+                        .clickable {
+                            val next = !autoSoundSelectorEnabled
+                            preferences.setAutoSoundSelectorEnabled(next)
+                            if (next && !touchSoundsEnabled) {
+                                preferences.setTouchSoundsEnabled(true)
+                            }
+                            if (next) {
+                                AegisSoundEffects.playPreviewTap(context)
+                            } else {
+                                AegisSoundEffects.playTap(context)
+                            }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .testTag("auto_sound_selector_row"),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = "Auto Sound Selector",
+                            color = AegisTextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont
+                        )
+                        Text(
+                            text = if (autoSoundSelectorEnabled) {
+                                "On • Different friendly short tick every touch"
+                            } else {
+                                "Off • Fixed ceramic tile tick"
+                            },
+                            color = if (autoSoundSelectorEnabled) AegisPurple else AegisTextSecondary,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = ClassicalBodyFont
+                        )
+                    }
+                    Switch(
+                        checked = autoSoundSelectorEnabled,
+                        onCheckedChange = { next ->
+                            preferences.setAutoSoundSelectorEnabled(next)
+                            if (next && !touchSoundsEnabled) {
+                                preferences.setTouchSoundsEnabled(true)
+                            }
+                            if (next) {
+                                AegisSoundEffects.playPreviewTap(context)
+                            } else {
+                                AegisSoundEffects.playTap(context)
+                            }
+                        },
+                        modifier = Modifier.testTag("auto_sound_selector_switch"),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = AegisOnPrimaryWhite,
+                            checkedTrackColor = AegisPurple,
+                            uncheckedThumbColor = AegisTextMuted,
+                            uncheckedTrackColor = AegisCardBorder
+                        )
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Button(
                     onClick = {
                         AegisSoundEffects.playPreviewTap(context)
-                        Toast.makeText(context, "Playing bubbly pop...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (autoSoundSelectorEnabled) "Playing next friendly tile sound..." else "Playing ceramic tile tick...",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = AegisPrimaryCyan,
@@ -2804,7 +2804,7 @@ private fun TouchSoundsCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = if (touchSoundsEnabled) "On • Bubbly glassy pop" else "Muted",
+                        text = activeSummary,
                         color = if (touchSoundsEnabled) AegisPrimaryCyan else AegisTextSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -2830,6 +2830,112 @@ private fun TouchSoundsCard(
                     uncheckedThumbColor = AegisTextMuted,
                     uncheckedTrackColor = AegisCardBorder
                 )
+            )
+        }
+
+        HorizontalDivider(
+            color = AegisCardBorder.copy(alpha = 0.45f),
+            modifier = Modifier.padding(vertical = 8.dp)
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    val next = !autoSoundSelectorEnabled
+                    preferences.setAutoSoundSelectorEnabled(next)
+                    if (next && !touchSoundsEnabled) {
+                        preferences.setTouchSoundsEnabled(true)
+                    }
+                    if (next) {
+                        AegisSoundEffects.playPreviewTap(context)
+                    } else {
+                        AegisSoundEffects.playTap(context)
+                    }
+                }
+                .testTag("auto_sound_selector_row"),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp)
+            ) {
+                Text(
+                    text = "Auto Sound Selector",
+                    color = AegisTextPrimary,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont
+                )
+                Text(
+                    text = if (autoSoundSelectorEnabled) {
+                        "Every touch uses a different cool short tick"
+                    } else {
+                        "Standard ceramic tile tick"
+                    },
+                    color = if (autoSoundSelectorEnabled) AegisPurple else AegisTextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = ClassicalBodyFont
+                )
+            }
+            Switch(
+                checked = autoSoundSelectorEnabled,
+                onCheckedChange = { next ->
+                    preferences.setAutoSoundSelectorEnabled(next)
+                    if (next && !touchSoundsEnabled) {
+                        preferences.setTouchSoundsEnabled(true)
+                    }
+                    if (next) {
+                        AegisSoundEffects.playPreviewTap(context)
+                    } else {
+                        AegisSoundEffects.playTap(context)
+                    }
+                },
+                modifier = Modifier.testTag("auto_sound_selector_switch"),
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = AegisOnPrimaryWhite,
+                    checkedTrackColor = AegisPurple,
+                    uncheckedThumbColor = AegisTextMuted,
+                    uncheckedTrackColor = AegisCardBorder
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedButton(
+            onClick = {
+                AegisSoundEffects.playPreviewTap(context)
+                Toast.makeText(
+                    context,
+                    if (autoSoundSelectorEnabled) "Playing next friendly tile sound..." else "Playing ceramic tile tick...",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("test_sound_button")
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                contentDescription = null,
+                tint = AegisIndigo,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "TEST SOUND EFFECT",
+                color = AegisIndigo,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = ClassicalBodyFont
             )
         }
     }

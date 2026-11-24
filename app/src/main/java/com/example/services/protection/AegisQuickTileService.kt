@@ -38,12 +38,17 @@ class AegisQuickTileService : TileService() {
     private fun refreshTileState() {
         val tile = qsTile ?: return
         val container = AegisContainer.getInstance(applicationContext)
-        val isActive = container.protectionRepository.telemetry.value.isProtectionEnabled
+        val isMasterOn = container.preferences.masterPowerEnabled.value
+        val isActive = isMasterOn && container.protectionRepository.telemetry.value.isProtectionEnabled
 
         tile.state = if (isActive) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = "Sheildlenz"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            tile.subtitle = if (isActive) "Shield Armed" else "Standby"
+            tile.subtitle = when {
+                !isMasterOn -> "Power Off"
+                isActive -> "Shield Armed"
+                else -> "Standby"
+            }
         }
         tile.updateTile()
     }

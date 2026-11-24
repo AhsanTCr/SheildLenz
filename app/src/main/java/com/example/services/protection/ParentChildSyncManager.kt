@@ -30,6 +30,10 @@ class ParentChildSyncController(
     private var syncJob: Job? = null
 
     fun ensureStarted() {
+        if (!preferences.masterPowerEnabled.value) {
+            stop()
+            return
+        }
         val uid = repository.getCurrentUserId()
         if (uid.isNullOrBlank() || preferences.parentalRole.value != "child") {
             stop()

@@ -12,23 +12,46 @@ import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
-import kotlin.math.pow
 import kotlin.math.sin
 
 /**
- * Synthesizes a crisp, soft bubbly pitch-drop glassy pop for UI touches and
- * a richer dual-droplet crystalline resonance for activating protection modes.
+ * Tactile audio feedback engine for Sheildlenz.
  *
- * Uses SoundPool backed by STREAM_MUSIC / USAGE_MEDIA for zero-latency,
- * high-volume playback on all Android versions and emulators, with AudioTrack
- * and system click fallbacks.
+ * Synthesizes crisp, short, comforting ceramic/stone tile ticks with steady
+ * modal resonances (zero pitch-drop bubble sweeps) plus an optional Auto Sound
+ * Selector palette of 8 friendly micro-tactile tones so every touch feels
+ * fresh, cool, and soothing.
  */
 object AegisSoundEffects {
 
     private const val SAMPLE_RATE = 44100
+
+    internal data class TileToneSpec(
+        val name: String,
+        val primaryHz: Double,
+        val secondaryHz: Double,
+        val tertiaryHz: Double,
+        val durationSec: Double,
+        val decaySec: Double,
+        val amplitude: Double
+    )
+
+    internal val AUTO_TILE_PALETTE: List<TileToneSpec> = listOf(
+        TileToneSpec("Porcelain Tile", 1320.0, 2640.0, 3960.0, 0.036, 0.0050, 0.24),
+        TileToneSpec("Smooth Bamboo", 940.0, 1880.0, 2820.0, 0.038, 0.0056, 0.25),
+        TileToneSpec("Crystal Pebble", 1660.0, 3320.0, 4150.0, 0.035, 0.0046, 0.22),
+        TileToneSpec("Velvet Slate", 1120.0, 2240.0, 3360.0, 0.035, 0.0048, 0.24),
+        TileToneSpec("Soft Marimba", 1046.5, 2093.0, 3139.5, 0.040, 0.0060, 0.24),
+        TileToneSpec("Glazed Ceramic", 1480.0, 2960.0, 4440.0, 0.035, 0.0047, 0.23),
+        TileToneSpec("Nordic Cedar", 840.0, 1680.0, 2520.0, 0.039, 0.0058, 0.25),
+        TileToneSpec("Moonstone Tick", 1396.9, 2093.0, 2793.8, 0.041, 0.0062, 0.23)
+    )
+
+    private val DEFAULT_TILE_SPEC = AUTO_TILE_PALETTE[0]
 
     private val audioExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "SheildlenzAudioEngine").apply { isDaemon = true }
@@ -36,6 +59,11 @@ object AegisSoundEffects {
 
     @Volatile
     private var enabled: Boolean = true
+
+    @Volatile
+    private var autoSelectorEnabled: Boolean = false
+
+    private val autoSelectorCursor = AtomicInteger(0)
 
     @Volatile
     private var lastTapAtMs: Long = 0L
@@ -52,10 +80,15 @@ object AegisSoundEffects {
     @Volatile
     private var modeOnSoundId: Int = 0
 
+    private val autoPaletteSoundIds = IntArray(AUTO_TILE_PALETTE.size)
+
     @Volatile
     private var isWarmedUp: Boolean = false
 
-    private val tapPcm: ShortArray by lazy { synthesizeWaterDropTap() }
+    private val tapPcm: ShortArray by lazy { synthesizeTileTick(DEFAULT_TILE_SPEC) }
+    private val autoPalettePcm: List<ShortArray> by lazy {
+        AUTO_TILE_PALETTE.map { synthesizeTileTick(it) }
+    }
     private val modeOnPcm: ShortArray by lazy { synthesizeModeActivatedVoice() }
 
     @Volatile
@@ -75,11 +108,23 @@ object AegisSoundEffects {
 
     fun isEnabled(): Boolean = enabled
 
+    fun setAutoSelectorEnabled(isEnabled: Boolean) {
+        autoSelectorEnabled = isEnabled
+    }
+
+    fun isAutoSelectorEnabled(): Boolean = autoSelectorEnabled
+
+    internal fun nextAutoVariationIndex(): Int {
+        // Step by 3 mod 8 (coprime to 8) so every touch visits a fresh non-adjacent pitch
+        val idx = autoSelectorCursor.getAndUpdate { (it + 3) % AUTO_TILE_PALETTE.size }
+        return idx % AUTO_TILE_PALETTE.size
+    }
+
     internal fun currentModeOnElapsedMs(): Long = lastModeOnAtMs
 
     /**
-     * Initializes SoundPool and pre-loads synthesized WAV waveforms into memory
-     * so touch feedback plays instantly with zero cold-start delay.
+     * Initializes SoundPool and pre-loads synthesized tile tick WAV waveforms
+     * into memory so touch feedback plays with zero cold-start delay.
      */
     fun prewarm(context: Context? = null) {
         if (context != null) {
@@ -99,7 +144,7 @@ object AegisSoundEffects {
         if (isWarmedUp && soundPool != null) return
         try {
             val pool = soundPool ?: SoundPool.Builder()
-                .setMaxStreams(8)
+                .setMaxStreams(10)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -117,8 +162,8 @@ object AegisSoundEffects {
 
             val targetDir = ctx?.cacheDir ?: ctx?.filesDir
             if (targetDir != null) {
-                val tapFile = File(targetDir, "sheildlenz_tap_pop_v3.wav")
-                val modeFile = File(targetDir, "sheildlenz_mode_on_v3.wav")
+                val tapFile = File(targetDir, "sheildlenz_tile_tick_v4.wav")
+                val modeFile = File(targetDir, "sheildlenz_mode_tile_v4.wav")
 
                 writePcmToWavFile(tapFile, tapPcm, SAMPLE_RATE)
                 writePcmToWavFile(modeFile, modeOnPcm, SAMPLE_RATE)
@@ -129,6 +174,14 @@ object AegisSoundEffects {
                 if (modeOnSoundId == 0) {
                     modeOnSoundId = pool.load(modeFile.absolutePath, 1)
                 }
+
+                autoPalettePcm.forEachIndexed { idx, pcm ->
+                    if (autoPaletteSoundIds[idx] == 0) {
+                        val file = File(targetDir, "sheildlenz_auto_tile_${idx}_v4.wav")
+                        writePcmToWavFile(file, pcm, SAMPLE_RATE)
+                        autoPaletteSoundIds[idx] = pool.load(file.absolutePath, 1)
+                    }
+                }
                 isWarmedUp = true
             }
         } catch (_: Throwable) {
@@ -137,7 +190,8 @@ object AegisSoundEffects {
     }
 
     /**
-     * Plays a crisp ~48ms soft bubbly pitch-drop glassy pop immediately on press.
+     * Plays a crisp, comforting tile tick (or varied friendly tile tone when Auto
+     * Sound Selector is enabled) immediately on press.
      */
     fun playTap(context: Context? = null) {
         if (!enabled) return
@@ -149,52 +203,68 @@ object AegisSoundEffects {
         if (now - lastTapAtMs < 32L) return
         lastTapAtMs = now
 
+        val variationIdx = if (autoSelectorEnabled) nextAutoVariationIndex() else -1
         audioExecutor.execute {
             if (!enabled) return@execute
-            dispatchTapSound(context)
+            dispatchTapSound(context, variationIdx)
         }
     }
 
     /**
-     * Always plays a preview of the bubbly pop when user taps TEST SOUND.
+     * Always plays a preview of the tile tick (or next auto variation if enabled)
+     * when the user taps TEST SOUND.
      */
     fun playPreviewTap(context: Context? = null) {
         if (context != null) {
             appContext = context.applicationContext
         }
         lastTapAtMs = SystemClock.elapsedRealtime()
+        val variationIdx = if (autoSelectorEnabled) nextAutoVariationIndex() else -1
         audioExecutor.execute {
-            dispatchTapSound(context)
+            dispatchTapSound(context, variationIdx)
         }
     }
 
-    private fun dispatchTapSound(context: Context?) {
+    private fun dispatchTapSound(context: Context?, variationIdx: Int) {
         ensureInitialized(context)
 
         val pool = soundPool
-        val sid = tapSoundId
+        val targetSoundId = if (variationIdx in autoPaletteSoundIds.indices && autoPaletteSoundIds[variationIdx] != 0) {
+            autoPaletteSoundIds[variationIdx]
+        } else {
+            tapSoundId
+        }
+        val targetPcm = if (variationIdx in autoPalettePcm.indices) {
+            autoPalettePcm[variationIdx]
+        } else {
+            tapPcm
+        }
+
         var played = false
-        if (pool != null && sid != 0 && loadedSoundIds.contains(sid)) {
-            val streamId = pool.play(sid, 1.0f, 1.0f, 1, 0, 1.0f)
+        if (pool != null && targetSoundId != 0 && loadedSoundIds.contains(targetSoundId)) {
+            val streamId = pool.play(targetSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
             played = (streamId != 0)
         }
 
         // Direct AudioTrack playback fallback if SoundPool stream wasn't ready
         if (!played) {
-            playViaDirectAudioTrack(tapPcm)
+            played = playViaDirectAudioTrack(targetPcm)
         }
 
-        // Also trigger system touch sound effect as companion
-        try {
-            val ctx = appContext ?: context?.applicationContext
-            val audioManager = ctx?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 1.0f)
-        } catch (_: Throwable) {
+        // Fallback to soft system click only if both synthesized tracks failed
+        if (!played) {
+            try {
+                val ctx = appContext ?: context?.applicationContext
+                val audioManager = ctx?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                audioManager?.playSoundEffect(AudioManager.FX_KEY_CLICK, 0.7f)
+            } catch (_: Throwable) {
+            }
         }
     }
 
     /**
-     * Plays a fuller, crystalline dual-droplet chime when activating protection modes.
+     * Plays a soothing two-note ceramic/crystal double-tick chime when activating
+     * protection modes.
      */
     fun playModeOn(context: Context? = null) {
         if (!enabled) return
@@ -224,8 +294,8 @@ object AegisSoundEffects {
         }
     }
 
-    private fun playViaDirectAudioTrack(samples: ShortArray) {
-        try {
+    private fun playViaDirectAudioTrack(samples: ShortArray): Boolean {
+        return try {
             val now = SystemClock.elapsedRealtime()
             val prev = lastDirectTrack
             if (prev != null && now - lastDirectTrackAtMs > 240L) {
@@ -276,10 +346,13 @@ object AegisSoundEffects {
                 track.play()
                 lastDirectTrack = track
                 lastDirectTrackAtMs = now
+                true
             } else {
                 runCatching { track.release() }
+                false
             }
         } catch (_: Throwable) {
+            false
         }
     }
 
@@ -289,19 +362,16 @@ object AegisSoundEffects {
         val byteRate = sampleRate * 2
 
         val header = ByteArray(44)
-        // "RIFF" chunk
         header[0] = 'R'.code.toByte(); header[1] = 'I'.code.toByte(); header[2] = 'F'.code.toByte(); header[3] = 'F'.code.toByte()
         header[4] = (totalDataLen and 0xff).toByte()
         header[5] = ((totalDataLen shr 8) and 0xff).toByte()
         header[6] = ((totalDataLen shr 16) and 0xff).toByte()
         header[7] = ((totalDataLen shr 24) and 0xff).toByte()
-        // "WAVE"
         header[8] = 'W'.code.toByte(); header[9] = 'A'.code.toByte(); header[10] = 'V'.code.toByte(); header[11] = 'E'.code.toByte()
-        // "fmt " subchunk
         header[12] = 'f'.code.toByte(); header[13] = 'm'.code.toByte(); header[14] = 't'.code.toByte(); header[15] = ' '.code.toByte()
-        header[16] = 16; header[17] = 0; header[18] = 0; header[19] = 0 // 16 bytes for PCM format
-        header[20] = 1; header[21] = 0 // PCM = 1
-        header[22] = 1; header[23] = 0 // 1 channel (Mono)
+        header[16] = 16; header[17] = 0; header[18] = 0; header[19] = 0
+        header[20] = 1; header[21] = 0
+        header[22] = 1; header[23] = 0
         header[24] = (sampleRate and 0xff).toByte()
         header[25] = ((sampleRate shr 8) and 0xff).toByte()
         header[26] = ((sampleRate shr 16) and 0xff).toByte()
@@ -310,9 +380,8 @@ object AegisSoundEffects {
         header[29] = ((byteRate shr 8) and 0xff).toByte()
         header[30] = ((byteRate shr 16) and 0xff).toByte()
         header[31] = ((byteRate shr 24) and 0xff).toByte()
-        header[32] = 2; header[33] = 0 // 2 bytes per sample block
-        header[34] = 16; header[35] = 0 // 16 bits per sample
-        // "data" subchunk
+        header[32] = 2; header[33] = 0
+        header[34] = 16; header[35] = 0
         header[36] = 'd'.code.toByte(); header[37] = 'a'.code.toByte(); header[38] = 't'.code.toByte(); header[39] = 'a'.code.toByte()
         header[40] = (totalAudioLen and 0xff).toByte()
         header[41] = ((totalAudioLen shr 8) and 0xff).toByte()
@@ -330,32 +399,36 @@ object AegisSoundEffects {
     }
 
     /**
-     * ~18ms ultra-clean, glassy mechanical tick tap:
-     * Crisp high-frequency metallic tap (2400Hz -> 800Hz) with instantaneous attack and sharp exponential decay.
+     * Synthesizes a clean, soothing ~36ms ceramic/stone tile tick with steady
+     * modal resonances (no pitch drop / zero bubble bloop).
      */
-    internal fun synthesizeWaterDropTap(): ShortArray {
-        val durationSec = 0.018
-        val totalSamples = (SAMPLE_RATE * durationSec).toInt()
+    internal fun synthesizeTileTick(spec: TileToneSpec = DEFAULT_TILE_SPEC): ShortArray {
+        val totalSamples = (SAMPLE_RATE * spec.durationSec).toInt()
         val out = ShortArray(totalSamples)
-        var phase = 0.0
-        val attackSec = 0.0008
+        val attackSec = 0.0012
+        val tailStartSec = spec.durationSec - 0.004
 
         for (i in 0 until totalSamples) {
             val t = i.toDouble() / SAMPLE_RATE
-            val progress = t / durationSec
-            val freq = 2400.0 * 2.0.pow(-2.2 * progress)
-            phase += 2.0 * PI * freq / SAMPLE_RATE
-
             val attackEnv = if (t < attackSec) {
-                t / attackSec
+                0.5 * (1.0 - cos(PI * t / attackSec))
             } else {
                 1.0
             }
-            val decayEnv = exp(-t / 0.0035)
+            val bodyEnv = exp(-t / spec.decaySec)
+            val sheenEnv = exp(-t / (spec.decaySec * 0.45))
+            val tailTaper = if (t > tailStartSec) {
+                ((spec.durationSec - t) / 0.004).coerceIn(0.0, 1.0)
+            } else {
+                1.0
+            }
 
-            val wave = sin(phase) + 0.35 * sin(phase * 2.0)
-            val amplitude = 0.28 * attackEnv * decayEnv
-            out[i] = (wave * amplitude * Short.MAX_VALUE)
+            val body = sin(2.0 * PI * spec.primaryHz * t) * bodyEnv
+            val overtone = 0.40 * sin(2.0 * PI * spec.secondaryHz * t) * sheenEnv
+            val transient = 0.16 * sin(2.0 * PI * spec.tertiaryHz * t) * exp(-t / 0.0016)
+            val mixed = (body + overtone + transient) * attackEnv * tailTaper * spec.amplitude
+
+            out[i] = (mixed * Short.MAX_VALUE)
                 .toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                 .toShort()
@@ -363,53 +436,39 @@ object AegisSoundEffects {
         return out
     }
 
+    internal fun synthesizeWaterDropTap(): ShortArray = synthesizeTileTick(DEFAULT_TILE_SPEC)
+
     /**
-     * ~195ms fuller, higher-presence dual-droplet chime for activating protection modes.
+     * ~180ms calm two-note ceramic/crystal double-tick chime for activating protection modes.
      */
     internal fun synthesizeModeActivatedVoice(): ShortArray {
-        val durationSec = 0.195
+        val durationSec = 0.180
         val totalSamples = (SAMPLE_RATE * durationSec).toInt()
         val out = ShortArray(totalSamples)
 
-        var p1 = 0.0
-        var p1Fifth = 0.0
-        var p1Oct = 0.0
-        var p2 = 0.0
-        var p2Oct = 0.0
-
-        val attackSec = 0.0045
-        val secondDropStart = 0.048
+        val attackSec = 0.0022
+        val secondTickStart = 0.052
+        // Warm D6 -> G6 steady resonant chime (zero pitch-drop/bubble bend)
+        val f1 = 1174.66
+        val f2 = 1567.98
 
         for (i in 0 until totalSamples) {
             val t = i.toDouble() / SAMPLE_RATE
             var mixed = 0.0
 
-            // Droplet 1
-            val progress1 = (t / 0.11).coerceIn(0.0, 1.0)
-            val f1 = 480.0 * 2.0.pow(0.95 * progress1)
-            p1 += 2.0 * PI * f1 / SAMPLE_RATE
-            p1Fifth += 2.0 * PI * (f1 * 1.5) / SAMPLE_RATE
-            p1Oct += 2.0 * PI * (f1 * 2.0) / SAMPLE_RATE
-
             val atk1 = if (t < attackSec) 0.5 * (1.0 - cos(PI * t / attackSec)) else 1.0
-            val dec1 = exp(-t / 0.036)
-            mixed += (sin(p1) + 0.30 * sin(p1Fifth) + 0.22 * sin(p1Oct)) * atk1 * dec1
+            val dec1 = exp(-t / 0.022)
+            mixed += (sin(2.0 * PI * f1 * t) + 0.34 * sin(2.0 * PI * (f1 * 2.0) * t) * exp(-t / 0.010)) * atk1 * dec1
 
-            // Droplet 2
-            if (t >= secondDropStart) {
-                val t2 = t - secondDropStart
-                val progress2 = (t2 / 0.14).coerceIn(0.0, 1.0)
-                val f2 = 720.0 * 2.0.pow(0.98 * progress2)
-                p2 += 2.0 * PI * f2 / SAMPLE_RATE
-                p2Oct += 2.0 * PI * (f2 * 2.0) / SAMPLE_RATE
-
+            if (t >= secondTickStart) {
+                val t2 = t - secondTickStart
                 val atk2 = if (t2 < attackSec) 0.5 * (1.0 - cos(PI * t2 / attackSec)) else 1.0
-                val dec2 = exp(-t2 / 0.045)
-                mixed += 0.95 * (sin(p2) + 0.28 * sin(p2Oct)) * atk2 * dec2
+                val dec2 = exp(-t2 / 0.030)
+                mixed += 1.05 * (sin(2.0 * PI * f2 * t2) + 0.32 * sin(2.0 * PI * (f2 * 2.0) * t2) * exp(-t2 / 0.014)) * atk2 * dec2
             }
 
-            val tailTaper = if (t > 0.17) (durationSec - t).coerceAtLeast(0.0) / 0.025 else 1.0
-            val scaled = mixed * 0.58 * tailTaper
+            val tailTaper = if (t > 0.158) ((durationSec - t) / 0.022).coerceIn(0.0, 1.0) else 1.0
+            val scaled = mixed * 0.42 * tailTaper
             out[i] = (scaled * Short.MAX_VALUE)
                 .toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())

@@ -248,6 +248,9 @@ class AegisPreferences(context: Context) {
     private val _isShieldDesiredActive = MutableStateFlow(prefs.getBoolean(KEY_SHIELD_DESIRED_ACTIVE, false))
     val isShieldDesiredActive: StateFlow<Boolean> = _isShieldDesiredActive.asStateFlow()
 
+    private val _masterPowerEnabled = MutableStateFlow(prefs.getBoolean(KEY_MASTER_POWER_ENABLED, true))
+    val masterPowerEnabled: StateFlow<Boolean> = _masterPowerEnabled.asStateFlow()
+
     private val _lockdownIncidentInfo = MutableStateFlow(readLockdownIncident())
     val lockdownIncidentInfo: StateFlow<LockdownIncidentInfo> = _lockdownIncidentInfo.asStateFlow()
 
@@ -384,6 +387,28 @@ class AegisPreferences(context: Context) {
     private val _showEmergencyDialerOnLockdown = MutableStateFlow(prefs.getBoolean(KEY_SHOW_EMERGENCY_DIALER, true))
     val showEmergencyDialerOnLockdown: StateFlow<Boolean> = _showEmergencyDialerOnLockdown.asStateFlow()
 
+    // Editable Block Screen Controls (inside 7-Tap Developer Options in Edits)
+    private val _blockCustomHeadline = MutableStateFlow(prefs.getString(KEY_BLOCK_CUSTOM_HEADLINE, "") ?: "")
+    val blockCustomHeadline: StateFlow<String> = _blockCustomHeadline.asStateFlow()
+
+    private val _blockCustomMessage = MutableStateFlow(prefs.getString(KEY_BLOCK_CUSTOM_MESSAGE, "") ?: "")
+    val blockCustomMessage: StateFlow<String> = _blockCustomMessage.asStateFlow()
+
+    private val _blockShowTimer = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_SHOW_TIMER, true))
+    val blockShowTimer: StateFlow<Boolean> = _blockShowTimer.asStateFlow()
+
+    private val _blockShowAppBadge = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_SHOW_APP_BADGE, true))
+    val blockShowAppBadge: StateFlow<Boolean> = _blockShowAppBadge.asStateFlow()
+
+    private val _blockShowQrUnlock = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_SHOW_QR_UNLOCK, true))
+    val blockShowQrUnlock: StateFlow<Boolean> = _blockShowQrUnlock.asStateFlow()
+
+    private val _blockShowQuickActions = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_SHOW_QUICK_ACTIONS, true))
+    val blockShowQuickActions: StateFlow<Boolean> = _blockShowQuickActions.asStateFlow()
+
+    private val _blockShowReturnHome = MutableStateFlow(prefs.getBoolean(KEY_BLOCK_SHOW_RETURN_HOME, true))
+    val blockShowReturnHome: StateFlow<Boolean> = _blockShowReturnHome.asStateFlow()
+
     private val _evictAppOnThreat = MutableStateFlow(prefs.getBoolean(KEY_EVICT_APP_ON_THREAT, true))
     val evictAppOnThreat: StateFlow<Boolean> = _evictAppOnThreat.asStateFlow()
 
@@ -511,11 +536,16 @@ class AegisPreferences(context: Context) {
     )
     val appLanguageCode: StateFlow<String> = _appLanguageCode.asStateFlow()
 
-    // Tactile UI Touch Sounds (soft bubbly pitch-drop pop on buttons, switches, nav tabs)
+    // Tactile UI Touch Sounds (clean ceramic tile tick + optional Auto Sound Selector)
     private val _touchSoundsEnabled = MutableStateFlow(
         prefs.getBoolean(KEY_TOUCH_SOUNDS_ENABLED, true)
     )
     val touchSoundsEnabled: StateFlow<Boolean> = _touchSoundsEnabled.asStateFlow()
+
+    private val _autoSoundSelectorEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_AUTO_SOUND_SELECTOR_ENABLED, false)
+    )
+    val autoSoundSelectorEnabled: StateFlow<Boolean> = _autoSoundSelectorEnabled.asStateFlow()
 
     // Study Mode & Focus Lock Timer (with soft warning countdown)
     private val _studyModeEnabled = MutableStateFlow(
@@ -576,6 +606,7 @@ class AegisPreferences(context: Context) {
 
     init {
         AegisSoundEffects.setEnabled(_touchSoundsEnabled.value)
+        AegisSoundEffects.setAutoSelectorEnabled(_autoSoundSelectorEnabled.value)
     }
 
     @Volatile
@@ -783,6 +814,54 @@ class AegisPreferences(context: Context) {
         _showEmergencyDialerOnLockdown.value = enabled
     }
 
+    fun setBlockCustomHeadline(headline: String) {
+        val clean = headline.take(80)
+        prefs.edit().putString(KEY_BLOCK_CUSTOM_HEADLINE, clean).apply()
+        _blockCustomHeadline.value = clean
+    }
+
+    fun setBlockCustomMessage(message: String) {
+        val clean = message.take(240)
+        prefs.edit().putString(KEY_BLOCK_CUSTOM_MESSAGE, clean).apply()
+        _blockCustomMessage.value = clean
+    }
+
+    fun setBlockShowTimer(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_SHOW_TIMER, enabled).apply()
+        _blockShowTimer.value = enabled
+    }
+
+    fun setBlockShowAppBadge(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_SHOW_APP_BADGE, enabled).apply()
+        _blockShowAppBadge.value = enabled
+    }
+
+    fun setBlockShowQrUnlock(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_SHOW_QR_UNLOCK, enabled).apply()
+        _blockShowQrUnlock.value = enabled
+    }
+
+    fun setBlockShowQuickActions(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_SHOW_QUICK_ACTIONS, enabled).apply()
+        _blockShowQuickActions.value = enabled
+    }
+
+    fun setBlockShowReturnHome(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BLOCK_SHOW_RETURN_HOME, enabled).apply()
+        _blockShowReturnHome.value = enabled
+    }
+
+    fun resetBlockScreenCustomizations() {
+        setBlockCustomHeadline("")
+        setBlockCustomMessage("")
+        setBlockShowTimer(true)
+        setBlockShowAppBadge(true)
+        setBlockShowQrUnlock(true)
+        setBlockShowQuickActions(true)
+        setBlockShowReturnHome(true)
+        setShowEmergencyDialerOnLockdown(true)
+    }
+
     fun setEvictAppOnThreat(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_EVICT_APP_ON_THREAT, enabled).apply()
         _evictAppOnThreat.value = enabled
@@ -803,7 +882,7 @@ class AegisPreferences(context: Context) {
         setCustomExplicitThreshold(0.75f)
         setCustomSuggestiveThreshold(0.80f)
         setConsecutiveFramesRequired(2)
-        setShowEmergencyDialerOnLockdown(true)
+        resetBlockScreenCustomizations()
         setEvictAppOnThreat(true)
         setGuardianSettingsWindowMinutes(2)
     }
@@ -821,6 +900,11 @@ class AegisPreferences(context: Context) {
     fun setShieldDesiredActive(active: Boolean) {
         prefs.edit().putBoolean(KEY_SHIELD_DESIRED_ACTIVE, active).apply()
         _isShieldDesiredActive.value = active
+    }
+
+    fun setMasterPowerEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MASTER_POWER_ENABLED, enabled).apply()
+        _masterPowerEnabled.value = enabled
     }
 
     fun setParentalRole(role: String?) {
@@ -1051,17 +1135,22 @@ class AegisPreferences(context: Context) {
         authorizedExternalFlowUntilRealtime = SystemClock.elapsedRealtime() + windowMillis
     }
 
-    fun onAppBackgrounded() {
+    fun consumeAuthorizedExternalFlow() {
+        authorizedExternalFlowUntilRealtime = 0L
+    }
+
+    fun onAppBackgrounded(forceLock: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
-        val withinAuthorizedExternalFlow = now <= authorizedExternalFlowUntilRealtime
+        val withinAuthorizedExternalFlow = !forceLock && now <= authorizedExternalFlowUntilRealtime
         authorizedExternalFlowUntilRealtime = 0L
         if (withinAuthorizedExternalFlow) {
             return
         }
         _isGuardianSessionUnlocked.value = false
-        if (explicitSettingsTripPending) {
+        if (explicitSettingsTripPending && !forceLock) {
             explicitSettingsTripPending = false
         } else {
+            explicitSettingsTripPending = false
             guardianSettingsBypassUntilRealtime = 0L
         }
     }
@@ -1486,6 +1575,12 @@ class AegisPreferences(context: Context) {
         AegisSoundEffects.setEnabled(enabled)
     }
 
+    fun setAutoSoundSelectorEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_SOUND_SELECTOR_ENABLED, enabled).apply()
+        _autoSoundSelectorEnabled.value = enabled
+        AegisSoundEffects.setAutoSelectorEnabled(enabled)
+    }
+
     // --- 7. Study Mode & Focus Lock Timer ---
 
     fun setStudyDurationMinutes(minutes: Int) {
@@ -1536,6 +1631,28 @@ class AegisPreferences(context: Context) {
     }
 
     fun isStudySessionActive(): Boolean = getRemainingStudyMillis() > 0L
+
+    fun extendActiveStudySession(extraMinutes: Int): Long {
+        val addMins = extraMinutes.coerceIn(1, 120)
+        val now = System.currentTimeMillis()
+        val baseEnd = if (_studyModeEnabled.value && _studySessionEndMillis.value > now) {
+            _studySessionEndMillis.value
+        } else {
+            now
+        }
+        val maxEnd = now + 240L * 60_000L
+        val nextEnd = (baseEnd + addMins * 60_000L).coerceAtMost(maxEnd)
+        val nextDur = ((_studyDurationMinutes.value) + addMins).coerceIn(5, 240)
+        prefs.edit()
+            .putBoolean(KEY_STUDY_MODE_ENABLED, true)
+            .putLong(KEY_STUDY_SESSION_END_MILLIS, nextEnd)
+            .putInt(KEY_STUDY_DURATION_MINUTES, nextDur)
+            .apply()
+        _studyModeEnabled.value = true
+        _studySessionEndMillis.value = nextEnd
+        _studyDurationMinutes.value = nextDur
+        return nextEnd
+    }
 
     fun setStudyAllowedPackages(packages: Set<String>) {
         val cleaned = packages.map { it.trim() }.filter { it.isNotBlank() }.take(40).toSet()
@@ -1633,6 +1750,7 @@ class AegisPreferences(context: Context) {
             put("guardianEmail", _guardianEmail.value)
             put("appLanguageCode", _appLanguageCode.value)
             put("touchSoundsEnabled", _touchSoundsEnabled.value)
+            put("autoSoundSelectorEnabled", _autoSoundSelectorEnabled.value)
             put("studyDurationMinutes", _studyDurationMinutes.value)
             put("studySoftWarningSeconds", _studySoftWarningSeconds.value)
             put("studyAllowedPackages", JSONArray(_studyAllowedPackages.value.toList()))
@@ -1640,6 +1758,14 @@ class AegisPreferences(context: Context) {
             put("safeSearchPacks", JSONArray(_safeSearchPacks.value.toList()))
             put("notificationsEnabled", _notificationsEnabled.value)
             put("discreetBlockingScreenMode", _discreetBlockingScreenMode.value)
+            put("blockCustomHeadline", _blockCustomHeadline.value)
+            put("blockCustomMessage", _blockCustomMessage.value)
+            put("blockShowTimer", _blockShowTimer.value)
+            put("blockShowAppBadge", _blockShowAppBadge.value)
+            put("blockShowQrUnlock", _blockShowQrUnlock.value)
+            put("blockShowQuickActions", _blockShowQuickActions.value)
+            put("blockShowReturnHome", _blockShowReturnHome.value)
+            put("showEmergencyDialerOnLockdown", _showEmergencyDialerOnLockdown.value)
             put("whitelistedPackages", JSONArray(_whitelistedPackages.value.toList()))
             put("customBlockedDomains", JSONArray(_customBlockedDomains.value.toList()))
             put("customBlockedKeywords", JSONArray(_customBlockedKeywords.value.toList()))
@@ -1692,11 +1818,20 @@ class AegisPreferences(context: Context) {
             setGuardianEmail(payload.optString("guardianEmail", ""))
             setAppLanguageCode(payload.optString("appLanguageCode", "system"))
             setTouchSoundsEnabled(payload.optBoolean("touchSoundsEnabled", true))
+            setAutoSoundSelectorEnabled(payload.optBoolean("autoSoundSelectorEnabled", false))
             setStudyDurationMinutes(payload.optInt("studyDurationMinutes", 25))
             setStudySoftWarningSeconds(payload.optInt("studySoftWarningSeconds", 30))
             setSmartSafeSearchEnabled(payload.optBoolean("smartSafeSearchEnabled", false))
             setNotificationsEnabled(payload.optBoolean("notificationsEnabled", true))
             setDiscreetBlockingScreenMode(payload.optBoolean("discreetBlockingScreenMode", true))
+            setBlockCustomHeadline(payload.optString("blockCustomHeadline", ""))
+            setBlockCustomMessage(payload.optString("blockCustomMessage", ""))
+            setBlockShowTimer(payload.optBoolean("blockShowTimer", true))
+            setBlockShowAppBadge(payload.optBoolean("blockShowAppBadge", true))
+            setBlockShowQrUnlock(payload.optBoolean("blockShowQrUnlock", true))
+            setBlockShowQuickActions(payload.optBoolean("blockShowQuickActions", true))
+            setBlockShowReturnHome(payload.optBoolean("blockShowReturnHome", true))
+            setShowEmergencyDialerOnLockdown(payload.optBoolean("showEmergencyDialerOnLockdown", true))
 
             val studyAllowedArr = payload.optJSONArray("studyAllowedPackages")
             if (studyAllowedArr != null) {
@@ -2012,6 +2147,7 @@ class AegisPreferences(context: Context) {
         private const val KEY_CUSTOM_BLOCKED_KEYWORDS = "key_custom_blocked_keywords"
         private const val KEY_APP_LANGUAGE_CODE = "key_app_language_code"
         private const val KEY_TOUCH_SOUNDS_ENABLED = "key_touch_sounds_enabled"
+        private const val KEY_AUTO_SOUND_SELECTOR_ENABLED = "key_auto_sound_selector_enabled"
         private const val KEY_STUDY_MODE_ENABLED = "key_study_mode_enabled"
         private const val KEY_STUDY_SESSION_END_MILLIS = "key_study_session_end_millis"
         private const val KEY_STUDY_DURATION_MINUTES = "key_study_duration_minutes"
@@ -2022,5 +2158,13 @@ class AegisPreferences(context: Context) {
         private const val KEY_SAFE_SEARCH_BLOCKED_COUNT = "key_safe_search_blocked_count"
         private const val KEY_NOTIFICATIONS_ENABLED = "key_notifications_enabled"
         private const val KEY_DISCREET_BLOCKING_SCREEN_MODE = "key_discreet_blocking_screen_mode"
+        private const val KEY_MASTER_POWER_ENABLED = "key_master_power_enabled"
+        private const val KEY_BLOCK_CUSTOM_HEADLINE = "key_block_custom_headline"
+        private const val KEY_BLOCK_CUSTOM_MESSAGE = "key_block_custom_message"
+        private const val KEY_BLOCK_SHOW_TIMER = "key_block_show_timer"
+        private const val KEY_BLOCK_SHOW_APP_BADGE = "key_block_show_app_badge"
+        private const val KEY_BLOCK_SHOW_QR_UNLOCK = "key_block_show_qr_unlock"
+        private const val KEY_BLOCK_SHOW_QUICK_ACTIONS = "key_block_show_quick_actions"
+        private const val KEY_BLOCK_SHOW_RETURN_HOME = "key_block_show_return_home"
     }
 }

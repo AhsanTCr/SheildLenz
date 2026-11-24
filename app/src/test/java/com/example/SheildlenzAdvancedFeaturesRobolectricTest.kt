@@ -26,6 +26,7 @@ import com.example.data.preferences.RecoveryScanResult
 import com.example.data.preferences.SafeDnsProvider
 import com.example.ui.about.AboutScreen
 import com.example.ui.auth.GuardianGateScreen
+import com.example.ui.blocking.BlockOverlayScreen
 import com.example.ui.components.QrCodeGenerator
 import com.example.ui.components.rememberMasterKeyGate
 import com.example.ui.dashboard.DashboardScreen
@@ -414,15 +415,16 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
             "guardian_recovery_card",
             "resistance_accordion",
             "device_owner_card",
-            "touch_sounds_card",
             "policy_backup_restore_card",
-            "language_selector_card"
+            "app_version_card"
         ).forEach { tag ->
             composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag(tag))
             composeRule.onNodeWithTag(tag).performScrollTo()
             composeRule.waitForIdle()
             composeRule.onNodeWithTag(tag).assertIsDisplayed()
         }
+        composeRule.onNodeWithTag("touch_sounds_card").assertDoesNotExist()
+        composeRule.onNodeWithTag("language_selector_card").assertDoesNotExist()
 
         // Verify tapping Warnings pill opens popup dialog with Warn Only (Don't Lockout) switch
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("warning_thresholds_card"))
@@ -436,7 +438,7 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
     }
 
     @Test
-    fun `status renders wellbeing gateway button and edits locks behind guardian password`() {
+    fun `status renders wellbeing gateway button and overview without secondary lock prompt`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
         var openedWellbeing = false
@@ -458,29 +460,30 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         composeRule.onNodeWithTag("status_open_wellbeing_button").performClick()
         composeRule.waitForIdle()
         assertTrue(openedWellbeing)
+    }
 
-        // Verify Edits password lock gate protects SettingsScreen in Child mode
+    @Test
+    fun `edits lock gate renders single glass card without secondary status box and unlocks via pin`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
         container.preferences.setGuardianPin("2580")
         container.preferences.lockGuardianSession()
         container.preferences.setParentalRole("child")
-        var jumpedToStatus = false
+
         composeRule.setContent {
             AegisShieldTheme {
                 SettingsScreen(
                     preferences = container.preferences,
                     modelManager = container.modelManager,
                     protectionRepo = container.protectionRepository,
-                    onNavigateToStatus = { jumpedToStatus = true }
+                    onNavigateToStatus = {}
                 )
             }
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("edits_lock_gate_card").assertIsDisplayed()
         composeRule.onNodeWithTag("edits_child_parent_notice").assertIsDisplayed()
-        composeRule.onNodeWithTag("edits_view_status_button").performScrollTo()
-        composeRule.onNodeWithTag("edits_view_status_button").performClick()
-        composeRule.waitForIdle()
-        assertTrue(jumpedToStatus)
+        composeRule.onNodeWithTag("edits_view_status_button").assertDoesNotExist()
 
         composeRule.onNodeWithTag("edits_unlock_pin_input").performScrollTo()
         composeRule.onNodeWithTag("edits_unlock_pin_input").performTextInput("2580")
@@ -713,6 +716,14 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("app_update_checker_card"))
         composeRule.onNodeWithTag("app_update_checker_card").assertIsDisplayed()
 
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("touch_sounds_card"))
+        composeRule.onNodeWithTag("touch_sounds_card").assertIsDisplayed()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("language_selector_card"))
+        composeRule.onNodeWithTag("language_selector_card").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("app_version_card").assertDoesNotExist()
+
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("about_faq_item_2"))
         composeRule.onNodeWithTag("about_faq_item_2").performScrollTo()
         composeRule.onNodeWithTag("about_faq_item_2").performClick()
@@ -763,6 +774,266 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         val shadowApp = org.robolectric.Shadows.shadowOf(context as android.app.Application)
         val started = shadowApp.nextStartedActivity
         assertNull("Update action must stay inside app instead of opening browser", started)
+    }
+
+    @Test
+    fun `master power off terminates protection state and disables background subsystems until powered on`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer.getInstance(context)
+        val prefs = container.preferences
+        prefs.setMasterPowerEnabled(true)
+        prefs.setShieldDesiredActive(true)
+        prefs.startStudySession(25)
+        container.protectionRepository.setProtectionEnabled(true)
+        container.protectionRepository.updateAccessibilityState(true)
+
+        com.example.services.protection.MasterPowerController.setMasterPowerEnabled(context, false)
+
+        assertFalse(prefs.masterPowerEnabled.value)
+        assertFalse(prefs.isShieldDesiredActive.value)
+        assertFalse(prefs.studyModeEnabled.value)
+        assertFalse(container.protectionRepository.telemetry.value.isProtectionEnabled)
+        assertFalse(container.protectionRepository.telemetry.value.isAccessibilityActive)
+        assertEquals("Master Power Off", container.protectionRepository.activeAppLabel.value)
+
+        com.example.services.protection.MasterPowerController.setMasterPowerEnabled(context, true)
+        assertTrue(prefs.masterPowerEnabled.value)
+    }
+
+    @Test
+    fun `about screen shutdown switch toggles zero battery mode cleanly`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer.getInstance(context)
+        container.preferences.setGuardianPin("1234")
+        container.preferences.unlockGuardianSession()
+        container.preferences.setMasterPowerEnabled(true)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                AboutScreen(preferences = container.preferences)
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("master_power_card").assertIsDisplayed()
+        composeRule.onNodeWithText("Shutdown").assertIsDisplayed()
+        composeRule.onNodeWithText("On • App running normally").assertIsDisplayed()
+        composeRule.onNodeWithTag("master_power_switch").performClick()
+        composeRule.waitForIdle()
+
+        assertFalse(container.preferences.masterPowerEnabled.value)
+        composeRule.onNodeWithText("Off • 0% background battery").assertIsDisplayed()
+
+        // Toggle back ON via switch (no PIN required)
+        composeRule.onNodeWithTag("master_power_switch").performClick()
+        composeRule.waitForIdle()
+        assertTrue(container.preferences.masterPowerEnabled.value)
+        composeRule.onNodeWithText("On • App running normally").assertIsDisplayed()
+    }
+
+    @Test
+    fun `about screen shutdown off requires guardian pin when locked`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer.getInstance(context)
+        container.preferences.setGuardianPin("4321")
+        container.preferences.lockGuardianSession()
+        container.preferences.setMasterPowerEnabled(true)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                AboutScreen(preferences = container.preferences)
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("master_power_switch").performClick()
+        composeRule.waitForIdle()
+
+        // Must remain ON until Guardian PIN is verified
+        assertTrue(container.preferences.masterPowerEnabled.value)
+        composeRule.onNodeWithTag("master_key_prompt_input").assertIsDisplayed()
+        composeRule.onNodeWithTag("master_key_prompt_input").performTextInput("4321")
+        composeRule.onNodeWithTag("master_key_prompt_confirm").performClick()
+        composeRule.waitForIdle()
+
+        assertFalse(container.preferences.masterPowerEnabled.value)
+        composeRule.onNodeWithText("Off • 0% background battery").assertIsDisplayed()
+    }
+
+    @Test
+    fun `home dynamic 6 tile pool rotates active features out and allows extending active study`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        val prefs = container.preferences
+        prefs.setGuardianPin("1234")
+        prefs.lockGuardianSession()
+        prefs.stopStudySession()
+        prefs.setSmartSafeSearchEnabled(false)
+        prefs.setScheduleEnabled(false)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                DashboardScreen(
+                    protectionRepo = container.protectionRepository,
+                    modelManager = container.modelManager,
+                    preferences = prefs
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_one_tap_features_strip"))
+
+        // Enabling Safe Search removes it from the 6 tiles and rotates Quiet Hours (home_one_tap_schedule) in
+        composeRule.onNodeWithTag("home_one_tap_safe_search").performClick()
+        composeRule.waitForIdle()
+        assertTrue(prefs.smartSafeSearchEnabled.value)
+        composeRule.onNodeWithTag("home_one_tap_safe_search").assertDoesNotExist()
+        composeRule.onNodeWithTag("home_one_tap_schedule").performScrollTo()
+        composeRule.onNodeWithTag("home_one_tap_schedule").assertIsDisplayed()
+
+        // Active Study shows extend banner (+15M) with no PIN required
+        composeRule.runOnUiThread {
+            prefs.startStudySession(20)
+        }
+        composeRule.waitForIdle()
+        val beforeExtend = prefs.getRemainingStudyMillis()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_active_study_extend_banner"))
+        composeRule.onNodeWithTag("home_active_study_extend_banner").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_extend_study_button").performClick()
+        composeRule.waitForIdle()
+        val afterExtend = prefs.getRemainingStudyMillis()
+        assertTrue(afterExtend >= beforeExtend + 14 * 60_000L)
+    }
+
+    @Test
+    fun `edits 7 tap precision lab reveals block screen editor and customizes block overlay`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        val prefs = container.preferences
+        prefs.setGuardianPin("1234")
+        prefs.unlockGuardianSession()
+        prefs.setAdvancedOptionsUnlocked(false)
+        prefs.resetBlockScreenCustomizations()
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                SettingsScreen(
+                    preferences = prefs,
+                    modelManager = container.modelManager,
+                    protectionRepo = container.protectionRepository
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        // Tap App Version 7 times inside unlocked Edits
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("app_version_card"))
+        composeRule.onNodeWithTag("app_version_card").performScrollTo()
+        repeat(7) {
+            composeRule.onNodeWithTag("app_version_card").performClick()
+        }
+        composeRule.waitForIdle()
+        assertTrue(prefs.advancedOptionsUnlocked.value)
+
+        // Block Screen Editor appears inside 7-tap Developer Options
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("block_screen_editor_card"))
+        composeRule.onNodeWithTag("block_screen_editor_card").performScrollTo()
+        composeRule.onNodeWithTag("block_screen_editor_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("block_screen_editor_preview").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("block_editor_headline_input").performScrollTo()
+        composeRule.onNodeWithTag("block_editor_headline_input").performTextInput("Take a Deep Breath")
+        composeRule.onNodeWithTag("block_editor_qr_switch").performScrollTo()
+        composeRule.onNodeWithTag("block_editor_qr_switch").performClick()
+        composeRule.waitForIdle()
+
+        assertEquals("Take a Deep Breath", prefs.blockCustomHeadline.value)
+        assertFalse(prefs.blockShowQrUnlock.value)
+
+        // Policy backup/restore round-trip preserves Block Screen customization
+        val json = prefs.exportPolicyJson()
+        prefs.resetBlockScreenCustomizations()
+        assertEquals("", prefs.blockCustomHeadline.value)
+        assertTrue(prefs.blockShowQrUnlock.value)
+        assertTrue(prefs.restorePolicyJson(json))
+        assertEquals("Take a Deep Breath", prefs.blockCustomHeadline.value)
+        assertFalse(prefs.blockShowQrUnlock.value)
+    }
+
+    @Test
+    fun `block overlay screen honors customized headline message and hidden timer or actions`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+        prefs.setBlockCustomHeadline("Study Focus Guard")
+        prefs.setBlockCustomMessage("Step back and drink some water.")
+        prefs.setBlockShowTimer(false)
+        prefs.setBlockShowAppBadge(false)
+        prefs.setBlockShowQuickActions(false)
+        prefs.setShowEmergencyDialerOnLockdown(false)
+        prefs.setBlockShowReturnHome(false)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                BlockOverlayScreen(
+                    category = ThreatCategory.EXPLICIT_ADULT,
+                    targetAppName = "Browser",
+                    preferences = prefs,
+                    onDismiss = {}
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithText("Study Focus Guard").assertIsDisplayed()
+        composeRule.onNodeWithText("Step back and drink some water.").assertIsDisplayed()
+        composeRule.onNodeWithTag("block_screen_timer_badge").assertDoesNotExist()
+        composeRule.onNodeWithTag("block_screen_app_badge").assertDoesNotExist()
+        composeRule.onNodeWithTag("block_screen_guardian_override_button").assertDoesNotExist()
+        // Safety fallback guarantees Return Home remains visible when all action buttons are toggled OFF
+        composeRule.onNodeWithTag("block_screen_return_home_button").assertIsDisplayed()
+    }
+
+    @Test
+    fun `dashboard screen shows master power off banner and 1 tap power on restores power`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer.getInstance(context)
+        container.preferences.setGuardianPin("1234")
+        container.preferences.unlockGuardianSession()
+        container.preferences.setMasterPowerEnabled(false)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                DashboardScreen(
+                    protectionRepo = container.protectionRepository,
+                    modelManager = container.modelManager,
+                    preferences = container.preferences
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("home_master_power_off_banner").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_master_power_on_button").performClick()
+        composeRule.waitForIdle()
+
+        assertTrue(container.preferences.masterPowerEnabled.value)
+    }
+
+    @Test
+    fun `live protection screen displays master app power status row`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer.getInstance(context)
+        container.preferences.setMasterPowerEnabled(false)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                LiveProtectionScreen(
+                    protectionRepo = container.protectionRepository,
+                    preferences = container.preferences
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(androidx.compose.ui.test.hasText("Master App Power"))
+        composeRule.onNodeWithText("Master App Power").assertIsDisplayed()
+        composeRule.onNodeWithText("OFF (0% Battery • No Background)").assertIsDisplayed()
     }
 
     private fun buildSampleIpv4UdpDnsQueryPacket(domain: String): ByteArray {

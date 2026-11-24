@@ -53,14 +53,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -119,6 +125,7 @@ import com.example.detection.classifier.ModelDownloader
 import com.example.detection.classifier.ModelImportResult
 import com.example.detection.classifier.ModelManager
 import com.example.services.dns.AegisSafeDnsVpnService
+import com.example.services.protection.MasterPowerController
 import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
@@ -183,14 +190,18 @@ fun DashboardScreen(
     val studySessionEndMillis by preferences.studySessionEndMillis.collectAsState()
     val studyDurationMinutes by preferences.studyDurationMinutes.collectAsState()
     val smartSafeSearchEnabled by preferences.smartSafeSearchEnabled.collectAsState()
-    val safeSearchPacks by preferences.safeSearchPacks.collectAsState()
     val appTimeBudgets by preferences.appTimeBudgets.collectAsState()
     val safeDnsEnabled by preferences.safeDnsEnabled.collectAsState()
-    val safeDnsProvider by preferences.safeDnsProvider.collectAsState()
     val bedtimeEnabled by preferences.bedtimeEnabled.collectAsState()
     val bedtimeStartMinutes by preferences.bedtimeStartMinutes.collectAsState()
     val bedtimeEndMinutes by preferences.bedtimeEndMinutes.collectAsState()
     val strictEverything by preferences.strictEverything.collectAsState()
+    val antiTamperEnabled by preferences.antiTamperEnabled.collectAsState()
+    val isAutoStart by preferences.autoStart.collectAsState()
+    val waitCooldownBeforePin by preferences.waitCooldownBeforePassword.collectAsState()
+    val pauseWhenScreenOff by preferences.pauseWhenScreenOff.collectAsState()
+    val skipDuplicateFrames by preferences.skipDuplicateFrames.collectAsState()
+    val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
 
     var remainingStudyMillis by remember { mutableLongStateOf(preferences.getRemainingStudyMillis()) }
     LaunchedEffect(studyModeEnabled, studySessionEndMillis) {
@@ -240,6 +251,11 @@ fun DashboardScreen(
 
     val attemptStartProtection = {
         when {
+            !isMasterPowerOn -> Toast.makeText(
+                context,
+                "Master Power is OFF in About. Turn Master Power ON first.",
+                Toast.LENGTH_SHORT
+            ).show()
             !telemetry.isOverlayPermitted -> showOverlayWarningDialog = true
             !telemetry.isModelLoaded -> showMissingModelDialog = true
             else -> onRequestStartProtection()
@@ -752,6 +768,100 @@ fun DashboardScreen(
                     }
                 }
 
+                // 0b. Master Power OFF Banner (0% Background Battery Mode)
+                item {
+                    AnimatedVisibility(
+                        visible = !isMasterPowerOn,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        CyberCard(
+                            borderColor = AegisGoldBorder,
+                            tone = CyberCardTone.GOLD,
+                            modifier = Modifier
+                                .widthIn(max = 580.dp)
+                                .testTag("home_master_power_off_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(AegisWarningAmber),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PowerSettingsNew,
+                                            contentDescription = "Master Power Off",
+                                            tint = AegisOnPrimaryWhite,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Master Power is OFF",
+                                            color = AegisTextPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = ClassicalDisplayFont,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "0% background battery • All services, accessibility & overlays stopped",
+                                            color = AegisWarningAmber,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontFamily = ClassicalBodyFont,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = {
+                                        AegisSoundEffects.playModeOn(context)
+                                        MasterPowerController.setMasterPowerEnabled(context, true)
+                                        Toast.makeText(
+                                            context,
+                                            "Sheildlenz Master Power ON",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AegisEmeraldTeal,
+                                        contentColor = AegisOnPrimaryWhite
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("home_master_power_on_button")
+                                ) {
+                                    Text(
+                                        text = "POWER ON",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // 1. Pure VIP Shield-Only Sanctuary Hero Widget
                 item {
                     val heroShape = RoundedCornerShape(34.dp)
@@ -825,11 +935,25 @@ fun DashboardScreen(
                                                 scaleY = statusDotPulse
                                             }
                                             .clip(CircleShape)
-                                            .background(if (isOn) AegisPrimaryCyan else AegisPurple.copy(alpha = 0.80f))
+                                            .background(
+                                                when {
+                                                    !isMasterPowerOn -> AegisWarningAmber
+                                                    isOn -> AegisPrimaryCyan
+                                                    else -> AegisPurple.copy(alpha = 0.80f)
+                                                }
+                                            )
                                     )
                                     Text(
-                                        text = if (isOn) "ACTIVE" else "STANDBY",
-                                        color = if (isOn) AegisPrimaryCyan else AegisPurple,
+                                        text = when {
+                                            !isMasterPowerOn -> "POWER OFF"
+                                            isOn -> "ACTIVE"
+                                            else -> "STANDBY"
+                                        },
+                                        color = when {
+                                            !isMasterPowerOn -> AegisWarningAmber
+                                            isOn -> AegisPrimaryCyan
+                                            else -> AegisPurple
+                                        },
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         letterSpacing = 1.2.sp,
@@ -1063,7 +1187,11 @@ fun DashboardScreen(
                             ) { armed ->
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
-                                        text = if (armed) "Shield Active" else "Shield Off",
+                                        text = when {
+                                            !isMasterPowerOn -> "Master Power Off"
+                                            armed -> "Shield Active"
+                                            else -> "Shield Off"
+                                        },
                                         color = AegisTextPrimary,
                                         fontSize = 25.sp,
                                         fontWeight = FontWeight.Bold,
@@ -1072,8 +1200,16 @@ fun DashboardScreen(
                                     )
                                     Spacer(modifier = Modifier.height(3.dp))
                                     Text(
-                                        text = if (armed) "On-device visual guard running" else "Ready to protect screen",
-                                        color = if (armed) AegisPrimaryCyan else AegisTextSecondary,
+                                        text = when {
+                                            !isMasterPowerOn -> "0% background battery & zero processes"
+                                            armed -> "On-device visual guard running"
+                                            else -> "Ready to protect screen"
+                                        },
+                                        color = when {
+                                            !isMasterPowerOn -> AegisWarningAmber
+                                            armed -> AegisPrimaryCyan
+                                            else -> AegisTextSecondary
+                                        },
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Medium,
                                         fontFamily = ClassicalBodyFont,
@@ -1221,97 +1357,199 @@ fun DashboardScreen(
                     }
                 }
 
-                // 1b. One-Tap Focus, Safe Search & Budgets Quick Strip
+                // 1a. Increase-Only Live Timer Banners (no stop/shorten outside Edits)
+                if (isStudyActive) {
+                    item {
+                        CyberCard(
+                            borderColor = AegisLavenderBorder,
+                            tone = CyberCardTone.LAVENDER,
+                            modifier = Modifier
+                                .widthIn(max = 540.dp)
+                                .testTag("home_active_study_extend_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f).padding(end = 10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(AegisPurple),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                            contentDescription = "Study Lock Running",
+                                            tint = AegisOnPrimaryWhite,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = "Study Lock • ${formatHomeClock(remainingStudyMillis)}",
+                                            color = AegisTextPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = ClassicalDisplayFont
+                                        )
+                                        Text(
+                                            text = "Active • Extend focus time anytime",
+                                            color = AegisPurple,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontFamily = ClassicalBodyFont
+                                        )
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        AegisSoundEffects.playModeOn(context)
+                                        preferences.extendActiveStudySession(15)
+                                        Toast.makeText(context, "Study Lock extended +15m", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AegisPurple,
+                                        contentColor = AegisOnPrimaryWhite
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    modifier = Modifier
+                                        .height(48.dp)
+                                        .testTag("home_extend_study_button")
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("+15M", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (bedtimeEnabled) {
+                    item {
+                        CyberCard(
+                            borderColor = AegisGoldBorder,
+                            tone = CyberCardTone.GOLD,
+                            modifier = Modifier
+                                .widthIn(max = 540.dp)
+                                .testTag("home_active_bedtime_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(11.dp))
+                                        .background(AegisChampagneGold),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Bedtime,
+                                        contentDescription = "Bedtime Schedule Active",
+                                        tint = AegisOnPrimaryWhite,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Bedtime Lock Active",
+                                        color = AegisTextPrimary,
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalDisplayFont
+                                    )
+                                    Text(
+                                        text = "${formatCompactHour(bedtimeStartMinutes)}–${formatCompactHour(bedtimeEndMinutes)} • Manage in Edits",
+                                        color = AegisChampagneGold,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = ClassicalBodyFont
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 1b. Dynamic 6-Tile Switch-ON Strip (Auto-rotates active controls out, zero PIN prompts)
                 item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 540.dp)
-                            .testTag("home_one_tap_features_strip"),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        HomeOneTapFeatureTile(
+                    val quickTilePool = listOf(
+                        HomeQuickTileItem(
                             title = "Study Lock",
-                            status = if (isStudyActive) formatHomeClock(remainingStudyMillis) else "Tap ${studyDurationMinutes}m",
+                            status = "Tap ${studyDurationMinutes}m",
                             icon = Icons.AutoMirrored.Filled.MenuBook,
-                            active = isStudyActive,
                             accentColor = AegisPurple,
                             borderColor = AegisLavenderBorder,
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (isStudyActive) {
-                                    masterKeyGate.request("end Study Session early") {
-                                        preferences.stopStudySession()
-                                    }
+                            testTag = "home_one_tap_study",
+                            isEnabled = isStudyActive,
+                            onEnable = {
+                                if (!isMasterPowerOn) {
+                                    Toast.makeText(
+                                        context,
+                                        "Shutdown is OFF in About. Turn Shutdown ON first.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 } else if (!telemetry.isOverlayPermitted) {
                                     showOverlayWarningDialog = true
                                 } else {
                                     AegisSoundEffects.playModeOn(context)
                                     preferences.startStudySession(studyDurationMinutes)
                                 }
-                            },
-                            testTag = "home_one_tap_study",
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        HomeOneTapFeatureTile(
+                            }
+                        ),
+                        HomeQuickTileItem(
                             title = "Safe Search",
-                            status = if (smartSafeSearchEnabled) "${safeSearchPacks.size} Packs" else "Tap ON",
+                            status = "Tap ON",
                             icon = Icons.Default.Security,
-                            active = smartSafeSearchEnabled,
                             accentColor = AegisPrimaryCyan,
                             borderColor = AegisCardBorder,
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (smartSafeSearchEnabled) {
-                                    masterKeyGate.request("turn off Smart Safe Search") {
-                                        preferences.setSmartSafeSearchEnabled(false)
-                                    }
-                                } else {
-                                    AegisSoundEffects.playModeOn(context)
-                                    preferences.setSmartSafeSearchEnabled(true)
-                                }
-                            },
                             testTag = "home_one_tap_safe_search",
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        HomeOneTapFeatureTile(
+                            isEnabled = smartSafeSearchEnabled,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setSmartSafeSearchEnabled(true)
+                            }
+                        ),
+                        HomeQuickTileItem(
                             title = "App Limits",
-                            status = if (appTimeBudgets.isNotEmpty()) "${appTimeBudgets.size} Caps" else "Tap Set",
+                            status = "Tap Set",
                             icon = Icons.Default.Timer,
-                            active = appTimeBudgets.isNotEmpty(),
                             accentColor = AegisEmeraldTeal,
                             borderColor = AegisEmeraldBorder,
-                            onClick = {
+                            testTag = "home_one_tap_budgets",
+                            isEnabled = appTimeBudgets.isNotEmpty(),
+                            onEnable = {
                                 AegisSoundEffects.playTap(context)
                                 onNavigateToFocusHub()
-                            },
-                            testTag = "home_one_tap_budgets",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // 1c. Priority Controls from Edits (Safe DNS, Bedtime, Strict Filter)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 540.dp)
-                            .testTag("home_one_tap_priority_strip"),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        HomeOneTapFeatureTile(
+                            }
+                        ),
+                        HomeQuickTileItem(
                             title = "Safe DNS",
-                            status = if (safeDnsEnabled) safeDnsProvider.ratingBadge else "Tap ON",
+                            status = "Tap ON",
                             icon = Icons.Default.Dns,
-                            active = safeDnsEnabled,
                             accentColor = AegisPrimaryCyan,
                             borderColor = AegisCardBorder,
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (!safeDnsEnabled) {
+                            testTag = "home_one_tap_safe_dns",
+                            isEnabled = safeDnsEnabled,
+                            onEnable = {
+                                if (!isMasterPowerOn) {
+                                    Toast.makeText(
+                                        context,
+                                        "Shutdown is OFF in About. Turn Shutdown ON first.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
                                     val prep = runCatching { VpnService.prepare(context) }.getOrNull()
                                     if (prep == null) {
                                         AegisSoundEffects.playModeOn(context)
@@ -1321,65 +1559,206 @@ fun DashboardScreen(
                                         preferences.beginAuthorizedExternalFlow()
                                         vpnLauncher.launch(prep)
                                     }
-                                } else {
-                                    masterKeyGate.request("turn off Safe DNS") {
-                                        preferences.setSafeDnsEnabled(false)
-                                        AegisSafeDnsVpnService.stop(context)
-                                    }
                                 }
-                            },
-                            testTag = "home_one_tap_safe_dns",
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        HomeOneTapFeatureTile(
+                            }
+                        ),
+                        HomeQuickTileItem(
                             title = "Bedtime",
-                            status = if (bedtimeEnabled) {
-                                "${formatCompactHour(bedtimeStartMinutes)}–${formatCompactHour(bedtimeEndMinutes)}"
-                            } else {
-                                "Tap ON"
-                            },
+                            status = "Tap ON",
                             icon = Icons.Default.Bedtime,
-                            active = bedtimeEnabled,
                             accentColor = AegisChampagneGold,
                             borderColor = AegisGoldBorder,
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (!bedtimeEnabled) {
-                                    AegisSoundEffects.playModeOn(context)
-                                    preferences.setBedtimeEnabled(true)
-                                } else {
-                                    masterKeyGate.request("turn off Bedtime Lock") {
-                                        preferences.setBedtimeEnabled(false)
-                                    }
-                                }
-                            },
                             testTag = "home_one_tap_bedtime",
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        val isStrictActive = strictEverything || sensitivity == SensitivityLevel.STRICT
-                        HomeOneTapFeatureTile(
+                            isEnabled = bedtimeEnabled,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setBedtimeEnabled(true)
+                            }
+                        ),
+                        HomeQuickTileItem(
                             title = "Strict Filter",
-                            status = if (strictEverything) "MAX ALL" else sensitivity.displayName,
+                            status = "Tap ON",
                             icon = Icons.Default.Shield,
-                            active = isStrictActive,
                             accentColor = AegisPurple,
                             borderColor = AegisLavenderBorder,
-                            onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                if (!strictEverything) {
-                                    AegisSoundEffects.playModeOn(context)
-                                    preferences.setStrictEverything(true)
-                                } else {
-                                    masterKeyGate.request("turn off Strict Filter") {
-                                        preferences.setStrictEverything(false)
-                                    }
-                                }
-                            },
                             testTag = "home_one_tap_strict",
-                            modifier = Modifier.weight(1f)
+                            isEnabled = strictEverything || sensitivity == SensitivityLevel.STRICT,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setStrictEverything(true)
+                            }
+                        ),
+                        HomeQuickTileItem(
+                            title = "Quiet Hours",
+                            status = "Tap ON",
+                            icon = Icons.Default.Schedule,
+                            accentColor = AegisPurple,
+                            borderColor = AegisLavenderBorder,
+                            testTag = "home_one_tap_schedule",
+                            isEnabled = scheduleEnabled,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setScheduleEnabled(true)
+                            }
+                        ),
+                        HomeQuickTileItem(
+                            title = "Anti-Tamper",
+                            status = "Tap ON",
+                            icon = Icons.Default.Lock,
+                            accentColor = AegisChampagneGold,
+                            borderColor = AegisGoldBorder,
+                            testTag = "home_one_tap_anti_tamper",
+                            isEnabled = antiTamperEnabled,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setAntiTamperEnabled(true)
+                            }
+                        ),
+                        HomeQuickTileItem(
+                            title = "Boot Start",
+                            status = "Tap ON",
+                            icon = Icons.Default.PlayArrow,
+                            accentColor = AegisEmeraldTeal,
+                            borderColor = AegisEmeraldBorder,
+                            testTag = "home_one_tap_autostart",
+                            isEnabled = isAutoStart,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setAutoStart(true)
+                            }
+                        ),
+                        HomeQuickTileItem(
+                            title = "Cooldown PIN",
+                            status = "Tap ON",
+                            icon = Icons.Default.Bolt,
+                            accentColor = AegisChampagneGold,
+                            borderColor = AegisGoldBorder,
+                            testTag = "home_one_tap_cooldown",
+                            isEnabled = waitCooldownBeforePin,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setWaitCooldownBeforePassword(true)
+                            }
+                        ),
+                        HomeQuickTileItem(
+                            title = "Idle Pause",
+                            status = "Tap ON",
+                            icon = Icons.Default.VisibilityOff,
+                            accentColor = AegisPrimaryCyan,
+                            borderColor = AegisCardBorder,
+                            testTag = "home_one_tap_idle_pause",
+                            isEnabled = pauseWhenScreenOff,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setPauseWhenScreenOff(true)
+                            }
+                        ),
+                        HomeQuickTileItem(
+                            title = "Static Skip",
+                            status = "Tap ON",
+                            icon = Icons.Default.CheckCircle,
+                            accentColor = AegisEmeraldTeal,
+                            borderColor = AegisEmeraldBorder,
+                            testTag = "home_one_tap_static_skip",
+                            isEnabled = skipDuplicateFrames,
+                            onEnable = {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setSkipDuplicateFrames(true)
+                            }
                         )
+                    )
+                    val visibleTiles = quickTilePool.filter { !it.isEnabled }.take(6)
+
+                    if (visibleTiles.isEmpty()) {
+                        CyberCard(
+                            borderColor = AegisEmeraldBorder,
+                            tone = CyberCardTone.EMERALD,
+                            modifier = Modifier
+                                .widthIn(max = 540.dp)
+                                .testTag("home_all_guards_active_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "All Quick Guards Active",
+                                    tint = AegisEmeraldTeal,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "All Quick Guards Active • Manage in Edits",
+                                    color = AegisTextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        }
+                    } else {
+                        val row1 = visibleTiles.take(3)
+                        val row2 = visibleTiles.drop(3).take(3)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .widthIn(max = 540.dp)
+                                .testTag("home_one_tap_features_strip"),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            row1.forEach { tile ->
+                                HomeOneTapFeatureTile(
+                                    title = tile.title,
+                                    status = tile.status,
+                                    icon = tile.icon,
+                                    active = false,
+                                    accentColor = tile.accentColor,
+                                    borderColor = tile.borderColor,
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        tile.onEnable()
+                                    },
+                                    testTag = tile.testTag,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            repeat(3 - row1.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+
+                        if (row2.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .widthIn(max = 540.dp)
+                                    .testTag("home_one_tap_priority_strip"),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                row2.forEach { tile ->
+                                    HomeOneTapFeatureTile(
+                                        title = tile.title,
+                                        status = tile.status,
+                                        icon = tile.icon,
+                                        active = false,
+                                        accentColor = tile.accentColor,
+                                        borderColor = tile.borderColor,
+                                        onClick = {
+                                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            tile.onEnable()
+                                        },
+                                        testTag = tile.testTag,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                repeat(3 - row2.size) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1609,6 +1988,17 @@ fun DashboardScreen(
         }
     }
 }
+
+private data class HomeQuickTileItem(
+    val title: String,
+    val status: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val accentColor: Color,
+    val borderColor: Color,
+    val testTag: String,
+    val isEnabled: Boolean,
+    val onEnable: () -> Unit
+)
 
 @Composable
 private fun HomeOneTapFeatureTile(

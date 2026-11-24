@@ -356,6 +356,10 @@ class AegisProtectionService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) return START_NOT_STICKY
+        if (!container.preferences.masterPowerEnabled.value) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         when (intent.action) {
             ACTION_START_PROTECTION -> {
@@ -1174,6 +1178,7 @@ class AegisProtectionService : Service() {
         }
 
         fun start(context: Context, resultCode: Int, resultData: Intent) {
+            if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) return
             val intent = Intent(context, AegisProtectionService::class.java).apply {
                 action = ACTION_START_PROTECTION
                 putExtra(EXTRA_RESULT_CODE, resultCode)
@@ -1187,10 +1192,15 @@ class AegisProtectionService : Service() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, AegisProtectionService::class.java).apply {
-                action = ACTION_STOP_PROTECTION
+            val appContext = context.applicationContext
+            runCatching {
+                appContext.stopService(Intent(appContext, AegisProtectionService::class.java))
             }
-            context.startService(intent)
+            runCatching {
+                val repo = AegisContainer.getInstance(appContext).protectionRepository
+                repo.updateMediaProjectionState(false)
+                repo.setServiceRunning(false)
+            }
         }
     }
 }
