@@ -1,6 +1,6 @@
 **An open-source Android parental control and digital wellbeing app powered by Local AI (`.tflite` or compatible models).** Detects and blocks explicit content in real time—even in local offline videos—while preventing unauthorized uninstallation.
 
-👉 **[Download Latest APK from GitHub Releases](https://github.com)**
+👉 **[Download Latest APK from GitHub Releases](https://github.com/AhsanTCr/SheildLenz/Releases)**
 
 > **🎁 Built-In AI Model Included:** No manual model setup is required. The app automatically downloads its built-in AI model during initial configuration, though you can still load a custom `.tflite` model manually at any time.
 
@@ -45,7 +45,7 @@
 
 ## ⚙️ Installation & Setup
 
-1. Download the `.apk` file from **[GitHub Releases](https://github.com)** (along with an optional custom `.tflite` model if you prefer not to use the built-in download).
+1. Download the `.apk` file from **[GitHub Releases](https://github.com/AhsanTCr/SheildLenz/Releases)** (along with an optional custom `.tflite` model if you prefer not to use the built-in download).
 2. Open the APK on your Android device and enable **Install from Unknown Sources** if prompted.
 3. Launch **SheildLenz** and configure your **Guardian Security PIN** (be sure to store a backup safely).
 4. Allow the app to fetch the built-in AI model (or import a custom `.tflite` file in Settings) and choose your preferred **Detection Sensitivity** (`Strict`, `Balanced`, or `Permissive`).
@@ -74,4 +74,4 @@
 
 ## 🤝 Built By
 
-Created by **[AhsanTCr](https://github.com)**. Explore the repository, visit **[AhsanTCr.lovable.app](https://lovable.app)**, or open an Issue to share feedback!
+Created by **[AhsanTCr](https://github.com/AhsanTCr)**. Explore the repository, visit **[AhsanTCr.lovable.app](https://lovable.app)**, or open an Issue to share feedback!
