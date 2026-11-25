@@ -17,8 +17,8 @@ android {
     applicationId = "com.ahsan.tcr.sheildlenz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 27
-    versionName = "21.48"
+    versionCode = 28
+    versionName = "22.16"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
