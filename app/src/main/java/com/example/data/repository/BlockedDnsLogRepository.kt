@@ -95,6 +95,7 @@ class BlockedDnsLogRepository(
         const val MAX_LOG_ITEMS = 250
         const val CATEGORY_ADULT = "ADULT"
         const val CATEGORY_GAMBLING = "GAMBLING"
+        const val CATEGORY_SEARCH = "SEARCH"
         const val CATEGORY_CUSTOM_DOMAIN = "CUSTOM_DOMAIN"
         const val CATEGORY_CUSTOM_KEYWORD = "CUSTOM_KEYWORD"
     }

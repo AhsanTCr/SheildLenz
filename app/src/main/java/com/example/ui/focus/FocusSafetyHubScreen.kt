@@ -113,6 +113,7 @@ import java.util.Locale
 @Composable
 fun FocusSafetyHubScreen(
     preferences: AegisPreferences,
+    onNavigateToSafeBrowser: () -> Unit = {},
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -185,6 +186,57 @@ fun FocusSafetyHubScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                item {
+                    CyberCard(
+                        borderColor = AegisPrimaryCyan,
+                        tone = CyberCardTone.SKY,
+                        modifier = Modifier
+                            .widthIn(max = 600.dp)
+                            .testTag("open_safe_browser_card")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    AegisSoundEffects.playTap(context)
+                                    onNavigateToSafeBrowser()
+                                },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(AegisPrimaryCyan.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = "Safe Browser Sandbox",
+                                    tint = AegisPrimaryCyan,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Launch Safe Browser Sandbox",
+                                    color = AegisTextPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalDisplayFont
+                                )
+                                Text(
+                                    text = "Filtered web browsing with forced SafeSearch & local blocklists",
+                                    color = AegisTextSecondary,
+                                    fontSize = 11.5.sp,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // ─────────────────────────────────────────────────────────────────────────────
                 // 1. Study Mode & Focus Lock Timer (Soft Warning Countdown)
                 // ─────────────────────────────────────────────────────────────────────────────

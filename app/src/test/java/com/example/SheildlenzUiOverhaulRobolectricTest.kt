@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
@@ -171,9 +172,14 @@ class SheildlenzUiOverhaulRobolectricTest {
             }
         }
 
+        composeRule.onNodeWithTag("status_heartbeat_card").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("security_health_gauge_card"))
         composeRule.onNodeWithTag("security_health_gauge_card").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("PERMISSIONS"))
         assertTrue(composeRule.onAllNodesWithText("PERMISSIONS").fetchSemanticsNodes().isNotEmpty())
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("Overlay"))
         composeRule.onNodeWithText("Overlay").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("Device Admin"))
         composeRule.onNodeWithText("Device Admin").assertIsDisplayed()
         assertEquals(0, composeRule.onAllNodesWithText("AI CLASSIFICATION").fetchSemanticsNodes().size)
         assertEquals(0, composeRule.onAllNodesWithText("Permission Health Audit").fetchSemanticsNodes().size)
@@ -195,7 +201,9 @@ class SheildlenzUiOverhaulRobolectricTest {
             }
         }
 
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("AI CLASSIFICATION"))
         composeRule.onNodeWithText("AI CLASSIFICATION").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("ai_model_pill"))
         composeRule.onNodeWithTag("ai_model_pill").assertIsDisplayed()
         // Quiet Hours starts as a compact pill without inline presets clutter
         assertEquals(0, composeRule.onAllNodesWithText("10P–6A").fetchSemanticsNodes().size)
@@ -567,4 +575,224 @@ class SheildlenzUiOverhaulRobolectricTest {
         composeRule.waitForIdle()
         assertFalse(container.preferences.isGuardianSessionUnlocked.value)
     }
+
+    @Test
+    fun `vip animated bottom bar renders active indicator line and switches tabs`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setOnboardingCompleted(true)
+        container.preferences.setGuardianPin("1234")
+        container.preferences.lockGuardianSession()
+
+        lateinit var navController: NavHostController
+        composeRule.setContent {
+            navController = rememberNavController()
+            AegisShieldTheme {
+                AegisNavHost(
+                    container = container,
+                    navController = navController
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.runOnUiThread {
+            navController.navigate(AegisDestinations.HOME) {
+                popUpTo(AegisDestinations.SPLASH) { inclusive = true }
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("vip_animated_bottom_bar").assertIsDisplayed()
+        composeRule.onNodeWithTag("vip_nav_active_line").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("nav_tab_${AegisDestinations.EDITS}").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("edits_lock_gate_card").assertIsDisplayed()
+    }
+
+    @Test
+    fun `splash screen animates logo emblem with dedicated tag`() {
+        composeRule.setContent {
+            AegisShieldTheme {
+                SplashScreen(
+                    isOnboardingCompleted = true,
+                    onNavigateNext = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("splash_animated_logo").assertIsDisplayed()
+        composeRule.onNodeWithText("SHEILDLENZ").assertIsDisplayed()
+    }
+
+    @Test
+    fun `fresh boot dashboard shows Download AI Here alongside From File Recommended`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setMasterPowerEnabled(true)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                DashboardScreen(
+                    protectionRepo = container.protectionRepository,
+                    modelManager = container.modelManager,
+                    preferences = container.preferences
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        if (!container.protectionRepository.telemetry.value.isModelLoaded) {
+            composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_single_download_button"))
+            composeRule.onNodeWithText("DOWNLOAD AI HERE").assertIsDisplayed()
+            composeRule.onNodeWithTag("home_pick_file_recommended_button").performScrollTo()
+            composeRule.onNodeWithText("FROM FILE (RECOMMENDED)").assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun `redesigned edits lock gate validates wrong pin and unlocks without status shortcut`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setGuardianPin("2580")
+        container.preferences.lockGuardianSession()
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                SettingsScreen(
+                    preferences = container.preferences,
+                    modelManager = container.modelManager,
+                    protectionRepo = container.protectionRepository
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("edits_lock_gate_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("edits_view_status_button").assertDoesNotExist()
+        composeRule.onNodeWithText("GUARDIAN VAULT").assertIsDisplayed()
+        composeRule.onNodeWithText("Edits Protected").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("edits_unlock_pin_input").performTextInput("0000")
+        composeRule.onNodeWithTag("edits_unlock_button").performClick()
+        composeRule.waitForIdle()
+        assertFalse(container.preferences.isGuardianSessionUnlocked.value)
+        composeRule.onNodeWithText("Incorrect Guardian PIN").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("edits_unlock_pin_input").performTextInput("2580")
+        composeRule.onNodeWithTag("edits_unlock_button").performClick()
+        composeRule.waitForIdle()
+        assertTrue(container.preferences.isGuardianSessionUnlocked.value)
+    }
+
+    @Test
+    fun `status screen renders top protection heartbeat card and health gauge`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setMasterPowerEnabled(true)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                LiveProtectionScreen(
+                    protectionRepo = container.protectionRepository,
+                    preferences = container.preferences
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("status_heartbeat_card").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("security_health_gauge_card"))
+        composeRule.onNodeWithTag("security_health_gauge_card").assertIsDisplayed()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_edits_overview_card"))
+        composeRule.onNodeWithTag("status_edits_overview_card").assertIsDisplayed()
+    }
+
+    @Test
+    fun `launch setup option 2 routes to device link and option 3 reveals backup restore picker`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = com.example.data.preferences.AegisPreferences(context)
+        var linkedDeviceClicked = false
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                com.example.ui.onboarding.OnboardingScreen(
+                    preferences = prefs,
+                    onComplete = {},
+                    onNavigateToLinkDevice = { linkedDeviceClicked = true }
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("launch_option_fresh").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("launch_option_link").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("launch_option_restore").performScrollTo().assertIsDisplayed()
+
+        composeRule.onNodeWithTag("launch_option_restore").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("onboarding_choose_backup_button").performScrollTo().assertIsDisplayed()
+
+        composeRule.onNodeWithTag("launch_option_link").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("onboarding_get_started_button").performScrollTo().performClick()
+        composeRule.waitForIdle()
+        assertTrue(linkedDeviceClicked)
+    }
+
+    @Test
+    fun `unlocked edits shows quick protection profiles and applies strict kids on tap`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.setStrictEverything(false)
+        container.preferences.setSensitivity(SensitivityLevel.BALANCED)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                SettingsScreen(
+                    preferences = container.preferences,
+                    modelManager = container.modelManager,
+                    protectionRepo = container.protectionRepository
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("edits_quick_profiles_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("profile_card_strict_kids").performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(
+            com.example.data.preferences.ProtectionProfile.STRICT_KIDS,
+            container.preferences.activeProtectionProfile.value
+        )
+        assertTrue(container.preferences.strictEverything.value)
+        assertEquals(SensitivityLevel.STRICT, container.preferences.sensitivity.value)
+    }
+
+    @Test
+    fun `status screen renders bypass shield diagnostics and live dns activity preview`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                LiveProtectionScreen(
+                    protectionRepo = container.protectionRepository,
+                    preferences = container.preferences,
+                    blockedDnsLogRepo = container.blockedDnsLogRepository
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_bypass_audit_card"))
+        composeRule.onNodeWithTag("status_bypass_audit_card").assertIsDisplayed()
+        composeRule.onNodeWithText("Bypass Shield Diagnostics").assertIsDisplayed()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_live_activity_card"))
+        composeRule.onNodeWithTag("status_live_activity_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("status_open_activity_feed_button").assertIsDisplayed()
+    }
 }
+

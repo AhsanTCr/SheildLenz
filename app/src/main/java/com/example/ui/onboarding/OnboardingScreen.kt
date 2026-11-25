@@ -1,11 +1,14 @@
 package com.example.ui.onboarding
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,11 +38,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
@@ -77,6 +83,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.core.audio.AegisSoundEffects
 import com.example.core.permissions.PermissionHelper
 import com.example.data.preferences.AegisPreferences
 import com.example.security.deviceowner.AegisDeviceAdminReceiver
@@ -108,15 +115,48 @@ enum class StepIndex(val title: String) {
     COMPLETE("Ready")
 }
 
+enum class LaunchOption {
+    FRESH_START,
+    LINK_DEVICE,
+    BACKUP_RESTORE
+}
+
 @Composable
 fun OnboardingScreen(
     preferences: AegisPreferences,
-    onComplete: () -> Unit
+    onComplete: () -> Unit,
+    onNavigateToLinkDevice: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var currentStep by remember { mutableIntStateOf(0) }
+    var selectedLaunchOption by remember { mutableStateOf(LaunchOption.FRESH_START) }
+    var restoreStatusMessage by remember { mutableStateOf<String?>(null) }
+    var restoreIsError by remember { mutableStateOf(false) }
+    var restoredPolicyReady by remember { mutableStateOf(false) }
+
+    val backupPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            val content = runCatching {
+                context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            }.getOrNull()
+            if (!content.isNullOrBlank() && preferences.restorePolicyJson(content)) {
+                AegisSoundEffects.playModeOn(context)
+                restoreIsError = false
+                restoredPolicyReady = true
+                val pinNote = if (preferences.hasGuardianPin.value) "Guardian PIN active" else "Configure PIN in Edits"
+                val dnsNote = if (preferences.safeDnsEnabled.value) "Safe DNS ON" else "Safe DNS OFF"
+                restoreStatusMessage = "Backup restored (${preferences.sensitivity.value.displayName} • $dnsNote • $pinNote)."
+            } else {
+                restoreIsError = true
+                restoredPolicyReady = false
+                restoreStatusMessage = "Invalid backup file. Choose a Sheildlenz policy .json backup."
+            }
+        }
+    }
 
     var hasOverlay by remember { mutableStateOf(PermissionHelper.hasOverlayPermission(context)) }
     var hasBatteryOpt by remember { mutableStateOf(PermissionHelper.isIgnoringBatteryOptimizations(context)) }
@@ -209,10 +249,34 @@ fun OnboardingScreen(
                     ) {
                         when (step) {
                             0 -> WelcomeStepContent(
-                                onSelectRole = { currentStep = 1 },
-                                onLinkDevice = { currentStep = 2 },
-                                onEnableAi = { currentStep = 3 },
-                                onContinue = { currentStep = 1 }
+                                selectedOption = selectedLaunchOption,
+                                restoreStatusMessage = restoreStatusMessage,
+                                restoreIsError = restoreIsError,
+                                restoredPolicyReady = restoredPolicyReady,
+                                onSelectOption = { option ->
+                                    selectedLaunchOption = option
+                                    if (option != LaunchOption.BACKUP_RESTORE) {
+                                        restoreStatusMessage = null
+                                    }
+                                },
+                                onChooseBackupFile = {
+                                    selectedLaunchOption = LaunchOption.BACKUP_RESTORE
+                                    backupPickerLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                                },
+                                onContinue = {
+                                    when (selectedLaunchOption) {
+                                        LaunchOption.FRESH_START -> currentStep = 1
+                                        LaunchOption.LINK_DEVICE -> onNavigateToLinkDevice()
+                                        LaunchOption.BACKUP_RESTORE -> {
+                                            if (restoredPolicyReady) {
+                                                preferences.setOnboardingCompleted(true)
+                                                onComplete()
+                                            } else {
+                                                backupPickerLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                                            }
+                                        }
+                                    }
+                                }
                             )
                             1 -> GuardianKeySetupStepCard(
                                 initialEmail = preferences.guardianEmail.value,
@@ -575,9 +639,12 @@ private fun GuardianKeySetupStepCard(
 
 @Composable
 private fun WelcomeStepContent(
-    onSelectRole: () -> Unit,
-    onLinkDevice: () -> Unit,
-    onEnableAi: () -> Unit,
+    selectedOption: LaunchOption,
+    restoreStatusMessage: String?,
+    restoreIsError: Boolean,
+    restoredPolicyReady: Boolean,
+    onSelectOption: (LaunchOption) -> Unit,
+    onChooseBackupFile: () -> Unit,
     onContinue: () -> Unit
 ) {
     Column(
@@ -596,37 +663,110 @@ private fun WelcomeStepContent(
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(22.dp))
 
         SetupStepCard(
             stepNumber = "1.",
-            title = "Select Role",
-            subtitle = "Identify how this device will be used.",
-            isSelected = true,
-            onClick = onSelectRole
+            title = "Fresh Start",
+            subtitle = "Set up protection rules from scratch.",
+            badge = "5-STEP WIZARD",
+            isSelected = selectedOption == LaunchOption.FRESH_START,
+            onClick = { onSelectOption(LaunchOption.FRESH_START) },
+            modifier = Modifier.testTag("launch_option_fresh")
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         SetupStepCard(
             stepNumber = "2.",
-            title = "Link Device",
-            subtitle = "Pair and connect your devices.",
-            isSelected = false,
-            onClick = onLinkDevice
+            title = "Link A device by signing in",
+            subtitle = "Sign in with Google and select Parent or Child role.",
+            badge = "PARENT / CHILD",
+            isSelected = selectedOption == LaunchOption.LINK_DEVICE,
+            onClick = { onSelectOption(LaunchOption.LINK_DEVICE) },
+            modifier = Modifier.testTag("launch_option_link")
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         SetupStepCard(
             stepNumber = "3.",
-            title = "Enable Local AI",
-            subtitle = "Optimize secure, on-device detection.",
-            isSelected = false,
-            onClick = onEnableAi
+            title = "Backup & Restore Every Setting",
+            subtitle = "Import a saved policy backup (.json) from device storage.",
+            badge = "POLICY JSON",
+            isSelected = selectedOption == LaunchOption.BACKUP_RESTORE,
+            onClick = { onSelectOption(LaunchOption.BACKUP_RESTORE) },
+            modifier = Modifier.testTag("launch_option_restore")
         )
 
-        Spacer(modifier = Modifier.height(36.dp))
+        if (selectedOption == LaunchOption.BACKUP_RESTORE) {
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = onChooseBackupFile,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.2.dp, AegisPurple.copy(alpha = 0.65f)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = Color.White,
+                    contentColor = AegisPurple
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("onboarding_choose_backup_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CloudDownload,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (restoredPolicyReady) "CHOOSE ANOTHER BACKUP (.JSON)" else "CHOOSE BACKUP FILE (.JSON)",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalBodyFont
+                )
+            }
+        }
+
+        if (restoreStatusMessage != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("onboarding_restore_status_banner"),
+                shape = RoundedCornerShape(14.dp),
+                color = if (restoreIsError) AegisDangerRed.copy(alpha = 0.10f) else AegisSuccessGreen.copy(alpha = 0.12f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (restoreIsError) AegisDangerRed.copy(alpha = 0.45f) else AegisSuccessGreen.copy(alpha = 0.45f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (restoreIsError) Icons.Default.ErrorOutline else Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = if (restoreIsError) AegisDangerRed else AegisSuccessGreen,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = restoreStatusMessage,
+                        color = AegisTextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
 
         Button(
             onClick = onContinue,
@@ -636,16 +776,24 @@ private fun WelcomeStepContent(
                 .shadow(10.dp, RoundedCornerShape(18.dp), ambientColor = AegisPrimaryCyan.copy(alpha = 0.3f))
                 .testTag("onboarding_get_started_button"),
             colors = ButtonDefaults.buttonColors(
-                containerColor = AegisPrimaryCyan,
+                containerColor = when (selectedOption) {
+                    LaunchOption.LINK_DEVICE -> AegisPurple
+                    LaunchOption.BACKUP_RESTORE -> if (restoredPolicyReady) AegisSuccessGreen else AegisPrimaryCyan
+                    LaunchOption.FRESH_START -> AegisPrimaryCyan
+                },
                 contentColor = AegisOnPrimaryWhite
             ),
             shape = RoundedCornerShape(18.dp)
         ) {
             Text(
-                text = "CONTINUE",
+                text = when (selectedOption) {
+                    LaunchOption.FRESH_START -> "CONTINUE"
+                    LaunchOption.LINK_DEVICE -> "SIGN IN & LINK DEVICE"
+                    LaunchOption.BACKUP_RESTORE -> if (restoredPolicyReady) "ENTER SHEILDLENZ HOME" else "SELECT BACKUP & RESTORE"
+                },
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp,
-                letterSpacing = 1.2.sp,
+                letterSpacing = 1.1.sp,
                 fontFamily = ClassicalBodyFont
             )
         }
@@ -657,34 +805,57 @@ private fun SetupStepCard(
     stepNumber: String,
     title: String,
     subtitle: String,
+    badge: String,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         color = if (isSelected) Color.White else Color(0xFFF1F5F9),
         border = if (isSelected) {
-            androidx.compose.foundation.BorderStroke(2.dp, AegisPrimaryCyan)
+            BorderStroke(2.dp, AegisPrimaryCyan)
         } else {
-            androidx.compose.foundation.BorderStroke(1.dp, AegisCardBorder.copy(alpha = 0.7f))
+            BorderStroke(1.dp, AegisCardBorder.copy(alpha = 0.7f))
         },
         shadowElevation = if (isSelected) 6.dp else 0.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 18.dp)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
-            Text(
-                text = "$stepNumber $title",
-                color = if (isSelected) AegisPrimaryCyan else AegisTextPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = ClassicalDisplayFont
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$stepNumber $title",
+                    color = if (isSelected) AegisPrimaryCyan else AegisTextPrimary,
+                    fontSize = 17.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (isSelected) AegisPrimaryCyan.copy(alpha = 0.14f) else AegisCardBorder.copy(alpha = 0.35f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = badge,
+                        color = if (isSelected) AegisPrimaryCyan else AegisTextSecondary,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = subtitle,

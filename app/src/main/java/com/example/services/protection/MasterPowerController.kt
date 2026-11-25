@@ -61,6 +61,7 @@ object MasterPowerController {
         container.protectionRepository.updateMediaProjectionState(false)
         container.protectionRepository.updateAccessibilityState(false)
         container.protectionRepository.updateActivePackage(null, "Master Power Off")
+        container.protectionRepository.refreshPermissionHealth()
 
         refreshQuickTile(appContext)
     }

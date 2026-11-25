@@ -14,6 +14,7 @@ import com.example.core.models.SecurityIncident
 import com.example.core.models.ThreatCategory
 import com.example.core.models.ThreatSeverity
 import com.example.data.preferences.AegisPreferences
+import com.example.data.repository.BlockedDnsLogRepository
 import com.example.di.AegisContainer
 import com.example.security.deviceowner.AegisDeviceAdminReceiver
 import com.example.services.protection.AegisLockdownService
@@ -33,6 +34,8 @@ class AegisAccessibilityService : AccessibilityService() {
     private var lastRecentsInterceptTimeMs: Long = 0L
     private var lastBrowserScanTimeMs: Long = 0L
     private var lastBrowserBlockTimeMs: Long = 0L
+    private var lastUsageTrackedPkg: String? = null
+    private var lastUsageTickUptimeMs: Long = 0L
     private val studyLockedPackagesThisSession = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     @Volatile
     private var activeSoftWarningPkg: String? = null
@@ -256,7 +259,28 @@ class AegisAccessibilityService : AccessibilityService() {
             pkgName
         } ?: return
 
+        val nowUptime = SystemClock.uptimeMillis()
+        val prevPkg = lastUsageTrackedPkg
+        val prevTick = lastUsageTickUptimeMs
+        if (prevTick > 0L && !prevPkg.isNullOrBlank() &&
+            !container.protectionRepository.telemetry.value.isProtectionEnabled &&
+            !container.preferences.maintenanceMode.value &&
+            !container.preferences.isLockdownActive() &&
+            !isExemptSystemOrLauncherPackage(prevPkg) &&
+            !container.preferences.isPackageWhitelisted(prevPkg)
+        ) {
+            val deltaSec = ((nowUptime - prevTick) / 1000L).toInt()
+            if (deltaSec in 1..30) {
+                container.preferences.recordAppUsageSeconds(prevPkg, deltaSec)
+                lastUsageTickUptimeMs = nowUptime
+            }
+        } else {
+            lastUsageTickUptimeMs = nowUptime
+        }
+        lastUsageTrackedPkg = verifiedPkg
+
         if (verifiedPkg != currentTracked) {
+            lastUsageTickUptimeMs = nowUptime
             val appLabel = if (verifiedPkg == packageName) "Sheildlenz" else getAppLabel(verifiedPkg)
             container.protectionRepository.updateActivePackage(verifiedPkg, appLabel)
         } else if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
@@ -346,6 +370,25 @@ class AegisAccessibilityService : AccessibilityService() {
 
         if (matchedReason.startsWith("Smart Safe Search")) {
             prefs.incrementSafeSearchBlockedCount()
+        }
+        runCatching {
+            val category = when {
+                matchedReason.startsWith("Smart Safe Search") || matchedReason.contains("search", ignoreCase = true) ->
+                    BlockedDnsLogRepository.CATEGORY_SEARCH
+                matchedReason.contains("Gambling", ignoreCase = true) ->
+                    BlockedDnsLogRepository.CATEGORY_GAMBLING
+                matchedReason.contains("keyword", ignoreCase = true) ->
+                    BlockedDnsLogRepository.CATEGORY_CUSTOM_KEYWORD
+                matchedReason.contains("domain", ignoreCase = true) ->
+                    BlockedDnsLogRepository.CATEGORY_CUSTOM_DOMAIN
+                else -> BlockedDnsLogRepository.CATEGORY_ADULT
+            }
+            val displayEntry = extractCleanBrowserLogEntry(candidate, browserPkg)
+            AegisContainer.getInstance(this).blockedDnsLogRepository.recordBlockedQuery(
+                domain = displayEntry,
+                reasonCategory = category,
+                matchedRule = matchedReason
+            )
         }
         triggerBrowserLockdown(browserPkg, matchedReason)
     }
@@ -632,6 +675,32 @@ class AegisAccessibilityService : AccessibilityService() {
             return lower in SUPPORTED_BROWSER_PACKAGES || lower.contains(".browser")
         }
 
+        private val BROWSER_HOST_URL_REGEX = Regex(
+            """(?:https?://)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)(?:[/?#][^\s]*)?""",
+            RegexOption.IGNORE_CASE
+        )
+
+        /**
+         * Extracts a crisp domain/path or search phrase from concatenated accessibility text
+         * for the Live Blocked DNS & Search Activity feed.
+         */
+        fun extractCleanBrowserLogEntry(rawCandidate: String?, fallbackPackage: String): String {
+            val cleaned = rawCandidate
+                ?.replace(Regex("""\s+"""), " ")
+                ?.trim()
+                .orEmpty()
+            if (cleaned.isBlank()) return fallbackPackage
+
+            val urlMatch = BROWSER_HOST_URL_REGEX.find(cleaned)
+            if (urlMatch != null) {
+                val host = urlMatch.groupValues.getOrNull(1)?.lowercase().orEmpty()
+                if (host.contains('.') && !host.startsWith("com.android.")) {
+                    return host.take(64)
+                }
+            }
+            return cleaned.take(64)
+        }
+
         /**
          * Inspects browser omnibox URLs, search terms, and page titles using boundary-safe rules
          * to prevent substring false positives (e.g., "portrait", "portal", "scunthorpe").
@@ -766,8 +835,14 @@ class AegisAccessibilityService : AccessibilityService() {
 
         fun disableServiceIfRunning() {
             val service = instance ?: return
+            instance = null
             try {
                 service.disableSelf()
+                runCatching {
+                    AegisContainer.getInstance(service.applicationContext)
+                        .protectionRepository
+                        .updateAccessibilityState(false)
+                }
                 Log.i(TAG, "Disabled AegisAccessibilityService via Master Power OFF.")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed disabling AegisAccessibilityService: ${e.message}")

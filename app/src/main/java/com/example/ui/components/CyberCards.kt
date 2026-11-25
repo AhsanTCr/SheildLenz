@@ -21,10 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -78,6 +79,7 @@ enum class CyberCardTone {
 
 /**
  * Luminous 3-color gradient atmosphere blending Sky Azure, Orchid Lavender, and Sunlit Gold.
+ * Uses drawWithCache so gradient brushes are allocated only when canvas dimensions change.
  */
 @Composable
 fun SheildlenzBackdrop(
@@ -88,52 +90,53 @@ fun SheildlenzBackdrop(
         modifier = modifier
             .fillMaxSize()
             .background(AegisVoidBackground)
-            .drawBehind {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFD2E5FF), // Sky Azure Mist
-                            Color(0xFFE1E8FF), // Periwinkle Blend
-                            Color(0xFFECE2FF)  // Soft Orchid Lavender
-                        )
+            .drawWithCache {
+                val baseBgBrush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFD2E5FF), // Sky Azure Mist
+                        Color(0xFFE1E8FF), // Periwinkle Blend
+                        Color(0xFFECE2FF)  // Soft Orchid Lavender
                     )
                 )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            AegisElectricBlue.copy(alpha = 0.22f),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.88f, size.height * 0.08f),
-                        radius = size.width * 0.72f
+                val blueCenter = Offset(size.width * 0.88f, size.height * 0.08f)
+                val blueRadius = (size.width * 0.72f).coerceAtLeast(1f)
+                val blueAura = Brush.radialGradient(
+                    colors = listOf(
+                        AegisElectricBlue.copy(alpha = 0.22f),
+                        Color.Transparent
                     ),
-                    radius = size.width * 0.72f,
-                    center = Offset(size.width * 0.88f, size.height * 0.08f)
+                    center = blueCenter,
+                    radius = blueRadius
                 )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            AegisPurple.copy(alpha = 0.16f),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.10f, size.height * 0.42f),
-                        radius = size.width * 0.65f
+
+                val purpleCenter = Offset(size.width * 0.10f, size.height * 0.42f)
+                val purpleRadius = (size.width * 0.65f).coerceAtLeast(1f)
+                val purpleAura = Brush.radialGradient(
+                    colors = listOf(
+                        AegisPurple.copy(alpha = 0.16f),
+                        Color.Transparent
                     ),
-                    radius = size.width * 0.65f,
-                    center = Offset(size.width * 0.10f, size.height * 0.42f)
+                    center = purpleCenter,
+                    radius = purpleRadius
                 )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            AegisGoldBright.copy(alpha = 0.20f),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.78f, size.height * 0.88f),
-                        radius = size.width * 0.58f
+
+                val goldCenter = Offset(size.width * 0.78f, size.height * 0.88f)
+                val goldRadius = (size.width * 0.58f).coerceAtLeast(1f)
+                val goldAura = Brush.radialGradient(
+                    colors = listOf(
+                        AegisGoldBright.copy(alpha = 0.20f),
+                        Color.Transparent
                     ),
-                    radius = size.width * 0.58f,
-                    center = Offset(size.width * 0.78f, size.height * 0.88f)
+                    center = goldCenter,
+                    radius = goldRadius
                 )
+
+                onDrawBehind {
+                    drawRect(brush = baseBgBrush)
+                    drawCircle(brush = blueAura, radius = blueRadius, center = blueCenter)
+                    drawCircle(brush = purpleAura, radius = purpleRadius, center = purpleCenter)
+                    drawCircle(brush = goldAura, radius = goldRadius, center = goldCenter)
+                }
             },
         content = content
     )
@@ -153,56 +156,63 @@ fun CyberCard(
         else -> CyberCardTone.SKY
     }
 
-    val (gradientColors, resolvedBorder, accentStripeColors, shadowTint) = when (resolvedTone) {
-        CyberCardTone.SKY -> Quad(
-            listOf(AegisCardBackground, AegisSkySoft),
-            if (borderColor == AegisCardBorder) AegisCardBorder else borderColor,
-            listOf(AegisPrimaryCyan, AegisElectricBlue),
-            AegisPrimaryCyan.copy(alpha = 0.16f)
-        )
-        CyberCardTone.LAVENDER -> Quad(
-            listOf(AegisLavenderSoft, AegisLavenderSurface),
-            AegisLavenderBorder,
-            listOf(AegisPurple, AegisLavenderLight),
-            AegisPurple.copy(alpha = 0.16f)
-        )
-        CyberCardTone.GOLD -> Quad(
-            listOf(AegisChampagneSoft, AegisGoldDeepTint),
-            AegisGoldBorder,
-            listOf(AegisChampagneGold, AegisGoldBright),
-            AegisChampagneGold.copy(alpha = 0.18f)
-        )
-        CyberCardTone.EMERALD -> Quad(
-            listOf(AegisEmeraldSoft, AegisEmeraldSurface),
-            AegisEmeraldBorder,
-            listOf(AegisEmeraldTeal, AegisEmeraldBright),
-            AegisEmeraldTeal.copy(alpha = 0.16f)
-        )
-        CyberCardTone.INDIGO -> Quad(
-            listOf(AegisIndigoSoft, AegisIndigoSurface),
-            AegisIndigoBorder,
-            listOf(AegisIndigo, AegisIndigoBright),
-            AegisIndigo.copy(alpha = 0.16f)
-        )
-        CyberCardTone.HERO -> Quad(
-            listOf(
-                Color(0xFFF6FAFF), // Pearl White-Sky Top
-                Color(0xFFEDF4FF), // Serene Azure Mist
-                Color(0xFFF2EEFF)  // Gentle Lavender Cloud
+    val (bgBrush, borderBrush, stripeBrush, shadowTint) = remember(resolvedTone, borderColor) {
+        val style = when (resolvedTone) {
+            CyberCardTone.SKY -> Quad(
+                listOf(AegisCardBackground, AegisSkySoft),
+                if (borderColor == AegisCardBorder) AegisCardBorder else borderColor,
+                listOf(AegisPrimaryCyan, AegisElectricBlue),
+                AegisPrimaryCyan.copy(alpha = 0.16f)
+            )
+            CyberCardTone.LAVENDER -> Quad(
+                listOf(AegisLavenderSoft, AegisLavenderSurface),
+                AegisLavenderBorder,
+                listOf(AegisPurple, AegisLavenderLight),
+                AegisPurple.copy(alpha = 0.16f)
+            )
+            CyberCardTone.GOLD -> Quad(
+                listOf(AegisChampagneSoft, AegisGoldDeepTint),
+                AegisGoldBorder,
+                listOf(AegisChampagneGold, AegisGoldBright),
+                AegisChampagneGold.copy(alpha = 0.18f)
+            )
+            CyberCardTone.EMERALD -> Quad(
+                listOf(AegisEmeraldSoft, AegisEmeraldSurface),
+                AegisEmeraldBorder,
+                listOf(AegisEmeraldTeal, AegisEmeraldBright),
+                AegisEmeraldTeal.copy(alpha = 0.16f)
+            )
+            CyberCardTone.INDIGO -> Quad(
+                listOf(AegisIndigoSoft, AegisIndigoSurface),
+                AegisIndigoBorder,
+                listOf(AegisIndigo, AegisIndigoBright),
+                AegisIndigo.copy(alpha = 0.16f)
+            )
+            CyberCardTone.HERO -> Quad(
+                listOf(
+                    Color(0xFFF6FAFF),
+                    Color(0xFFEDF4FF),
+                    Color(0xFFF2EEFF)
+                ),
+                AegisCardBorder,
+                listOf(AegisPrimaryCyan.copy(alpha = 0.55f), AegisPurple.copy(alpha = 0.55f)),
+                AegisPrimaryCyan.copy(alpha = 0.14f)
+            )
+        }
+        Quad(
+            Brush.verticalGradient(colors = style.first),
+            Brush.linearGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.94f),
+                    style.second.copy(alpha = 0.65f)
+                )
             ),
-            AegisCardBorder,
-            listOf(AegisPrimaryCyan.copy(alpha = 0.55f), AegisPurple.copy(alpha = 0.55f)),
-            AegisPrimaryCyan.copy(alpha = 0.14f)
+            Brush.horizontalGradient(colors = style.third),
+            style.fourth
         )
     }
 
-    val shape = RoundedCornerShape(24.dp)
-    val borderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color.White.copy(alpha = 0.94f),
-            resolvedBorder.copy(alpha = 0.65f)
-        )
-    )
+    val shape = remember { RoundedCornerShape(24.dp) }
     val cardModifier = modifier
         .fillMaxWidth()
         .shadow(
@@ -212,7 +222,7 @@ fun CyberCard(
             spotColor = shadowTint
         )
         .clip(shape)
-        .background(brush = Brush.verticalGradient(colors = gradientColors))
+        .background(brush = bgBrush)
         .border(BorderStroke(1.1.dp, borderBrush), shape)
         .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
 
@@ -222,7 +232,7 @@ fun CyberCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.5.dp)
-                    .background(brush = Brush.horizontalGradient(colors = accentStripeColors))
+                    .background(brush = stripeBrush)
             )
         }
         Column(

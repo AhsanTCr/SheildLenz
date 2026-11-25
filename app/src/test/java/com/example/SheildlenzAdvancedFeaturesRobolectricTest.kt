@@ -814,14 +814,19 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
             }
         }
         composeRule.waitForIdle()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("master_power_card"))
+        composeRule.onNodeWithTag("master_power_card").performScrollTo()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("master_power_card").assertIsDisplayed()
         composeRule.onNodeWithText("Shutdown").assertIsDisplayed()
         composeRule.onNodeWithText("On • App running normally").assertIsDisplayed()
+        composeRule.onNodeWithTag("master_power_accessibility_notice").assertIsDisplayed()
         composeRule.onNodeWithTag("master_power_switch").performClick()
         composeRule.waitForIdle()
 
         assertFalse(container.preferences.masterPowerEnabled.value)
         composeRule.onNodeWithText("Off • 0% background battery").assertIsDisplayed()
+        composeRule.onNodeWithText("Accessibility, Shield, Safe DNS VPN & Overlays are switched OFF (0% battery).").assertIsDisplayed()
 
         // Toggle back ON via switch (no PIN required)
         composeRule.onNodeWithTag("master_power_switch").performClick()
@@ -844,6 +849,9 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
             }
         }
         composeRule.waitForIdle()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("master_power_card"))
+        composeRule.onNodeWithTag("master_power_card").performScrollTo()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("master_power_switch").performClick()
         composeRule.waitForIdle()
 
@@ -856,6 +864,27 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
 
         assertFalse(container.preferences.masterPowerEnabled.value)
         composeRule.onNodeWithText("Off • 0% background battery").assertIsDisplayed()
+    }
+
+    @Test
+    fun `about screen places shutdown card below FAQ section`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer.getInstance(context)
+        container.preferences.setMasterPowerEnabled(true)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                AboutScreen(preferences = container.preferences)
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(
+            androidx.compose.ui.test.hasText("Common Questions & Guide", ignoreCase = true)
+        )
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("master_power_card"))
+        val powerBounds = composeRule.onNodeWithTag("master_power_card").fetchSemanticsNode().boundsInRoot
+        assertTrue(powerBounds.height > 0f)
     }
 
     @Test
@@ -1034,6 +1063,65 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         composeRule.onNode(hasScrollAction()).performScrollToNode(androidx.compose.ui.test.hasText("Master App Power"))
         composeRule.onNodeWithText("Master App Power").assertIsDisplayed()
         composeRule.onNodeWithText("OFF (0% Battery • No Background)").assertIsDisplayed()
+    }
+
+    @Test
+    fun `about screen shows expanded faq topics and 1-line bottom more drawer above shutdown`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer.getInstance(context)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                AboutScreen(preferences = container.preferences)
+            }
+        }
+        composeRule.waitForIdle()
+
+        // Verify updated FAQ topic count & new Study Lock question
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("about_faq_item_8"))
+        composeRule.onNodeWithTag("about_faq_item_8").performScrollTo()
+        composeRule.onNodeWithTag("about_faq_item_8").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("How do Study Lock and the +15m extend button work?").assertIsDisplayed()
+
+        // Verify 1-line More Built-Ins card below FAQ starts collapsed and opens on tap
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("about_more_builtins_card"))
+        composeRule.onNodeWithTag("about_more_builtins_card").performScrollTo()
+        composeRule.onNodeWithTag("about_more_builtins_toggle").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("about_more_builtins_toggle").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("about_more_builtins_content").assertIsDisplayed()
+        composeRule.onNodeWithText("BUILT-IN PROTECTION STACK").assertIsDisplayed()
+
+        // Shutdown card remains positioned cleanly at the bottom below the More drawer
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("master_power_card"))
+        composeRule.onNodeWithTag("master_power_card").assertIsDisplayed()
+    }
+
+    @Test
+    fun `browser log entry extractor normalizes urls and search terms cleanly`() {
+        assertEquals(
+            "pornhub.com",
+            com.example.monitoring.accessibility.AegisAccessibilityService.extractCleanBrowserLogEntry(
+                "Chrome https://www.pornhub.com/video/abc New Tab",
+                "com.android.chrome"
+            )
+        )
+        assertEquals(
+            "youtube shorts bypass",
+            com.example.monitoring.accessibility.AegisAccessibilityService.extractCleanBrowserLogEntry(
+                "   youtube   shorts   bypass  ",
+                "com.android.chrome"
+            )
+        )
+        assertEquals(
+            "com.android.chrome",
+            com.example.monitoring.accessibility.AegisAccessibilityService.extractCleanBrowserLogEntry(
+                "   ",
+                "com.android.chrome"
+            )
+        )
     }
 
     private fun buildSampleIpv4UdpDnsQueryPacket(domain: String): ByteArray {

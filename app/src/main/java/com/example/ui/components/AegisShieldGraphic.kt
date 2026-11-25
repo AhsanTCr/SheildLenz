@@ -430,8 +430,7 @@ fun AegisShieldGraphic(
             data class SphereRenderItem(
                 val pt: ProjectedOrbitPoint,
                 val color: Color,
-                val baseRadius: Float,
-                val trail: List<Pair<ProjectedOrbitPoint, Float>>
+                val baseRadius: Float
             )
             val spheres3D = (0 until orbCount).map { i ->
                 val theta = orbitAngle + i * (360f / orbCount)
@@ -444,19 +443,6 @@ fun AegisShieldGraphic(
                     tiltDeg = tiltDeg,
                     cameraDistance = camDist
                 )
-                val trail = (1..3).map { step ->
-                    // Counter-clockwise sweep (-orbitAngle direction): trail sits +step * 9 deg behind
-                    val tPt = projectOrbitPoint3D(
-                        center = center,
-                        radiusX = innerRx,
-                        radiusY = innerRy,
-                        zAmplitude = innerZ,
-                        angleDeg = theta + step * 9f,
-                        tiltDeg = tiltDeg,
-                        cameraDistance = camDist
-                    )
-                    tPt to (1f - step * 0.24f)
-                }
                 val originalOrbTint = lerp(
                     if (i % 2 == 0) shieldPrimary else haloAccent,
                     Color.White,
@@ -465,24 +451,13 @@ fun AegisShieldGraphic(
                 SphereRenderItem(
                     pt = pt,
                     color = originalOrbTint,
-                    baseRadius = 4.2.dp.toPx(),
-                    trail = trail
+                    baseRadius = 4.2.dp.toPx()
                 )
             }.sortedBy { it.pt.zNormalized }
 
             // 4a. Back-hemisphere 3D orbital spheres (pass behind crystal shield)
             spheres3D.filter { it.pt.zNormalized < 0f }.forEach { item ->
                 val depthAlpha = (0.58f + 0.30f * (item.pt.zNormalized + 1f)).coerceIn(0.45f, 0.90f)
-                item.trail.asReversed().forEach { (tPt, decay) ->
-                    drawVolumetric3DSphere(
-                        center = tPt.offset,
-                        radius = item.baseRadius * tPt.perspectiveScale * 0.56f * decay,
-                        baseColor = item.color,
-                        alpha = depthAlpha * 0.45f * decay,
-                        depthNormalized = tPt.zNormalized,
-                        drawHaloAndShadow = false
-                    )
-                }
                 drawVolumetric3DSphere(
                     center = item.pt.offset,
                     radius = item.baseRadius * item.pt.perspectiveScale,
@@ -622,16 +597,6 @@ fun AegisShieldGraphic(
             // 4b. Front-hemisphere 3D orbital spheres (sweep gracefully across front of shield bezel)
             spheres3D.filter { it.pt.zNormalized >= 0f }.forEach { item ->
                 val depthAlpha = (0.86f + 0.14f * item.pt.zNormalized).coerceIn(0.84f, 1f)
-                item.trail.asReversed().forEach { (tPt, decay) ->
-                    drawVolumetric3DSphere(
-                        center = tPt.offset,
-                        radius = item.baseRadius * tPt.perspectiveScale * 0.56f * decay,
-                        baseColor = item.color,
-                        alpha = depthAlpha * 0.52f * decay,
-                        depthNormalized = tPt.zNormalized,
-                        drawHaloAndShadow = false
-                    )
-                }
                 drawVolumetric3DSphere(
                     center = item.pt.offset,
                     radius = item.baseRadius * item.pt.perspectiveScale,

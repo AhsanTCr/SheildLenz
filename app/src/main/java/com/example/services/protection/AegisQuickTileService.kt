@@ -39,14 +39,20 @@ class AegisQuickTileService : TileService() {
         val tile = qsTile ?: return
         val container = AegisContainer.getInstance(applicationContext)
         val isMasterOn = container.preferences.masterPowerEnabled.value
-        val isActive = isMasterOn && container.protectionRepository.telemetry.value.isProtectionEnabled
+        val isShieldActive = isMasterOn && container.protectionRepository.telemetry.value.isProtectionEnabled
+        val isDnsActive = isMasterOn && com.example.services.dns.AegisSafeDnsVpnService.isTunnelActive.value
+        val isStudyActive = isMasterOn && container.preferences.isStudySessionActive()
+        val anyGuardActive = isShieldActive || isDnsActive || isStudyActive
 
-        tile.state = if (isActive) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        tile.state = if (anyGuardActive) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = "Sheildlenz"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             tile.subtitle = when {
                 !isMasterOn -> "Power Off"
-                isActive -> "Shield Armed"
+                isShieldActive && isDnsActive -> "Shield + DNS"
+                isShieldActive -> "Shield Armed"
+                isStudyActive -> "Study Lock"
+                isDnsActive -> "Safe DNS"
                 else -> "Standby"
             }
         }

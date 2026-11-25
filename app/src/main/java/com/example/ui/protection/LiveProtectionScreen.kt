@@ -27,11 +27,16 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Camera
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SupervisorAccount
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -41,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,7 +76,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.core.audio.AegisSoundEffects
 import com.example.core.permissions.PermissionHelper
 import com.example.data.preferences.AegisPreferences
+import com.example.data.repository.BlockedDnsLogRepository
 import com.example.data.repository.ProtectionRepository
+import com.example.services.dns.AegisSafeDnsVpnService
 import com.example.monitoring.accessibility.AegisAccessibilityService
 import com.example.security.deviceowner.AegisDeviceAdminReceiver
 import com.example.ui.components.CyberCard
@@ -107,11 +115,13 @@ import com.example.ui.theme.ClassicalDisplayFont
 fun LiveProtectionScreen(
     protectionRepo: ProtectionRepository,
     preferences: AegisPreferences,
+    blockedDnsLogRepo: BlockedDnsLogRepository? = null,
     onRequestArmShield: () -> Unit = {},
     onNavigateToFocusHub: () -> Unit = {},
     onNavigateToProgress: () -> Unit = {},
     onNavigateToWellbeing: () -> Unit = {},
     onNavigateToParents: () -> Unit = {},
+    onNavigateToEdits: () -> Unit = {},
     onNavigateBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -119,6 +129,8 @@ fun LiveProtectionScreen(
     val telemetry by protectionRepo.telemetry.collectAsState()
     val hasGuardianPin by preferences.hasGuardianPin.collectAsState()
     val isGuardianUnlocked by preferences.isGuardianSessionUnlocked.collectAsState()
+    val blockedQueryCount by AegisSafeDnsVpnService.blockedQueryCount.collectAsState()
+    val liveDnsLogs by (blockedDnsLogRepo?.liveLogs?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
 
     // Parent connection & child sync statuses
     val parentalRole by preferences.parentalRole.collectAsState()
@@ -159,12 +171,29 @@ fun LiveProtectionScreen(
     val appLanguageCode by preferences.appLanguageCode.collectAsState()
     val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
 
-    var hasOverlay by remember { mutableStateOf(PermissionHelper.hasOverlayPermission(context)) }
-    var hasAccessibility by remember {
-        mutableStateOf(PermissionHelper.isAccessibilityServiceEnabled(context, AegisAccessibilityService::class.java))
+    val activeAppName by protectionRepo.activeAppLabel.collectAsState()
+
+    var hasOverlay by remember { mutableStateOf(telemetry.isOverlayPermitted) }
+    var hasAccessibility by remember { mutableStateOf(telemetry.isAccessibilityActive) }
+    var hasBattery by remember { mutableStateOf(false) }
+    var isDeviceAdmin by remember { mutableStateOf(false) }
+
+    val refreshPermissions = remember(context, protectionRepo) {
+        {
+            hasOverlay = PermissionHelper.hasOverlayPermission(context)
+            hasAccessibility = PermissionHelper.isAccessibilityServiceEnabled(
+                context,
+                AegisAccessibilityService::class.java
+            )
+            hasBattery = PermissionHelper.isIgnoringBatteryOptimizations(context)
+            isDeviceAdmin = AegisDeviceAdminReceiver.isDeviceAdmin(context)
+            protectionRepo.refreshPermissionHealth()
+        }
     }
-    var hasBattery by remember { mutableStateOf(PermissionHelper.isIgnoringBatteryOptimizations(context)) }
-    var isDeviceAdmin by remember { mutableStateOf(AegisDeviceAdminReceiver.isDeviceAdmin(context)) }
+
+    LaunchedEffect(Unit) {
+        refreshPermissions()
+    }
 
     val healthReport = remember(
         telemetry.isProtectionEnabled,
@@ -186,17 +215,10 @@ fun LiveProtectionScreen(
         )
     }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, refreshPermissions) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                hasOverlay = PermissionHelper.hasOverlayPermission(context)
-                hasAccessibility = PermissionHelper.isAccessibilityServiceEnabled(
-                    context,
-                    AegisAccessibilityService::class.java
-                )
-                hasBattery = PermissionHelper.isIgnoringBatteryOptimizations(context)
-                isDeviceAdmin = AegisDeviceAdminReceiver.isDeviceAdmin(context)
-                protectionRepo.refreshPermissionHealth()
+                refreshPermissions()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -244,8 +266,96 @@ fun LiveProtectionScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // 0. Sleek Live Protection Heartbeat Strip
+                item(key = "status_heartbeat") {
+                    val heartbeatColor = when {
+                        !isMasterPowerOn -> AegisWarningAmber
+                        telemetry.isProtectionEnabled -> AegisEmeraldTeal
+                        else -> AegisPurple
+                    }
+                    CyberCard(
+                        borderColor = when {
+                            !isMasterPowerOn -> AegisGoldBorder
+                            telemetry.isProtectionEnabled -> AegisEmeraldBorder
+                            else -> AegisLavenderBorder
+                        },
+                        tone = when {
+                            !isMasterPowerOn -> CyberCardTone.GOLD
+                            telemetry.isProtectionEnabled -> CyberCardTone.EMERALD
+                            else -> CyberCardTone.LAVENDER
+                        },
+                        modifier = Modifier.testTag("status_heartbeat_card")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(13.dp))
+                                        .background(
+                                            brush = Brush.linearGradient(
+                                                colors = listOf(heartbeatColor, AegisPrimaryCyan)
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (!isMasterPowerOn) Icons.Default.PowerSettingsNew else Icons.Default.Shield,
+                                        contentDescription = null,
+                                        tint = AegisOnPrimaryWhite,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = when {
+                                            !isMasterPowerOn -> "Shutdown Mode"
+                                            telemetry.isProtectionEnabled -> "Visual Shield Armed"
+                                            else -> "Shield on Standby"
+                                        },
+                                        color = AegisTextPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalDisplayFont,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "Active App: $activeAppName",
+                                        color = AegisTextSecondary,
+                                        fontSize = 11.5.sp,
+                                        fontFamily = ClassicalBodyFont,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            StatusPill(
+                                label = when {
+                                    !isMasterPowerOn -> "POWER OFF"
+                                    telemetry.isProtectionEnabled -> "LIVE"
+                                    else -> "STANDBY"
+                                },
+                                isActive = telemetry.isProtectionEnabled && isMasterPowerOn,
+                                activeColor = AegisEmeraldTeal,
+                                inactiveColor = heartbeatColor
+                            )
+                        }
+                    }
+                }
+
                 // 1. Unified Compact Permissions & Shield Health
-                item {
+                item(key = "status_permissions") {
                     LuxurySectionHeader(title = "Permissions", accentColor = AegisPurple)
                     Spacer(modifier = Modifier.height(6.dp))
                     SecurityHealthGaugeCard(
@@ -255,7 +365,7 @@ fun LiveProtectionScreen(
                             if (!isMasterPowerOn) {
                                 android.widget.Toast.makeText(
                                     context,
-                                    "Master Power is OFF in About. Turn Master Power ON first.",
+                                    "Shutdown is OFF in About. Turn Shutdown ON first.",
                                     android.widget.Toast.LENGTH_SHORT
                                 ).show()
                             } else {
@@ -268,8 +378,57 @@ fun LiveProtectionScreen(
                     )
                 }
 
+                // 1B. Built-In Bypass Shield Diagnostics with 1-Tap Fixes
+                item(key = "status_bypass_audit") {
+                    LuxurySectionHeader(title = "Bypass Diagnostics", accentColor = AegisElectricBlue)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    BypassShieldDiagnosticsCard(
+                        hasOverlay = hasOverlay,
+                        hasAccessibility = hasAccessibility,
+                        hasBattery = hasBattery,
+                        safeDnsEnabled = safeDnsEnabled,
+                        isDeviceAdmin = isDeviceAdmin,
+                        isModelLoaded = telemetry.isModelLoaded,
+                        onFixOverlay = {
+                            preferences.beginAuthorizedExternalFlow()
+                            runCatching { context.startActivity(PermissionHelper.getOverlaySettingsIntent(context)) }
+                                .onFailure { runCatching { context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context)) } }
+                        },
+                        onFixAccessibility = {
+                            preferences.beginAuthorizedExternalFlow()
+                            runCatching { context.startActivity(PermissionHelper.getAccessibilitySettingsIntent()) }
+                        },
+                        onFixBattery = {
+                            preferences.beginAuthorizedExternalFlow()
+                            runCatching { context.startActivity(PermissionHelper.getBatteryOptimizationSettingsIntent(context)) }
+                                .onFailure { runCatching { context.startActivity(PermissionHelper.getAppDetailsSettingsIntent(context)) } }
+                        },
+                        onFixSafeDns = onNavigateToWellbeing,
+                        onFixDeviceAdmin = {
+                            preferences.grantTemporarySettingsAuthorization()
+                            runCatching { context.startActivity(AegisDeviceAdminReceiver.createActivateAdminIntent(context)) }
+                        },
+                        onFixAiModel = onNavigateToEdits
+                    )
+                }
+
+                // 1C. Live DNS & SafeSearch Activity Preview
+                item(key = "status_live_activity") {
+                    LuxurySectionHeader(title = "Live Blocking Feed", accentColor = AegisPurple)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LiveActivityFeedPreviewCard(
+                        liveLogs = liveDnsLogs,
+                        blockedDnsCount = blockedQueryCount,
+                        safeSearchBlockedCount = safeSearchBlockedCount,
+                        onOpenFullFeed = {
+                            AegisSoundEffects.playTap(context)
+                            onNavigateToWellbeing()
+                        }
+                    )
+                }
+
                 // 2. Sculpted Organic Leaf-Orb Pods for Live Rates & Frames
-                item {
+                item(key = "status_rates") {
                     LuxurySectionHeader(title = "Live Rates & Frames", accentColor = AegisPrimaryCyan)
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
@@ -305,7 +464,7 @@ fun LiveProtectionScreen(
                 }
 
                 // 3. Parent Connection & Sync Status
-                item {
+                item(key = "status_parents") {
                     LuxurySectionHeader(title = "Parent Connection", accentColor = AegisEmeraldTeal)
                     Spacer(modifier = Modifier.height(6.dp))
                     CyberCard(
@@ -419,7 +578,7 @@ fun LiveProtectionScreen(
                 }
 
                 // 4. All Edits & Policy Overview (Read-Only View)
-                item {
+                item(key = "status_edits_overview") {
                     LuxurySectionHeader(title = "Edits & Policy Status", accentColor = AegisChampagneGold)
                     Spacer(modifier = Modifier.height(6.dp))
                     CyberCard(
@@ -491,107 +650,47 @@ fun LiveProtectionScreen(
                             modifier = Modifier.padding(vertical = 10.dp)
                         )
 
-                        StatusKeyValueRow(
-                            label = "Master App Power",
-                            value = if (isMasterPowerOn) "ON" else "OFF (0% Battery • No Background)",
-                            valueColor = if (isMasterPowerOn) AegisSuccessGreen else AegisWarningAmber
-                        )
-                        StatusKeyValueRow(
-                            label = "AI Model",
-                            value = if (telemetry.isModelLoaded) telemetry.loadedModelName ?: "Loaded" else "Not Loaded",
-                            valueColor = if (telemetry.isModelLoaded) AegisSuccessGreen else AegisWarningAmber
-                        )
-                        StatusKeyValueRow(
-                            label = "Filter Sensitivity",
-                            value = "${sensitivity.displayName}${if (strictEverything) " • Strict All" else ""}",
-                            valueColor = if (strictEverything) AegisPurple else AegisTextPrimary
-                        )
-                        StatusKeyValueRow(
-                            label = "Safe DNS",
-                            value = if (safeDnsEnabled) "ON • ${safeDnsProvider.ratingBadge}" else "OFF",
-                            valueColor = if (safeDnsEnabled) AegisPrimaryCyan else AegisTextMuted
-                        )
-                        StatusKeyValueRow(
-                            label = "Smart Safe Search",
-                            value = if (smartSafeSearchEnabled) {
-                                "ON • ${safeSearchPacks.size} Packs ($safeSearchBlockedCount hits)"
-                            } else {
-                                "OFF"
-                            },
-                            valueColor = if (smartSafeSearchEnabled) AegisPrimaryCyan else AegisTextMuted
-                        )
-                        StatusKeyValueRow(
-                            label = "Study Lock Timer",
-                            value = if (isStudyActive) {
+                        val overviewRows = listOf(
+                            Triple("Master App Power", if (isMasterPowerOn) "ON" else "OFF (0% Battery • No Background)", if (isMasterPowerOn) AegisSuccessGreen else AegisWarningAmber),
+                            Triple("AI Model", if (telemetry.isModelLoaded) telemetry.loadedModelName ?: "Loaded" else "Not Loaded", if (telemetry.isModelLoaded) AegisSuccessGreen else AegisWarningAmber),
+                            Triple("Filter Sensitivity", "${sensitivity.displayName}${if (strictEverything) " • Strict All" else ""}", if (strictEverything) AegisPurple else AegisTextPrimary),
+                            Triple("Safe DNS", if (safeDnsEnabled) "ON • ${safeDnsProvider.ratingBadge}" else "OFF", if (safeDnsEnabled) AegisPrimaryCyan else AegisTextMuted),
+                            Triple("Smart Safe Search", if (smartSafeSearchEnabled) "ON • ${safeSearchPacks.size} Packs ($safeSearchBlockedCount hits)" else "OFF", if (smartSafeSearchEnabled) AegisPrimaryCyan else AegisTextMuted),
+                            Triple("Study Lock Timer", if (isStudyActive) {
                                 val minsLeft = ((remainingStudyMillis + 59_999L) / 60_000L).coerceAtLeast(1L)
                                 "ACTIVE (${minsLeft}m left)"
                             } else {
                                 "Ready (${studyDurationMinutes}m • ${studySoftWarningSeconds}s warn)"
-                            },
-                            valueColor = if (isStudyActive) AegisPurple else AegisTextPrimary
-                        )
-                        StatusKeyValueRow(
-                            label = "Warnings & Lockout",
-                            value = "$warningThresholdCount warn • ${if (warningOnlyNoLockout) "Warn Only" else AegisPreferences.formatMinutesLabel(lockdownDurationMinutes)}",
-                            valueColor = AegisTextPrimary
-                        )
-                        StatusKeyValueRow(
-                            label = "Bedtime Lock",
-                            value = if (bedtimeEnabled) {
-                                "ON • ${AegisPreferences.formatClockTime(bedtimeStartMinutes)}–${AegisPreferences.formatClockTime(bedtimeEndMinutes)}"
-                            } else {
-                                "OFF"
-                            },
-                            valueColor = if (bedtimeEnabled) AegisChampagneGold else AegisTextMuted
-                        )
-                        StatusKeyValueRow(
-                            label = "Quiet Hours",
-                            value = if (scheduleEnabled) {
-                                "ON • ${AegisPreferences.formatClockTime(scheduleStartMinutes)}–${AegisPreferences.formatClockTime(scheduleEndMinutes)}"
-                            } else {
-                                "OFF"
-                            },
-                            valueColor = if (scheduleEnabled) AegisPurple else AegisTextMuted
-                        )
-                        StatusKeyValueRow(
-                            label = "App Time Limits",
-                            value = if (appTimeBudgets.isNotEmpty()) "${appTimeBudgets.size} Apps Capped" else "None Set",
-                            valueColor = if (appTimeBudgets.isNotEmpty()) AegisEmeraldTeal else AegisTextMuted
-                        )
-                        StatusKeyValueRow(
-                            label = "Anti-Tamper & Power",
-                            value = "${if (antiTamperEnabled) "Locked" else "Off"} • ${powerMode.displayName}",
-                            valueColor = AegisTextPrimary
-                        )
-                        StatusKeyValueRow(
-                            label = "Boot Auto-Start",
-                            value = if (autoStart) "ON" else "OFF",
-                            valueColor = if (autoStart) AegisSuccessGreen else AegisTextMuted
-                        )
-                        StatusKeyValueRow(
-                            label = "Notifications",
-                            value = if (notificationsEnabled) "ON" else "OFF (Silent)",
-                            valueColor = if (notificationsEnabled) AegisPrimaryCyan else AegisTextMuted
-                        )
-                        StatusKeyValueRow(
-                            label = "Block Screen Style",
-                            value = if (discreetBlockingScreenMode) "Parent System Block" else "Standard Sheildlenz",
-                            valueColor = AegisTextPrimary
-                        )
-                        StatusKeyValueRow(
-                            label = "Language",
-                            value = when (appLanguageCode) {
+                            }, if (isStudyActive) AegisPurple else AegisTextPrimary),
+                            Triple("Warnings & Lockout", "$warningThresholdCount warn • ${if (warningOnlyNoLockout) "Warn Only" else AegisPreferences.formatMinutesLabel(lockdownDurationMinutes)}", AegisTextPrimary),
+                            Triple("Bedtime Lock", if (bedtimeEnabled) "ON • ${AegisPreferences.formatClockTime(bedtimeStartMinutes)}–${AegisPreferences.formatClockTime(bedtimeEndMinutes)}" else "OFF", if (bedtimeEnabled) AegisChampagneGold else AegisTextMuted),
+                            Triple("Quiet Hours", if (scheduleEnabled) "ON • ${AegisPreferences.formatClockTime(scheduleStartMinutes)}–${AegisPreferences.formatClockTime(scheduleEndMinutes)}" else "OFF", if (scheduleEnabled) AegisPurple else AegisTextMuted),
+                            Triple("App Time Limits", if (appTimeBudgets.isNotEmpty()) "${appTimeBudgets.size} Apps Capped" else "None Set", if (appTimeBudgets.isNotEmpty()) AegisEmeraldTeal else AegisTextMuted),
+                            Triple("Anti-Tamper & Power", "${if (antiTamperEnabled) "Locked" else "Off"} • ${powerMode.displayName}", AegisTextPrimary),
+                            Triple("Boot Auto-Start", if (autoStart) "ON" else "OFF", if (autoStart) AegisSuccessGreen else AegisTextMuted),
+                            Triple("Notifications", if (notificationsEnabled) "ON" else "OFF (Silent)", if (notificationsEnabled) AegisPrimaryCyan else AegisTextMuted),
+                            Triple("Block Screen Style", if (discreetBlockingScreenMode) "Parent System Block" else "Standard Sheildlenz", AegisTextPrimary),
+                            Triple("Language", when (appLanguageCode) {
                                 "ur" -> "اردو (Urdu)"
                                 "ar" -> "العربية (Arabic)"
                                 else -> "English"
-                            },
-                            valueColor = AegisTextPrimary
+                            }, AegisTextPrimary)
                         )
+                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            overviewRows.forEachIndexed { idx, (label, value, color) ->
+                                StatusKeyValueRow(
+                                    label = label,
+                                    value = value,
+                                    valueColor = color,
+                                    tintedBackground = idx % 2 == 0
+                                )
+                            }
+                        }
                     }
                 }
 
                 // 5. Shifted Monitoring & Control Hub Gateways (previously bottom of Home)
-                item {
+                item(key = "status_gateways") {
                     LuxurySectionHeader(title = "Monitoring & Tools", accentColor = AegisPurple)
                     Spacer(modifier = Modifier.height(6.dp))
                     Column(
@@ -655,34 +754,54 @@ fun LiveProtectionScreen(
 private fun StatusKeyValueRow(
     label: String,
     value: String,
-    valueColor: Color
+    valueColor: Color,
+    tintedBackground: Boolean = false
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (tintedBackground) Color.White.copy(alpha = 0.62f) else Color.White.copy(alpha = 0.28f))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = label,
-            color = AegisTextSecondary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            fontFamily = ClassicalBodyFont,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(end = 10.dp)
-        )
-        Text(
-            text = value,
-            color = valueColor,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = ClassicalBodyFont,
-            textAlign = TextAlign.End,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
-        )
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(valueColor.copy(alpha = 0.78f))
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                color = AegisTextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                fontFamily = ClassicalBodyFont
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = valueColor.copy(alpha = 0.10f),
+            border = BorderStroke(0.8.dp, valueColor.copy(alpha = 0.22f))
+        ) {
+            Text(
+                text = value,
+                color = valueColor,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = ClassicalBodyFont,
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+        }
     }
 }
 
@@ -898,6 +1017,358 @@ private fun SculptedLiveTelemetryPod(
                     fontFamily = ClassicalBodyFont
                 )
             }
+        }
+    }
+}
+
+private data class BypassDiagnosticItem(
+    val title: String,
+    val detail: String,
+    val fixTag: String,
+    val actionLabel: String,
+    val onFix: () -> Unit
+)
+
+@Composable
+private fun BypassShieldDiagnosticsCard(
+    hasOverlay: Boolean,
+    hasAccessibility: Boolean,
+    hasBattery: Boolean,
+    safeDnsEnabled: Boolean,
+    isDeviceAdmin: Boolean,
+    isModelLoaded: Boolean,
+    onFixOverlay: () -> Unit,
+    onFixAccessibility: () -> Unit,
+    onFixBattery: () -> Unit,
+    onFixSafeDns: () -> Unit,
+    onFixDeviceAdmin: () -> Unit,
+    onFixAiModel: () -> Unit
+) {
+    val gaps = remember(
+        hasOverlay,
+        hasAccessibility,
+        hasBattery,
+        safeDnsEnabled,
+        isDeviceAdmin,
+        isModelLoaded
+    ) {
+        buildList {
+            if (!hasOverlay) {
+                add(
+                    BypassDiagnosticItem(
+                        title = "Overlay Lockout Disabled",
+                        detail = "Blocked screens cannot pop above apps.",
+                        fixTag = "audit_fix_overlay",
+                        actionLabel = "FIX",
+                        onFix = onFixOverlay
+                    )
+                )
+            }
+            if (!hasAccessibility) {
+                add(
+                    BypassDiagnosticItem(
+                        title = "Accessibility Guard Off",
+                        detail = "Browser URL & SafeSearch inspection paused.",
+                        fixTag = "audit_fix_accessibility",
+                        actionLabel = "FIX",
+                        onFix = onFixAccessibility
+                    )
+                )
+            }
+            if (!hasBattery) {
+                add(
+                    BypassDiagnosticItem(
+                        title = "Battery Saver May Kill Shield",
+                        detail = "Allow unrestricted background power.",
+                        fixTag = "audit_fix_battery",
+                        actionLabel = "FIX",
+                        onFix = onFixBattery
+                    )
+                )
+            }
+            if (!safeDnsEnabled) {
+                add(
+                    BypassDiagnosticItem(
+                        title = "Safe DNS Filter Off",
+                        detail = "Enable Strict Family DNS for network-wide protection.",
+                        fixTag = "audit_fix_safedns",
+                        actionLabel = "ENABLE",
+                        onFix = onFixSafeDns
+                    )
+                )
+            }
+            if (!isDeviceAdmin) {
+                add(
+                    BypassDiagnosticItem(
+                        title = "Device Admin Anti-Tamper Off",
+                        detail = "Activate admin guard to prevent uninstall bypass.",
+                        fixTag = "audit_fix_admin",
+                        actionLabel = "FIX",
+                        onFix = onFixDeviceAdmin
+                    )
+                )
+            }
+            if (!isModelLoaded) {
+                add(
+                    BypassDiagnosticItem(
+                        title = "On-Device AI Model Missing",
+                        detail = "Load or download a .tflite classifier in Edits.",
+                        fixTag = "audit_fix_model",
+                        actionLabel = "LOAD",
+                        onFix = onFixAiModel
+                    )
+                )
+            }
+        }
+    }
+
+    CyberCard(
+        borderColor = if (gaps.isEmpty()) AegisEmeraldBorder else AegisGoldBorder,
+        tone = if (gaps.isEmpty()) CyberCardTone.EMERALD else CyberCardTone.GOLD,
+        modifier = Modifier.testTag("status_bypass_audit_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(if (gaps.isEmpty()) AegisEmeraldTeal else AegisWarningAmber),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (gaps.isEmpty()) Icons.Default.Security else Icons.Default.Warning,
+                        contentDescription = "Bypass Shield Diagnostics",
+                        tint = AegisOnPrimaryWhite,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Bypass Shield Diagnostics",
+                        color = AegisTextPrimary,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = if (gaps.isEmpty()) {
+                            "All 6 bypass defenses active & verified"
+                        } else {
+                            "${gaps.size} vulnerability gap${if (gaps.size > 1) "s" else ""} found • 1-tap fix ready"
+                        },
+                        color = AegisTextSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+            StatusPill(
+                label = if (gaps.isEmpty()) "ARMED" else "${gaps.size} GAPS",
+                isActive = gaps.isEmpty(),
+                activeColor = AegisEmeraldTeal,
+                inactiveColor = AegisWarningAmber
+            )
+        }
+
+        if (gaps.isNotEmpty()) {
+            HorizontalDivider(
+                color = AegisGoldBorder.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 10.dp)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                gaps.take(4).forEach { gap ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.72f))
+                            .border(1.dp, AegisCardBorder.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = gap.title,
+                                color = AegisTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = ClassicalBodyFont,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = gap.detail,
+                                color = AegisTextSecondary,
+                                fontSize = 10.5.sp,
+                                fontFamily = ClassicalBodyFont,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Button(
+                            onClick = gap.onFix,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AegisPrimaryCyan,
+                                contentColor = AegisOnPrimaryWhite
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag(gap.fixTag)
+                        ) {
+                            Text(
+                                text = gap.actionLabel,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = ClassicalBodyFont
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveActivityFeedPreviewCard(
+    liveLogs: List<com.example.data.repository.BlockedDnsLogItem>,
+    blockedDnsCount: Long,
+    safeSearchBlockedCount: Int,
+    onOpenFullFeed: () -> Unit
+) {
+    CyberCard(
+        borderColor = AegisLavenderBorder,
+        tone = CyberCardTone.LAVENDER,
+        modifier = Modifier.testTag("status_live_activity_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(AegisPurple),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Dns,
+                        contentDescription = "Live DNS & Search Activity",
+                        tint = AegisOnPrimaryWhite,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Live DNS & Search Activity",
+                        color = AegisTextPrimary,
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "$blockedDnsCount DNS blocked • $safeSearchBlockedCount SafeSearch hits",
+                        color = AegisTextSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+            StatusPill(
+                label = if (liveLogs.isEmpty()) "CLEAR" else "${liveLogs.size} LOGS",
+                isActive = liveLogs.isNotEmpty(),
+                activeColor = AegisPurple,
+                inactiveColor = AegisEmeraldTeal
+            )
+        }
+
+        HorizontalDivider(
+            color = AegisLavenderBorder.copy(alpha = 0.5f),
+            modifier = Modifier.padding(vertical = 10.dp)
+        )
+
+        if (liveLogs.isEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.White.copy(alpha = 0.65f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = AegisEmeraldTeal,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Clean session — 0 blocked domains or search hits recorded yet.",
+                    color = AegisTextSecondary,
+                    fontSize = 11.5.sp,
+                    fontFamily = ClassicalBodyFont
+                )
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                liveLogs.take(4).forEach { entry ->
+                    StatusKeyValueRow(
+                        label = entry.domain,
+                        value = entry.reasonCategory,
+                        valueColor = when (entry.reasonCategory) {
+                            BlockedDnsLogRepository.CATEGORY_SEARCH -> AegisPurple
+                            BlockedDnsLogRepository.CATEGORY_GAMBLING -> AegisWarningAmber
+                            else -> AegisChampagneGold
+                        },
+                        tintedBackground = true
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+        Button(
+            onClick = onOpenFullFeed,
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AegisPurple,
+                contentColor = AegisOnPrimaryWhite
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .testTag("status_open_activity_feed_button")
+        ) {
+            Text(
+                text = "VIEW FULL ACTIVITY FEED",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = ClassicalBodyFont
+            )
         }
     }
 }

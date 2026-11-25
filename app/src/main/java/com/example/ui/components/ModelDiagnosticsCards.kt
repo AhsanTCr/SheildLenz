@@ -316,7 +316,7 @@ fun HomeModelDownloadCard(
                 }
             }
 
-            // Single clean download button (no extra link boxes)
+            // Primary Download AI Here button + From File (Recommended)
             Button(
                 onClick = {
                     if (isDownloadingOrUnzipping) {
@@ -349,7 +349,7 @@ fun HomeModelDownloadCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isDownloadingOrUnzipping) "CANCEL DOWNLOAD" else "DOWNLOAD AI MODEL",
+                    text = if (isDownloadingOrUnzipping) "CANCEL DOWNLOAD" else "DOWNLOAD AI HERE",
                     fontSize = 12.5.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont,
@@ -357,25 +357,41 @@ fun HomeModelDownloadCard(
                 )
             }
 
-            // Subtle secondary option to pick custom file
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
+            // Prominent Local File Selector labeled Recommended
+            OutlinedButton(
+                onClick = {
+                    onBeforeOpenPicker()
+                    try {
+                        modelPickerLauncher.launch(arrayOf("*/*"))
+                    } catch (_: Exception) {
+                    }
+                },
+                enabled = !isImporting && !isDownloadingOrUnzipping,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = AegisChampagneSoft.copy(alpha = 0.72f),
+                    contentColor = AegisTextPrimary
+                ),
+                border = androidx.compose.foundation.BorderStroke(1.2.dp, AegisGoldBorder),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("home_pick_file_recommended_button")
             ) {
+                Icon(
+                    imageVector = Icons.Default.FolderOpen,
+                    contentDescription = null,
+                    tint = AegisChampagneGold,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isImporting) "Loading model..." else "Or select a .tflite file from storage",
-                    color = AegisTextSecondary,
-                    fontSize = 11.5.sp,
+                    text = if (isImporting) "LOADING MODEL..." else "FROM FILE (RECOMMENDED)",
+                    color = AegisTextPrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont,
-                    modifier = Modifier
-                        .clickable(enabled = !isImporting && !isDownloadingOrUnzipping) {
-                            onBeforeOpenPicker()
-                            try {
-                                modelPickerLauncher.launch(arrayOf("*/*"))
-                            } catch (_: Exception) {
-                            }
-                        }
-                        .padding(vertical = 4.dp, horizontal = 8.dp)
+                    letterSpacing = 0.4.sp
                 )
             }
         }
@@ -731,7 +747,7 @@ fun ModelManagerCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isDownloadingOrUnzipping) "CANCEL DOWNLOAD" else "DOWNLOAD AI MODEL (LINK 1)",
+                    text = if (isDownloadingOrUnzipping) "CANCEL DOWNLOAD" else "DOWNLOAD AI HERE",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont,
@@ -870,11 +886,11 @@ fun ModelManagerCard(
                         Icon(imageVector = Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (telemetry.isModelLoaded) "CUSTOM" else "LOAD .TFLITE FROM PHONE",
+                            text = if (telemetry.isModelLoaded) "CUSTOM" else "FROM FILE (RECOMMENDED)",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = ClassicalBodyFont,
-                            letterSpacing = 0.8.sp
+                            letterSpacing = 0.6.sp
                         )
                     }
                 }

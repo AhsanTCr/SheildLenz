@@ -185,7 +185,9 @@ fun DashboardScreen(
     val scheduleEnabled by preferences.scheduleEnabled.collectAsState()
     val scheduleStartMinutes by preferences.scheduleStartMinutes.collectAsState()
     val scheduleEndMinutes by preferences.scheduleEndMinutes.collectAsState()
-    val isWithinScheduledWindow = scheduleEnabled && preferences.isWithinScheduledWindow()
+    val isWithinScheduledWindow = remember(scheduleEnabled, scheduleStartMinutes, scheduleEndMinutes) {
+        scheduleEnabled && preferences.isWithinScheduledWindow()
+    }
     val studyModeEnabled by preferences.studyModeEnabled.collectAsState()
     val studySessionEndMillis by preferences.studySessionEndMillis.collectAsState()
     val studyDurationMinutes by preferences.studyDurationMinutes.collectAsState()
@@ -203,20 +205,9 @@ fun DashboardScreen(
     val skipDuplicateFrames by preferences.skipDuplicateFrames.collectAsState()
     val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
 
-    var remainingStudyMillis by remember { mutableLongStateOf(preferences.getRemainingStudyMillis()) }
-    LaunchedEffect(studyModeEnabled, studySessionEndMillis) {
-        if (!studyModeEnabled) {
-            remainingStudyMillis = 0L
-        } else {
-            while (true) {
-                val rem = preferences.getRemainingStudyMillis()
-                remainingStudyMillis = rem
-                if (rem <= 0L) break
-                delay(1000L)
-            }
-        }
+    val isStudyActive = remember(studyModeEnabled, studySessionEndMillis) {
+        studyModeEnabled && preferences.getRemainingStudyMillis() > 0L
     }
-    val isStudyActive = studyModeEnabled && remainingStudyMillis > 0L
 
     var showOverlayWarningDialog by remember { mutableStateOf(false) }
     var showMissingModelDialog by remember { mutableStateOf(false) }
@@ -508,7 +499,7 @@ fun DashboardScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 0. Update Banner
-                item {
+                item(key = "home_update") {
                     AnimatedVisibility(
                         visible = showUpdateBanner,
                         enter = fadeIn() + expandVertically(),
@@ -769,7 +760,7 @@ fun DashboardScreen(
                 }
 
                 // 0b. Master Power OFF Banner (0% Background Battery Mode)
-                item {
+                item(key = "home_master_power_off") {
                     AnimatedVisibility(
                         visible = !isMasterPowerOn,
                         enter = fadeIn() + expandVertically(),
@@ -863,7 +854,7 @@ fun DashboardScreen(
                 }
 
                 // 1. Pure VIP Shield-Only Sanctuary Hero Widget
-                item {
+                item(key = "home_hero_shield") {
                     val heroShape = RoundedCornerShape(34.dp)
                     Surface(
                         modifier = Modifier
@@ -1074,29 +1065,9 @@ fun DashboardScreen(
                                         }
                                         .filter { (_, _, pt) -> pt.zNormalized < 0f }
                                         .sortedBy { (_, _, pt) -> pt.zNormalized }
-                                        .forEach { (i, deg, pt) ->
+                                        .forEach { (i, _, pt) ->
                                             val orbColor = outerOrbColors[i % outerOrbColors.size]
                                             val depthAlpha = (0.56f + 0.34f * (pt.zNormalized + 1f)).coerceIn(0.45f, 0.90f)
-                                            for (step in 3 downTo 1) {
-                                                val tPt = projectOrbitPoint3D(
-                                                    center = c,
-                                                    radiusX = orbRx,
-                                                    radiusY = orbRy,
-                                                    zAmplitude = orbZ,
-                                                    angleDeg = deg - step * 8.5f,
-                                                    tiltDeg = 16f,
-                                                    cameraDistance = camDist
-                                                )
-                                                val decay = 1f - step * 0.24f
-                                                drawVolumetric3DSphere(
-                                                    center = tPt.offset,
-                                                    radius = baseRadiusPx * tPt.perspectiveScale * 0.56f * decay,
-                                                    baseColor = orbColor,
-                                                    alpha = depthAlpha * 0.44f * decay,
-                                                    depthNormalized = tPt.zNormalized,
-                                                    drawHaloAndShadow = false
-                                                )
-                                            }
                                             drawVolumetric3DSphere(
                                                 center = pt.offset,
                                                 radius = baseRadiusPx * pt.perspectiveScale,
@@ -1140,29 +1111,9 @@ fun DashboardScreen(
                                         }
                                         .filter { (_, _, pt) -> pt.zNormalized >= 0f }
                                         .sortedBy { (_, _, pt) -> pt.zNormalized }
-                                        .forEach { (i, deg, pt) ->
+                                        .forEach { (i, _, pt) ->
                                             val orbColor = outerOrbColors[i % outerOrbColors.size]
                                             val depthAlpha = (0.88f + 0.12f * pt.zNormalized).coerceIn(0.86f, 1f)
-                                            for (step in 3 downTo 1) {
-                                                val tPt = projectOrbitPoint3D(
-                                                    center = c,
-                                                    radiusX = orbRx,
-                                                    radiusY = orbRy,
-                                                    zAmplitude = orbZ,
-                                                    angleDeg = deg - step * 8.5f,
-                                                    tiltDeg = 16f,
-                                                    cameraDistance = camDist
-                                                )
-                                                val decay = 1f - step * 0.24f
-                                                drawVolumetric3DSphere(
-                                                    center = tPt.offset,
-                                                    radius = baseRadiusPx * tPt.perspectiveScale * 0.56f * decay,
-                                                    baseColor = orbColor,
-                                                    alpha = depthAlpha * 0.54f * decay,
-                                                    depthNormalized = tPt.zNormalized,
-                                                    drawHaloAndShadow = false
-                                                )
-                                            }
                                             drawVolumetric3DSphere(
                                                 center = pt.offset,
                                                 radius = baseRadiusPx * pt.perspectiveScale,
@@ -1357,84 +1308,19 @@ fun DashboardScreen(
                     }
                 }
 
-                // 1a. Increase-Only Live Timer Banners (no stop/shorten outside Edits)
+                // 1a. Increase-Only Live Timer Banners (isolated ticking keeps rest of Home crisp)
                 if (isStudyActive) {
-                    item {
-                        CyberCard(
-                            borderColor = AegisLavenderBorder,
-                            tone = CyberCardTone.LAVENDER,
-                            modifier = Modifier
-                                .widthIn(max = 540.dp)
-                                .testTag("home_active_study_extend_banner")
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f).padding(end = 10.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .background(AegisPurple),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                                            contentDescription = "Study Lock Running",
-                                            tint = AegisOnPrimaryWhite,
-                                            modifier = Modifier.size(19.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = "Study Lock • ${formatHomeClock(remainingStudyMillis)}",
-                                            color = AegisTextPrimary,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = ClassicalDisplayFont
-                                        )
-                                        Text(
-                                            text = "Active • Extend focus time anytime",
-                                            color = AegisPurple,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontFamily = ClassicalBodyFont
-                                        )
-                                    }
-                                }
-                                Button(
-                                    onClick = {
-                                        AegisSoundEffects.playModeOn(context)
-                                        preferences.extendActiveStudySession(15)
-                                        Toast.makeText(context, "Study Lock extended +15m", Toast.LENGTH_SHORT).show()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AegisPurple,
-                                        contentColor = AegisOnPrimaryWhite
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier
-                                        .height(48.dp)
-                                        .testTag("home_extend_study_button")
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("+15M", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
+                    item(key = "home_active_study") {
+                        ActiveStudyExtendBanner(
+                            preferences = preferences,
+                            studySessionEndMillis = studySessionEndMillis,
+                            modifier = Modifier.widthIn(max = 540.dp)
+                        )
                     }
                 }
 
                 if (bedtimeEnabled) {
-                    item {
+                    item(key = "home_active_bedtime") {
                         CyberCard(
                             borderColor = AegisGoldBorder,
                             tone = CyberCardTone.GOLD,
@@ -1483,7 +1369,7 @@ fun DashboardScreen(
                 }
 
                 // 1b. Dynamic 6-Tile Switch-ON Strip (Auto-rotates active controls out, zero PIN prompts)
-                item {
+                item(key = "home_quick_tiles") {
                     val quickTilePool = listOf(
                         HomeQuickTileItem(
                             title = "Study Lock",
@@ -1763,7 +1649,7 @@ fun DashboardScreen(
                 }
 
                 // 2. Scheduled Guard Window Reminder
-                item {
+                item(key = "home_scheduled_guard") {
                     AnimatedVisibility(
                         visible = isWithinScheduledWindow && !isOn,
                         enter = fadeIn() + expandVertically(),
@@ -1848,7 +1734,7 @@ fun DashboardScreen(
                 }
 
                 // 3. First-Time Model Setup Card
-                item {
+                item(key = "home_model_setup") {
                     AnimatedVisibility(
                         visible = !telemetry.isModelLoaded,
                         enter = fadeIn() + expandVertically(),
@@ -1984,6 +1870,98 @@ fun DashboardScreen(
                         }
                     }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveStudyExtendBanner(
+    preferences: AegisPreferences,
+    studySessionEndMillis: Long,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var remainingMillis by remember(studySessionEndMillis) {
+        mutableLongStateOf(preferences.getRemainingStudyMillis())
+    }
+    LaunchedEffect(studySessionEndMillis) {
+        while (true) {
+            val rem = preferences.getRemainingStudyMillis()
+            remainingMillis = rem
+            if (rem <= 0L) break
+            delay(1000L)
+        }
+    }
+    if (remainingMillis <= 0L) return
+
+    CyberCard(
+        borderColor = AegisLavenderBorder,
+        tone = CyberCardTone.LAVENDER,
+        modifier = modifier.testTag("home_active_study_extend_banner")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AegisPurple),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                        contentDescription = "Study Lock Running",
+                        tint = AegisOnPrimaryWhite,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "Study Lock • ${formatHomeClock(remainingMillis)}",
+                        color = AegisTextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Text(
+                        text = "Active • Extend focus time anytime",
+                        color = AegisPurple,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+            }
+            Button(
+                onClick = {
+                    AegisSoundEffects.playModeOn(context)
+                    preferences.extendActiveStudySession(15)
+                    Toast.makeText(context, "Study Lock extended +15m", Toast.LENGTH_SHORT).show()
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AegisPurple,
+                    contentColor = AegisOnPrimaryWhite
+                ),
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier
+                    .height(48.dp)
+                    .testTag("home_extend_study_button")
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("+15M", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

@@ -123,4 +123,84 @@ class FocusFeaturesRobolectricTest {
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("focus_app_budgets_card"))
         composeRule.onNodeWithTag("focus_app_budgets_card").assertIsDisplayed()
     }
+
+    @Test
+    fun `protection profiles apply bundled rules persist in policy backup and reject invalid json`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+
+        assertFalse(prefs.restorePolicyJson("{\"notAPolicy\": 123}"))
+        assertFalse(prefs.restorePolicyJson("invalid-json"))
+
+        prefs.applyProtectionProfile(com.example.data.preferences.ProtectionProfile.STRICT_KIDS)
+        assertEquals(
+            com.example.data.preferences.ProtectionProfile.STRICT_KIDS,
+            prefs.activeProtectionProfile.value
+        )
+        assertEquals(com.example.core.models.SensitivityLevel.STRICT, prefs.sensitivity.value)
+        assertTrue(prefs.strictEverything.value)
+        assertTrue(prefs.safeDnsEnabled.value)
+        assertTrue(prefs.smartSafeSearchEnabled.value)
+
+        val exported = prefs.exportPolicyJson()
+
+        prefs.applyProtectionProfile(com.example.data.preferences.ProtectionProfile.HOMEWORK_FOCUS)
+        assertEquals(45, prefs.studyDurationMinutes.value)
+        assertFalse(prefs.strictEverything.value)
+
+        assertTrue(prefs.restorePolicyJson(exported))
+        assertEquals(
+            com.example.data.preferences.ProtectionProfile.STRICT_KIDS,
+            prefs.activeProtectionProfile.value
+        )
+        assertTrue(prefs.strictEverything.value)
+    }
+
+    @Test
+    fun `wellbeing hub live activity feed filters DNS and SafeSearch entries by category`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        val repo = container.blockedDnsLogRepository
+        repo.clearLogs()
+        repo.recordBlockedQuery(
+            domain = "adult-example.test",
+            reasonCategory = com.example.data.repository.BlockedDnsLogRepository.CATEGORY_ADULT,
+            matchedRule = "Strict Deen DNS"
+        )
+        repo.recordBlockedQuery(
+            domain = "croxyproxy search query",
+            reasonCategory = com.example.data.repository.BlockedDnsLogRepository.CATEGORY_SEARCH,
+            matchedRule = "Smart Safe Search"
+        )
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                com.example.ui.settings.WellbeingHubScreen(
+                    preferences = container.preferences,
+                    blockedDnsLogRepo = repo,
+                    onNavigateBack = {}
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("live_dns_log_card"))
+        composeRule.onNodeWithTag("live_dns_log_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("activity_filter_ALL").assertIsDisplayed()
+        composeRule.onNodeWithTag("activity_filter_SEARCH").assertIsDisplayed()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(androidx.compose.ui.test.hasText("adult-example.test"))
+        composeRule.onNode(androidx.compose.ui.test.hasText("adult-example.test")).assertIsDisplayed()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("activity_filter_SEARCH"))
+        composeRule.onNodeWithTag("activity_filter_SEARCH").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNode(androidx.compose.ui.test.hasText("croxyproxy search query")).assertIsDisplayed()
+        assertEquals(
+            0,
+            composeRule.onAllNodes(androidx.compose.ui.test.hasText("adult-example.test")).fetchSemanticsNodes().size
+        )
+    }
 }
+

@@ -65,6 +65,7 @@ class ParentChildSyncController(
             }
 
             launch {
+                var lastRemoteStudyModeEnabled: Boolean? = null
                 repository.observeRemoteSettings(uid)
                     .catch { e -> Log.w(TAG, "Remote settings observer error: ${e.message}") }
                     .collect { remote ->
@@ -106,9 +107,10 @@ class ParentChildSyncController(
                                 if (!preferences.isStudySessionActive()) {
                                     preferences.startStudySession(remote.studyModeDurationMinutes)
                                 }
-                            } else {
+                            } else if (lastRemoteStudyModeEnabled == true) {
                                 preferences.stopStudySession()
                             }
+                            lastRemoteStudyModeEnabled = remote.studyModeEnabled
                             preferences.setSmartSafeSearchEnabled(remote.smartSafeSearchEnabled)
                             if (remote.safeSearchPacks.isNotEmpty()) {
                                 preferences.setSafeSearchPacks(remote.safeSearchPacks)

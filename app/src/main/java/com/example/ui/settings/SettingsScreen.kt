@@ -10,12 +10,19 @@ import android.os.PowerManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -34,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -48,6 +56,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Apps
@@ -69,7 +78,9 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -81,6 +92,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -92,13 +104,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -117,8 +133,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -130,6 +148,7 @@ import com.example.core.models.SensitivityLevel
 import com.example.core.notifications.AegisNotificationHelper
 import com.example.data.preferences.AegisPreferences
 import com.example.data.preferences.PowerMode
+import com.example.data.preferences.ProtectionProfile
 import com.example.data.preferences.RecoveryQrMode
 import com.example.data.repository.ProtectionRepository
 import com.example.detection.classifier.ModelManager
@@ -149,6 +168,7 @@ import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisDangerRed
+import com.example.ui.theme.AegisElectricBlue
 import com.example.ui.theme.AegisEmeraldBorder
 import com.example.ui.theme.AegisEmeraldTeal
 import com.example.ui.theme.AegisGoldBorder
@@ -156,6 +176,7 @@ import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisIndigo
 import com.example.ui.theme.AegisIndigoBorder
 import com.example.ui.theme.AegisLavenderBorder
+import com.example.ui.theme.AegisLavenderLight
 import com.example.ui.theme.AegisLavenderSoft
 import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
@@ -167,7 +188,9 @@ import com.example.ui.theme.AegisTextSecondary
 import com.example.ui.theme.AegisWarningAmber
 import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal data class InstalledAppEntry(
@@ -223,7 +246,6 @@ internal fun shouldLockEditsScreen(
     isSessionUnlocked: Boolean
 ): Boolean = hasGuardianPin && !isSessionUnlocked
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     preferences: AegisPreferences,
@@ -234,49 +256,14 @@ fun SettingsScreen(
     onNavigateToParents: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val telemetry by protectionRepo.telemetry.collectAsState()
-    val activeAppName by protectionRepo.activeAppLabel.collectAsState()
-    val sensitivity by preferences.sensitivity.collectAsState()
-    val isStrictEverything by preferences.strictEverything.collectAsState()
-    val isAutoStart by preferences.autoStart.collectAsState()
     val hasPin by preferences.hasGuardianPin.collectAsState()
     val isGuardianUnlocked by preferences.isGuardianSessionUnlocked.collectAsState()
     val parentalRole by preferences.parentalRole.collectAsState()
     val pairedParentName by preferences.pairedParentName.collectAsState()
     val guardianEmail by preferences.guardianEmail.collectAsState()
     val challengeCode by preferences.recoveryChallengeCode.collectAsState()
-    val isMaintenanceMode by preferences.maintenanceMode.collectAsState()
-    val lockdownDurationMinutes by preferences.lockdownDurationMinutes.collectAsState()
-    val waitCooldownBeforePin by preferences.waitCooldownBeforePassword.collectAsState()
-    val antiTamperEnabled by preferences.antiTamperEnabled.collectAsState()
-    val powerMode by preferences.powerMode.collectAsState()
-    val skipDuplicateFrames by preferences.skipDuplicateFrames.collectAsState()
-    val captureWidthPx by preferences.captureWidthPx.collectAsState()
-    val pauseWhenScreenOff by preferences.pauseWhenScreenOff.collectAsState()
-    val adaptiveCadenceEnabled by preferences.adaptiveCadenceEnabled.collectAsState()
-    val autoThrottleLowBattery by preferences.autoThrottleLowBattery.collectAsState()
-
     val isEditsLocked = shouldLockEditsScreen(hasPin, isGuardianUnlocked)
-    val stage1DurationLabel = AegisPreferences.formatMinutesLabel(lockdownDurationMinutes)
-
-    var showModelDialog by remember { mutableStateOf(false) }
-    var showPinDialog by remember { mutableStateOf(false) }
-    var pinInput by remember { mutableStateOf("") }
-    var confirmPinInput by remember { mutableStateOf("") }
-    var pinError by remember { mutableStateOf<String?>(null) }
-    var showDeviceOwnerWizard by remember { mutableStateOf(false) }
-
-    var isDeviceAdmin by remember { mutableStateOf(AegisDeviceAdminReceiver.isDeviceAdmin(context)) }
-    val masterKeyGate = rememberMasterKeyGate(preferences)
     val lifecycleOwner = LocalLifecycleOwner.current
-
-    LaunchedEffect(isEditsLocked) {
-        if (isEditsLocked) {
-            showModelDialog = false
-            showPinDialog = false
-            showDeviceOwnerWizard = false
-        }
-    }
 
     DisposableEffect(lifecycleOwner, preferences) {
         val observer = LifecycleEventObserver { _, event ->
@@ -314,111 +301,194 @@ fun SettingsScreen(
                         .padding(horizontal = 16.dp)
                 )
             } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(top = 10.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (hasPin) {
-                    item {
-                        CyberCard(
-                            borderColor = AegisEmeraldBorder,
-                            tone = CyberCardTone.SKY,
-                            modifier = Modifier.testTag("edits_unlocked_banner")
+                UnlockedEditsContent(
+                    preferences = preferences,
+                    modelManager = modelManager,
+                    protectionRepo = protectionRepo,
+                    hasPin = hasPin,
+                    parentalRole = parentalRole,
+                    onModelUpdated = onModelUpdated,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .padding(horizontal = 16.dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UnlockedEditsContent(
+    preferences: AegisPreferences,
+    modelManager: ModelManager,
+    protectionRepo: ProtectionRepository,
+    hasPin: Boolean,
+    parentalRole: String?,
+    onModelUpdated: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val telemetry by protectionRepo.telemetry.collectAsState()
+    val activeAppName by protectionRepo.activeAppLabel.collectAsState()
+    val sensitivity by preferences.sensitivity.collectAsState()
+    val isStrictEverything by preferences.strictEverything.collectAsState()
+    val isAutoStart by preferences.autoStart.collectAsState()
+    val isMaintenanceMode by preferences.maintenanceMode.collectAsState()
+    val lockdownDurationMinutes by preferences.lockdownDurationMinutes.collectAsState()
+    val waitCooldownBeforePin by preferences.waitCooldownBeforePassword.collectAsState()
+    val antiTamperEnabled by preferences.antiTamperEnabled.collectAsState()
+    val powerMode by preferences.powerMode.collectAsState()
+    val skipDuplicateFrames by preferences.skipDuplicateFrames.collectAsState()
+    val captureWidthPx by preferences.captureWidthPx.collectAsState()
+    val pauseWhenScreenOff by preferences.pauseWhenScreenOff.collectAsState()
+    val adaptiveCadenceEnabled by preferences.adaptiveCadenceEnabled.collectAsState()
+    val autoThrottleLowBattery by preferences.autoThrottleLowBattery.collectAsState()
+    val activeProtectionProfile by preferences.activeProtectionProfile.collectAsState()
+
+    val stage1DurationLabel = AegisPreferences.formatMinutesLabel(lockdownDurationMinutes)
+
+    var showModelDialog by remember { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pinInput by remember { mutableStateOf("") }
+    var confirmPinInput by remember { mutableStateOf("") }
+    var pinError by remember { mutableStateOf<String?>(null) }
+    var showDeviceOwnerWizard by remember { mutableStateOf(false) }
+
+    var isDeviceAdmin by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        isDeviceAdmin = AegisDeviceAdminReceiver.isDeviceAdmin(context)
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isDeviceAdmin = AegisDeviceAdminReceiver.isDeviceAdmin(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val masterKeyGate = rememberMasterKeyGate(preferences)
+
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(top = 10.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (hasPin) {
+            item(key = "edits_unlocked_banner") {
+                CyberCard(
+                    borderColor = AegisEmeraldBorder,
+                    tone = CyberCardTone.SKY,
+                    modifier = Modifier.testTag("edits_unlocked_banner")
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f).padding(end = 10.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(AegisEmeraldTeal),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f).padding(end = 10.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(AegisEmeraldTeal),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.LockOpen,
-                                            contentDescription = "Edits Unlocked",
-                                            tint = AegisOnPrimaryWhite,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = "Guardian Edits Unlocked",
-                                            color = AegisTextPrimary,
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = ClassicalDisplayFont
-                                        )
-                                        Text(
-                                            text = if (parentalRole == "child") {
-                                                "Also syncs remotely from Parent phone"
-                                            } else {
-                                                "Lock again before handing phone back"
-                                            },
-                                            color = AegisTextSecondary,
-                                            fontSize = 11.sp,
-                                            fontFamily = ClassicalBodyFont
-                                        )
-                                    }
-                                }
-                                Button(
-                                    onClick = {
-                                        AegisSoundEffects.playTap(context)
-                                        preferences.lockGuardianSession()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AegisPurple,
-                                        contentColor = AegisOnPrimaryWhite
-                                    ),
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier
-                                        .height(48.dp)
-                                        .testTag("edits_lock_now_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Lock,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("LOCK EDITS", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.LockOpen,
+                                    contentDescription = "Edits Unlocked",
+                                    tint = AegisOnPrimaryWhite,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Guardian Edits Unlocked",
+                                    color = AegisTextPrimary,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalDisplayFont
+                                )
+                                Text(
+                                    text = if (parentalRole == "child") {
+                                        "Also syncs remotely from Parent phone"
+                                    } else {
+                                        "Lock again before handing phone back"
+                                    },
+                                    color = AegisTextSecondary,
+                                    fontSize = 11.sp,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = {
+                                AegisSoundEffects.playTap(context)
+                                preferences.lockGuardianSession()
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AegisPurple,
+                                contentColor = AegisOnPrimaryWhite
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("edits_lock_now_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("LOCK EDITS", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
-                // 1. AI Classification
-                item {
-                    LuxurySectionHeader(title = "AI Classification", accentColor = AegisPurple)
+            }
+        }
+        item(key = "edits_quick_profiles") {
+            QuickProtectionProfilesCard(
+                activeProfile = activeProtectionProfile,
+                onApplyProfile = { profile ->
+                    AegisSoundEffects.playModeOn(context)
+                    preferences.applyProtectionProfile(profile)
+                    Toast.makeText(
+                        context,
+                        "${profile.title} profile applied",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
-                item {
-                    EditsActionCard(
-                        title = "AI Model",
-                        summary = if (telemetry.isModelLoaded) "Active • ${telemetry.loadedModelName ?: "On-Device NPU"}" else "No Model Selected • Tap to load",
-                        icon = Icons.Default.Memory,
-                        accentColor = AegisPurple,
-                        tone = CyberCardTone.LAVENDER,
-                        borderColor = AegisLavenderBorder,
-                        testTag = "ai_model_pill",
-                        buttonTestTag = "ai_model_pill_button",
-                        onClick = {
-                            AegisSoundEffects.playTap(context)
-                            showModelDialog = true
-                        }
-                    )
+            )
+        }
+        // 1. AI Classification
+        item(key = "edits_header_ai") {
+            LuxurySectionHeader(title = "AI Classification", accentColor = AegisPurple)
+        }
+        item(key = "edits_ai_model") {
+            EditsActionCard(
+                title = "AI Model",
+                summary = if (telemetry.isModelLoaded) "Active • ${telemetry.loadedModelName ?: "On-Device NPU"}" else "No Model Selected • Tap to load",
+                icon = Icons.Default.Memory,
+                accentColor = AegisPurple,
+                tone = CyberCardTone.LAVENDER,
+                borderColor = AegisLavenderBorder,
+                testTag = "ai_model_pill",
+                buttonTestTag = "ai_model_pill_button",
+                onClick = {
+                    AegisSoundEffects.playTap(context)
+                    showModelDialog = true
                 }
+            )
+        }
                 item {
                     CollapsibleEditsCard(
                         title = "AI Sensitivity",
@@ -1133,22 +1203,19 @@ fun SettingsScreen(
                             Text(text = "SAVE PIN", fontWeight = FontWeight.Bold)
                         }
                     },
-                        dismissButton = {
-                            OutlinedButton(
-                                onClick = { showPinDialog = false },
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = AegisChampagneSoft,
-                                    contentColor = AegisTextPrimary
-                                )
-                            ) {
-                                Text(text = "CANCEL", fontWeight = FontWeight.SemiBold)
-                            }
+                    dismissButton = {
+                        OutlinedButton(
+                            onClick = { showPinDialog = false },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = AegisChampagneSoft,
+                                contentColor = AegisTextPrimary
+                            )
+                        ) {
+                            Text(text = "CANCEL", fontWeight = FontWeight.SemiBold)
                         }
-                    )
-                }
+                    }
+                )
             }
-        }
-    }
 }
 
 @Composable
@@ -1161,19 +1228,45 @@ private fun EditsPasswordLockGate(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var passwordInput by remember { mutableStateOf("") }
+    var showPinCharacters by remember { mutableStateOf(false) }
     var recoveryCodeInput by remember { mutableStateOf("") }
     var newPinInput by remember { mutableStateOf("") }
     var showForgotQr by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val shakeOffsetX = remember { Animatable(0f) }
+    val triggerErrorShake: () -> Unit = {
+        scope.launch {
+            shakeOffsetX.snapTo(0f)
+            val offsets = listOf(-14f, 14f, -10f, 10f, -5f, 5f, 0f)
+            offsets.forEach { target ->
+                shakeOffsetX.animateTo(target, tween(durationMillis = 36))
+            }
+        }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "EditsLockCrestMotion")
+    val crestPulse by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "EditsLockCrestPulse"
+    )
 
     val submitUnlock: () -> Unit = {
         if (showForgotQr) {
             val cleanPin = newPinInput.trim()
             if (cleanPin.length !in 4..8 || !cleanPin.all { it.isDigit() }) {
                 errorMessage = "Enter a new 4–8 digit Guardian PIN"
+                triggerErrorShake()
             } else if (!preferences.resetPinWithRecoveryToken(recoveryCodeInput, cleanPin)) {
                 errorMessage = "Invalid code for Challenge ID $challengeCode"
+                triggerErrorShake()
             } else {
                 AegisSoundEffects.playModeOn(context)
                 preferences.unlockGuardianSession()
@@ -1183,6 +1276,7 @@ private fun EditsPasswordLockGate(
             if (passwordInput.isEmpty() || !preferences.verifyGuardianPin(passwordInput)) {
                 errorMessage = "Incorrect Guardian PIN"
                 passwordInput = ""
+                triggerErrorShake()
             } else {
                 AegisSoundEffects.playModeOn(context)
                 preferences.unlockGuardianSession()
@@ -1191,273 +1285,482 @@ private fun EditsPasswordLockGate(
         }
     }
 
+    val accentPrimary = if (showForgotQr) AegisChampagneGold else AegisPurple
+    val accentSecondary = if (showForgotQr) AegisWarningAmber else AegisElectricBlue
+    val cardShape = RoundedCornerShape(28.dp)
+
     Box(
         modifier = modifier.verticalScroll(rememberScrollState()),
         contentAlignment = Alignment.Center
     ) {
-        CyberCard(
-            borderColor = AegisLavenderBorder,
-            tone = CyberCardTone.LAVENDER,
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(max = 440.dp)
-                .padding(vertical = 16.dp)
-                .testTag("edits_lock_gate_card")
+                .widthIn(max = 436.dp)
+                .padding(vertical = 8.dp)
+                .offset { IntOffset(shakeOffsetX.value.roundToInt(), 0) }
+                .shadow(
+                    elevation = 16.dp,
+                    shape = cardShape,
+                    ambientColor = accentPrimary.copy(alpha = 0.24f),
+                    spotColor = accentSecondary.copy(alpha = 0.22f)
+                )
+                .testTag("edits_lock_gate_card"),
+            shape = cardShape,
+            color = Color.Transparent,
+            border = BorderStroke(
+                width = 1.4.dp,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.96f),
+                        if (showForgotQr) AegisGoldBorder else AegisLavenderBorder,
+                        if (showForgotQr) AegisChampagneGold.copy(alpha = 0.65f) else AegisCardBorder
+                    )
+                )
+            )
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFFFCFCFF),
+                                if (showForgotQr) AegisChampagneSoft else Color(0xFFF3EEFF),
+                                Color(0xFFEAF4FF)
+                            )
+                        )
+                    )
+                    .drawBehind {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    accentSecondary.copy(alpha = 0.14f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(size.width * 0.18f, size.height * 0.15f),
+                                radius = size.width * 0.56f
+                            ),
+                            radius = size.width * 0.56f,
+                            center = Offset(size.width * 0.18f, size.height * 0.15f)
+                        )
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    AegisGoldBright.copy(alpha = 0.15f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(size.width * 0.85f, size.height * 0.85f),
+                                radius = size.width * 0.48f
+                            ),
+                            radius = size.width * 0.48f,
+                            center = Offset(size.width * 0.85f, size.height * 0.85f)
+                        )
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Iridescent top crown stripe
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .fillMaxWidth()
+                        .height(5.dp)
                         .background(
-                            brush = Brush.linearGradient(
-                                colors = listOf(AegisChampagneGold, AegisPurple)
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(AegisElectricBlue, AegisPurple, AegisChampagneGold)
                             )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Edits Locked",
-                        tint = AegisOnPrimaryWhite,
-                        modifier = Modifier.size(25.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = if (showForgotQr) "Parent QR Reset" else "Edits Locked",
-                    color = AegisTextPrimary,
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalDisplayFont,
-                    textAlign = TextAlign.Center
+                        )
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (parentalRole == "child") {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(AegisChampagneSoft)
-                            .border(1.dp, AegisGoldBorder, RoundedCornerShape(50))
-                            .padding(horizontal = 12.dp, vertical = 5.dp)
-                            .testTag("edits_child_parent_notice"),
-                        verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Breathing halo + VIP gradient crest badge
+                    Box(
+                        modifier = Modifier.size(68.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.SupervisorAccount,
-                            contentDescription = "Parent Linked",
-                            tint = AegisChampagneGold,
-                            modifier = Modifier.size(15.dp)
+                        Box(
+                            modifier = Modifier
+                                .size((60f + 6f * crestPulse).dp)
+                                .clip(CircleShape)
+                                .background(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            accentPrimary.copy(alpha = 0.22f + 0.10f * crestPulse),
+                                            accentSecondary.copy(alpha = 0.08f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .shadow(
+                                    elevation = 8.dp,
+                                    shape = RoundedCornerShape(16.dp),
+                                    ambientColor = accentPrimary.copy(alpha = 0.32f),
+                                    spotColor = accentSecondary.copy(alpha = 0.30f)
+                                )
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(
+                                    brush = Brush.linearGradient(
+                                        colors = if (showForgotQr) {
+                                            listOf(AegisChampagneGold, AegisGoldBright, AegisWarningAmber)
+                                        } else {
+                                            listOf(AegisElectricBlue, AegisPurple, AegisLavenderLight)
+                                        }
+                                    )
+                                )
+                                .border(1.3.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (showForgotQr) Icons.Default.Shield else Icons.Default.Lock,
+                                contentDescription = "Edits Locked",
+                                tint = AegisOnPrimaryWhite,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (parentalRole == "child") {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = AegisChampagneSoft,
+                            border = BorderStroke(1.dp, AegisGoldBorder),
+                            modifier = Modifier.testTag("edits_child_parent_notice")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SupervisorAccount,
+                                    contentDescription = "Parent Linked",
+                                    tint = AegisChampagneGold,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Parent-linked • ${pairedParentName?.takeIf { it.isNotBlank() } ?: "Guardian"}",
+                                    color = AegisTextPrimary,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = accentPrimary.copy(alpha = 0.11f),
+                            border = BorderStroke(1.dp, accentPrimary.copy(alpha = 0.28f))
+                        ) {
+                            Text(
+                                text = if (showForgotQr) "RECOVERY VERIFICATION" else "GUARDIAN VAULT",
+                                color = accentPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.2.sp,
+                                fontFamily = ClassicalBodyFont,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    Text(
+                        text = if (showForgotQr) "Parent QR Reset" else "Edits Protected",
+                        color = AegisTextPrimary,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(3.dp))
+
+                    Text(
+                        text = if (showForgotQr) {
+                            "Enter recovery code from Parent phone to set a new PIN"
+                        } else {
+                            "Enter your Guardian PIN to customize protection settings"
+                        },
+                        color = AegisTextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        fontFamily = ClassicalBodyFont,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (showForgotQr) {
+                        val qrPayload = remember(challengeCode, guardianEmail) {
+                            preferences.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
+                        }
                         Text(
-                            text = "Parent-linked • ${pairedParentName?.takeIf { it.isNotBlank() } ?: "Guardian"}",
-                            color = AegisTextPrimary,
+                            text = "Scan on parent's phone (${guardianEmail.ifBlank { "Guardian Google account" }}) to generate reset code.",
+                            color = AegisTextSecondary,
                             fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = ClassicalBodyFont,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        QrCodeImage(
+                            payload = qrPayload,
+                            padding = 10.dp,
+                            modifier = Modifier
+                                .size(156.dp)
+                                .border(1.4.dp, AegisGoldBorder, RoundedCornerShape(18.dp)),
+                            testTag = "edits_forgot_qr_matrix"
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = Color.White.copy(alpha = 0.78f),
+                            border = BorderStroke(1.dp, AegisGoldBorder)
+                        ) {
+                            Text(
+                                text = "Challenge ID: $challengeCode",
+                                color = AegisTextPrimary,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = recoveryCodeInput,
+                            onValueChange = {
+                                recoveryCodeInput = it.uppercase()
+                                errorMessage = null
+                            },
+                            label = { Text("8-Char One-Time Code", fontFamily = ClassicalBodyFont) },
+                            leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = AegisChampagneGold) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AegisChampagneGold,
+                                unfocusedBorderColor = AegisGoldBorder,
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.88f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("edits_recovery_code_input")
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = newPinInput,
+                            onValueChange = {
+                                if (it.length <= 8 && it.all { ch -> ch.isDigit() }) {
+                                    newPinInput = it
+                                    errorMessage = null
+                                }
+                            },
+                            label = { Text("New Guardian PIN (4–8 digits)", fontFamily = ClassicalBodyFont) },
+                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AegisPurple) },
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.NumberPassword,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { submitUnlock() }),
+                            singleLine = true,
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AegisPurple,
+                                unfocusedBorderColor = AegisLavenderBorder,
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.88f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("edits_new_pin_input")
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = passwordInput,
+                            onValueChange = {
+                                if (it.length <= 8 && it.all { ch -> ch.isDigit() }) {
+                                    passwordInput = it
+                                    errorMessage = null
+                                }
+                            },
+                            label = { Text("Guardian PIN", fontFamily = ClassicalBodyFont) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Key,
+                                    contentDescription = null,
+                                    tint = AegisPurple
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = { showPinCharacters = !showPinCharacters }
+                                ) {
+                                    Icon(
+                                        imageVector = if (showPinCharacters) {
+                                            Icons.Default.VisibilityOff
+                                        } else {
+                                            Icons.Default.Visibility
+                                        },
+                                        contentDescription = if (showPinCharacters) "Hide PIN" else "Show PIN",
+                                        tint = AegisTextSecondary
+                                    )
+                                }
+                            },
+                            visualTransformation = if (showPinCharacters) {
+                                VisualTransformation.None
+                            } else {
+                                PasswordVisualTransformation()
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.NumberPassword,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { submitUnlock() }),
+                            singleLine = true,
+                            isError = errorMessage != null,
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AegisPurple,
+                                unfocusedBorderColor = AegisLavenderBorder,
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.90f),
+                                focusedTextColor = AegisTextPrimary,
+                                unfocusedTextColor = AegisTextPrimary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onPreviewKeyEvent { event ->
+                                    if (event.key == Key.Enter || event.key == Key.NumPadEnter) {
+                                        if (event.type == KeyEventType.KeyDown) {
+                                            submitUnlock()
+                                        }
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                .testTag("edits_unlock_pin_input")
+                        )
+                    }
+
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = AegisDangerRed.copy(alpha = 0.10f),
+                            border = BorderStroke(1.dp, AegisDangerRed.copy(alpha = 0.35f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = AegisDangerRed,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = errorMessage!!,
+                                    color = AegisDangerRed,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = submitUnlock,
+                        contentPadding = PaddingValues(0.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = AegisOnPrimaryWhite
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(
+                            defaultElevation = 4.dp,
+                            pressedElevation = 1.dp
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("edits_unlock_button")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    brush = Brush.horizontalGradient(
+                                        colors = if (showForgotQr) {
+                                            listOf(AegisChampagneGold, AegisWarningAmber)
+                                        } else {
+                                            listOf(AegisElectricBlue, AegisPurple)
+                                        }
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LockOpen,
+                                    contentDescription = null,
+                                    tint = AegisOnPrimaryWhite,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (showForgotQr) "RESET & UNLOCK" else "UNLOCK EDITS",
+                                    color = AegisOnPrimaryWhite,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.6.sp,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    TextButton(
+                        onClick = {
+                            showForgotQr = !showForgotQr
+                            errorMessage = null
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("edits_forgot_pin_button")
+                    ) {
+                        Text(
+                            text = if (showForgotQr) "Back to PIN Entry" else "Forgot Password?",
+                            color = accentPrimary,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
                             fontFamily = ClassicalBodyFont
                         )
                     }
-                } else {
-                    Text(
-                        text = if (showForgotQr) "Verify Parent recovery code below" else "Enter Guardian PIN to unlock",
-                        color = AegisTextSecondary,
-                        fontSize = 12.5.sp,
-                        fontFamily = ClassicalBodyFont,
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                if (showForgotQr) {
-                    val qrPayload = remember(challengeCode, guardianEmail) {
-                        preferences.buildRecoveryQrUri(RecoveryQrMode.PIN_RESET)
-                    }
-                    Text(
-                        text = "Scan on parent's phone (${guardianEmail.ifBlank { "Guardian Google account" }}) to generate reset code.",
-                        color = AegisTextSecondary,
-                        fontSize = 11.5.sp,
-                        fontFamily = ClassicalBodyFont,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    QrCodeImage(
-                        payload = qrPayload,
-                        padding = 10.dp,
-                        modifier = Modifier
-                            .size(156.dp)
-                            .border(1.2.dp, AegisGoldBorder, RoundedCornerShape(16.dp)),
-                        testTag = "edits_forgot_qr_matrix"
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Challenge ID: $challengeCode",
-                        color = AegisTextPrimary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = recoveryCodeInput,
-                        onValueChange = {
-                            recoveryCodeInput = it.uppercase()
-                            errorMessage = null
-                        },
-                        label = { Text("8-Char One-Time Code", fontFamily = ClassicalBodyFont) },
-                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = AegisChampagneGold) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AegisChampagneGold,
-                            unfocusedBorderColor = AegisLavenderBorder,
-                            focusedContainerColor = AegisCardBackground,
-                            unfocusedContainerColor = AegisCardBackground
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("edits_recovery_code_input")
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = newPinInput,
-                        onValueChange = {
-                            if (it.length <= 8 && it.all { ch -> ch.isDigit() }) {
-                                newPinInput = it
-                                errorMessage = null
-                            }
-                        },
-                        label = { Text("New Guardian PIN (4–8 digits)", fontFamily = ClassicalBodyFont) },
-                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = AegisPurple) },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.NumberPassword,
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = KeyboardActions(onDone = { submitUnlock() }),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AegisPurple,
-                            unfocusedBorderColor = AegisLavenderBorder,
-                            focusedContainerColor = AegisCardBackground,
-                            unfocusedContainerColor = AegisCardBackground
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("edits_new_pin_input")
-                    )
-                } else {
-                    OutlinedTextField(
-                        value = passwordInput,
-                        onValueChange = {
-                            if (it.length <= 8 && it.all { ch -> ch.isDigit() }) {
-                                passwordInput = it
-                                errorMessage = null
-                            }
-                        },
-                        label = { Text("Guardian PIN", fontFamily = ClassicalBodyFont) },
-                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null, tint = AegisPurple) },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.NumberPassword,
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = KeyboardActions(onDone = { submitUnlock() }),
-                        singleLine = true,
-                        isError = errorMessage != null,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AegisPurple,
-                            unfocusedBorderColor = AegisLavenderBorder,
-                            focusedContainerColor = AegisCardBackground,
-                            unfocusedContainerColor = AegisCardBackground,
-                            focusedTextColor = AegisTextPrimary,
-                            unfocusedTextColor = AegisTextPrimary
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onPreviewKeyEvent { event ->
-                                if (event.key == Key.Enter || event.key == Key.NumPadEnter) {
-                                    if (event.type == KeyEventType.KeyDown) {
-                                        submitUnlock()
-                                    }
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-                            .testTag("edits_unlock_pin_input")
-                    )
-                }
-
-                if (errorMessage != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = errorMessage!!,
-                        color = AegisDangerRed,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = ClassicalBodyFont,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Button(
-                    onClick = submitUnlock,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (showForgotQr) AegisChampagneGold else AegisPurple,
-                        contentColor = AegisOnPrimaryWhite
-                    ),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .testTag("edits_unlock_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LockOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (showForgotQr) "RESET & UNLOCK" else "UNLOCK EDITS",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalBodyFont
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                TextButton(
-                    onClick = {
-                        showForgotQr = !showForgotQr
-                        errorMessage = null
-                    },
-                    modifier = Modifier
-                        .heightIn(min = 48.dp)
-                        .testTag("edits_forgot_pin_button")
-                ) {
-                    Text(
-                        text = if (showForgotQr) "Back to PIN Entry" else "Forgot Password?",
-                        color = AegisPurple,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = ClassicalBodyFont
-                    )
                 }
             }
         }
@@ -1892,7 +2195,7 @@ internal fun CollapsibleEditsCard(
     var expanded by remember { mutableStateOf(initiallyExpanded) }
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
-        animationSpec = tween(durationMillis = 220),
+        animationSpec = tween(durationMillis = 120),
         label = "AccordionChevronRotation"
     )
 
@@ -1972,8 +2275,8 @@ internal fun CollapsibleEditsCard(
 
         AnimatedVisibility(
             visible = expanded,
-            enter = fadeIn(tween(200)) + expandVertically(tween(220)),
-            exit = fadeOut(tween(150)) + shrinkVertically(tween(200))
+            enter = fadeIn(tween(120)) + expandVertically(tween(120)),
+            exit = fadeOut(tween(100)) + shrinkVertically(tween(120))
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 HorizontalDivider(
@@ -2093,8 +2396,8 @@ internal fun ToggleRevealEditsCard(
 
                 AnimatedVisibility(
                     visible = checked || allowExpandWhenOff,
-                    enter = fadeIn(tween(200)) + expandVertically(tween(220)),
-                    exit = fadeOut(tween(150)) + shrinkVertically(tween(200))
+                    enter = fadeIn(tween(120)) + expandVertically(tween(120)),
+                    exit = fadeOut(tween(100)) + shrinkVertically(tween(120))
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         HorizontalDivider(
@@ -3512,3 +3815,139 @@ internal fun ScheduleHourStepper(
         }
     }
 }
+
+@Composable
+private fun QuickProtectionProfilesCard(
+    activeProfile: ProtectionProfile?,
+    onApplyProfile: (ProtectionProfile) -> Unit
+) {
+    CyberCard(
+        borderColor = AegisLavenderBorder,
+        tone = CyberCardTone.LAVENDER,
+        modifier = Modifier.testTag("edits_quick_profiles_card")
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = "Quick Protection Profiles",
+                    color = AegisTextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont
+                )
+                Text(
+                    text = "Apply tested rule bundles with one tap",
+                    color = AegisTextSecondary,
+                    fontSize = 11.sp,
+                    fontFamily = ClassicalBodyFont
+                )
+            }
+            StatusPill(
+                label = activeProfile?.badge ?: "CUSTOM",
+                isActive = activeProfile != null,
+                activeColor = AegisPurple,
+                inactiveColor = AegisPrimaryCyan
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ProtectionProfile.entries.forEach { profile ->
+                val isSelected = activeProfile == profile
+                val accent = when (profile) {
+                    ProtectionProfile.STRICT_KIDS -> AegisPurple
+                    ProtectionProfile.HOMEWORK_FOCUS -> AegisPrimaryCyan
+                    ProtectionProfile.BALANCED_GUARD -> AegisEmeraldTeal
+                }
+                val icon = when (profile) {
+                    ProtectionProfile.STRICT_KIDS -> Icons.Default.Shield
+                    ProtectionProfile.HOMEWORK_FOCUS -> Icons.AutoMirrored.Filled.MenuBook
+                    ProtectionProfile.BALANCED_GUARD -> Icons.Default.Security
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 58.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isSelected) accent.copy(alpha = 0.14f) else AegisCardBackground)
+                        .border(
+                            width = if (isSelected) 1.5.dp else 1.dp,
+                            color = if (isSelected) accent else AegisCardBorder.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(14.dp)
+                        )
+                        .clickable { onApplyProfile(profile) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .testTag("profile_card_${profile.id}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) accent else accent.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = profile.title,
+                                tint = if (isSelected) AegisOnPrimaryWhite else accent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = profile.title,
+                                color = AegisTextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = ClassicalDisplayFont,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = profile.subtitle,
+                                color = AegisTextSecondary,
+                                fontSize = 10.5.sp,
+                                fontFamily = ClassicalBodyFont,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(if (isSelected) accent else AegisSurfaceElevated)
+                            .border(
+                                width = 1.dp,
+                                color = if (isSelected) accent else AegisCardBorder,
+                                shape = RoundedCornerShape(50)
+                            )
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isSelected) "ACTIVE" else "APPLY",
+                            color = if (isSelected) AegisOnPrimaryWhite else AegisTextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalBodyFont
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+

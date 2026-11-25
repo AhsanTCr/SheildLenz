@@ -13,6 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -32,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.Button
@@ -83,9 +87,11 @@ import com.example.ui.theme.AegisSuccessGreen
 import com.example.ui.theme.AegisTextMuted
 import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.AegisTextSecondary
+import com.example.ui.theme.AegisWarningAmber
 import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WellbeingHubScreen(
     preferences: AegisPreferences,
@@ -100,7 +106,9 @@ fun WellbeingHubScreen(
     val warningThreshold by preferences.warningThresholdCount.collectAsState()
     val warningOnlyNoLockout by preferences.warningOnlyNoLockout.collectAsState()
     val blockedQueryCount by AegisSafeDnsVpnService.blockedQueryCount.collectAsState()
+    val safeSearchBlockedCount by preferences.safeSearchBlockedCount.collectAsState()
     val liveDnsLogs by (blockedDnsLogRepo?.liveLogs?.collectAsState() ?: remember { mutableStateOf(emptyList()) })
+    var selectedActivityFilter by remember { mutableStateOf("ALL") }
     var isDeviceOwner by remember { mutableStateOf(AegisDeviceAdminReceiver.isDeviceOwner(context)) }
     var showDeviceOwnerWizard by remember { mutableStateOf(false) }
 
@@ -258,120 +266,204 @@ fun WellbeingHubScreen(
                     )
                 }
 
-                // 3. Live Blocked DNS Query Stream (Real-time inspection of blocked domain queries)
-                if (liveDnsLogs.isNotEmpty() || blockedQueryCount > 0L) {
-                    item {
-                        CyberCard(
-                            borderColor = AegisLavenderBorder,
-                            tone = CyberCardTone.LAVENDER,
-                            modifier = Modifier.testTag("live_dns_log_card")
+                // 3. Live Blocked DNS & SafeSearch Activity Feed
+                item {
+                    LuxurySectionHeader(title = "Live DNS & Search Activity", accentColor = AegisPurple)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val filteredLogs = remember(liveDnsLogs, selectedActivityFilter) {
+                        when (selectedActivityFilter) {
+                            "ALL" -> liveDnsLogs
+                            "CUSTOM" -> liveDnsLogs.filter {
+                                it.reasonCategory == BlockedDnsLogRepository.CATEGORY_CUSTOM_DOMAIN ||
+                                    it.reasonCategory == BlockedDnsLogRepository.CATEGORY_CUSTOM_KEYWORD
+                            }
+                            else -> liveDnsLogs.filter { it.reasonCategory == selectedActivityFilter }
+                        }
+                    }
+
+                    CyberCard(
+                        borderColor = AegisLavenderBorder,
+                        tone = CyberCardTone.LAVENDER,
+                        modifier = Modifier.testTag("live_dns_log_card")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f).padding(end = 8.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(AegisPurple.copy(alpha = 0.16f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Block,
-                                            contentDescription = null,
-                                            tint = AegisPurple,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Column {
-                                        Text(
-                                            text = "Recent Blocked DNS Queries",
-                                            color = AegisTextPrimary,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = ClassicalDisplayFont
-                                        )
-                                        Text(
-                                            text = "$blockedQueryCount queries blocked system-wide",
-                                            color = AegisTextSecondary,
-                                            fontSize = 11.sp,
-                                            fontFamily = ClassicalBodyFont
-                                        )
-                                    }
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(AegisPurple.copy(alpha = 0.16f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Block,
+                                        contentDescription = null,
+                                        tint = AegisPurple,
+                                        modifier = Modifier.size(18.dp)
+                                    )
                                 }
-
-                                if (liveDnsLogs.isNotEmpty()) {
-                                    Button(
-                                        onClick = { blockedDnsLogRepo?.clearLogs() },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = AegisChampagneSoft,
-                                            contentColor = AegisTextPrimary
-                                        ),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                        modifier = Modifier.height(34.dp)
-                                    ) {
-                                        Text("CLEAR", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                                    }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Live Blocked DNS & Search Feed",
+                                        color = AegisTextPrimary,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalDisplayFont
+                                    )
+                                    Text(
+                                        text = "$blockedQueryCount DNS • $safeSearchBlockedCount SafeSearch hits blocked",
+                                        color = AegisTextSecondary,
+                                        fontSize = 11.sp,
+                                        fontFamily = ClassicalBodyFont
+                                    )
                                 }
                             }
 
                             if (liveDnsLogs.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.45f))
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = { blockedDnsLogRepo?.clearLogs() },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AegisChampagneSoft,
+                                        contentColor = AegisTextPrimary
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                    modifier = Modifier.heightIn(min = 48.dp)
+                                ) {
+                                    Text("CLEAR", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
 
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    liveDnsLogs.take(8).forEach { log ->
-                                        Surface(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(10.dp),
-                                            color = AegisCardBackground,
-                                            border = BorderStroke(1.dp, AegisCardBorder.copy(alpha = 0.6f))
+                        Spacer(modifier = Modifier.height(10.dp))
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("ALL", "ADULT", "GAMBLING", "SEARCH", "CUSTOM").forEach { filterKey ->
+                                val isSelected = selectedActivityFilter == filterKey
+                                Box(
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(
+                                            if (isSelected) AegisPurple else AegisCardBackground
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isSelected) AegisPurple else AegisCardBorder,
+                                            shape = RoundedCornerShape(50)
+                                        )
+                                        .clickable { selectedActivityFilter = filterKey }
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                                        .testTag("activity_filter_$filterKey"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = filterKey,
+                                        color = if (isSelected) AegisOnPrimaryWhite else AegisTextSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalBodyFont
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HorizontalDivider(color = AegisCardBorder.copy(alpha = 0.45f))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (filteredLogs.isEmpty()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(AegisCardBackground)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = AegisSuccessGreen,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (liveDnsLogs.isEmpty()) {
+                                        "No blocked DNS domains or SafeSearch queries recorded yet."
+                                    } else {
+                                        "No $selectedActivityFilter entries recorded."
+                                    },
+                                    color = AegisTextSecondary,
+                                    fontSize = 11.5.sp,
+                                    fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                filteredLogs.take(20).forEach { log ->
+                                    val categoryAccent = when (log.reasonCategory) {
+                                        BlockedDnsLogRepository.CATEGORY_SEARCH -> AegisPurple
+                                        BlockedDnsLogRepository.CATEGORY_GAMBLING -> AegisWarningAmber
+                                        BlockedDnsLogRepository.CATEGORY_CUSTOM_DOMAIN,
+                                        BlockedDnsLogRepository.CATEGORY_CUSTOM_KEYWORD -> AegisPrimaryCyan
+                                        else -> AegisDangerRed
+                                    }
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = AegisCardBackground,
+                                        border = BorderStroke(1.dp, AegisCardBorder.copy(alpha = 0.6f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                                    Text(
-                                                        text = log.domain,
-                                                        color = AegisTextPrimary,
-                                                        fontSize = 12.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Text(
-                                                        text = "Rule: ${log.matchedRule}",
-                                                        color = AegisTextMuted,
-                                                        fontSize = 10.sp,
-                                                        fontFamily = ClassicalBodyFont
-                                                    )
-                                                }
+                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                Text(
+                                                    text = log.domain,
+                                                    color = AegisTextPrimary,
+                                                    fontSize = 12.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = "Rule: ${log.matchedRule}",
+                                                    color = AegisTextMuted,
+                                                    fontSize = 10.sp,
+                                                    fontFamily = ClassicalBodyFont
+                                                )
+                                            }
 
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(4.dp))
-                                                        .background(AegisDangerRed.copy(alpha = 0.12f))
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = log.reasonCategory,
-                                                        color = AegisDangerRed,
-                                                        fontSize = 9.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontFamily = ClassicalBodyFont
-                                                    )
-                                                }
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(categoryAccent.copy(alpha = 0.14f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = log.reasonCategory,
+                                                    color = categoryAccent,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = ClassicalBodyFont
+                                                )
                                             }
                                         }
                                     }

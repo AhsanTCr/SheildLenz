@@ -38,9 +38,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -179,39 +181,52 @@ fun SecurityHealthGaugeCard(
             ) {
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(108.dp)
-                ) {
-                    Canvas(modifier = Modifier.size(96.dp)) {
-                        val strokeWidth = 10.dp.toPx()
-                        val startAngle = 140f
-                        val sweepAngle = 260f
-
-                        drawArc(
-                            color = AegisCardBorder.copy(alpha = 0.35f),
-                            startAngle = startAngle,
-                            sweepAngle = sweepAngle,
-                            useCenter = false,
-                            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-                        )
-
-                        val progressSweep = (animatedScore / 100f) * sweepAngle
-                        if (progressSweep > 0f) {
-                            drawArc(
-                                brush = Brush.sweepGradient(
-                                    listOf(
-                                        AegisPurple,
-                                        AegisPrimaryCyan,
-                                        AegisChampagneGold,
-                                        AegisPurple
-                                    )
-                                ),
-                                startAngle = startAngle,
-                                sweepAngle = progressSweep,
-                                useCenter = false,
-                                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    modifier = Modifier
+                        .size(108.dp)
+                        .drawWithCache {
+                            val strokeWidth = 10.dp.toPx()
+                            val pad = strokeWidth / 2f + 4.dp.toPx()
+                            val arcTopLeft = androidx.compose.ui.geometry.Offset(pad, pad)
+                            val arcSize = androidx.compose.ui.geometry.Size(
+                                size.width - pad * 2f,
+                                size.height - pad * 2f
                             )
+                            val startAngle = 140f
+                            val sweepAngle = 260f
+                            val trackColor = AegisCardBorder.copy(alpha = 0.35f)
+                            val sweepBrush = Brush.sweepGradient(
+                                listOf(
+                                    AegisPurple,
+                                    AegisPrimaryCyan,
+                                    AegisChampagneGold,
+                                    AegisPurple
+                                )
+                            )
+                            onDrawBehind {
+                                drawArc(
+                                    color = trackColor,
+                                    startAngle = startAngle,
+                                    sweepAngle = sweepAngle,
+                                    useCenter = false,
+                                    topLeft = arcTopLeft,
+                                    size = arcSize,
+                                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                )
+                                val progressSweep = (animatedScore / 100f) * sweepAngle
+                                if (progressSweep > 0f) {
+                                    drawArc(
+                                        brush = sweepBrush,
+                                        startAngle = startAngle,
+                                        sweepAngle = progressSweep,
+                                        useCenter = false,
+                                        topLeft = arcTopLeft,
+                                        size = arcSize,
+                                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                                    )
+                                }
+                            }
                         }
-                    }
+                ) {
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
@@ -397,12 +412,12 @@ private fun DefenseLayerChip(
 
     Row(
         modifier = modifier
-            .heightIn(min = 42.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(bg)
-            .border(1.dp, if (active) AegisCardBorder else AegisGoldBorder, RoundedCornerShape(10.dp))
+            .border(1.1.dp, if (active) AegisCardBorder else AegisGoldBorder, RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {

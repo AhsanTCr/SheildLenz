@@ -34,9 +34,12 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import android.widget.Toast
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
@@ -50,7 +53,10 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -72,6 +78,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -186,6 +193,41 @@ private val SheildlenzFaqs = listOf(
         question = "Which open-source license covers Sheildlenz?",
         answer = "Sheildlenz is licensed under the GNU General Public License v3.0 (GPL-3.0) with runtime localization across English, Urdu, Arabic, Spanish, Hindi, and French.",
         icon = Icons.Default.Gavel
+    ),
+    FaqEntry(
+        question = "How do Study Lock and the +15m extend button work?",
+        answer = "Study Lock pauses distracting apps after a gentle soft-warning countdown while keeping educational apps open. While active, you can add +15 minutes directly from Home without a PIN; stopping early requires Guardian verification.",
+        icon = Icons.AutoMirrored.Filled.MenuBook
+    ),
+    FaqEntry(
+        question = "What do Smart Safe Search Packs block in browsers?",
+        answer = "Smart Safe Search inspects browser address bars and search terms locally across Chrome and 20+ browsers to block explicit queries, short-form distracting feeds, gambling domains, and proxy/bypass attempts.",
+        icon = Icons.Default.Security
+    ),
+    FaqEntry(
+        question = "What are One-Tap Quick Protection Profiles in Edits?",
+        answer = "Strict Kids, Homework Focus, and Balanced Guard let you configure AI sensitivity, Safe DNS filtering, Safe Search packs, and Study sessions together with one tap—never weakening protection without PIN approval.",
+        icon = Icons.Default.Tune
+    ),
+    FaqEntry(
+        question = "How do Bypass Shield Diagnostics & Live Activity Feed help?",
+        answer = "Status audits Overlay, Accessibility, Device Admin, Battery Exemption, and local TFLite model health with one-tap fix actions. Wellbeing displays live blocked DNS and search events filterable by Adult, Gambling, Search, or Custom rules.",
+        icon = Icons.Default.Assessment
+    ),
+    FaqEntry(
+        question = "How does Parent-Child Device Linking & Sync work?",
+        answer = "Choose Parent or Child during Launch Setup or in the Parents tab and sign in or scan a pairing QR code. Parents can push policies, start Study sessions, toggle Remote Lockdown/Unlock, and check status from anywhere.",
+        icon = Icons.Default.SupervisorAccount
+    ),
+    FaqEntry(
+        question = "How do I back up and restore all my Sheildlenz rules?",
+        answer = "Export your blocklists, schedules, app limits, and custom block-screen settings as a portable .json file in Edits. Restore it anytime from Edits or via Option 3 (Backup & Restore) during Launch Setup.",
+        icon = Icons.Default.InstallMobile
+    ),
+    FaqEntry(
+        question = "What is the difference between Standby and Shutdown?",
+        answer = "Pausing the Shield on Home keeps Safe DNS, Accessibility, and background monitoring ready in Standby. Toggling Shutdown OFF at the bottom of About disables Accessibility, Safe DNS VPN, overlays, and cloud listeners for 0% background battery.",
+        icon = Icons.Default.PowerSettingsNew
     )
 )
 
@@ -198,6 +240,7 @@ fun AboutScreen(
     val masterKeyGate = rememberMasterKeyGate(preferences)
     val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
     var expandedFaqIndex by remember { mutableIntStateOf(0) }
+    var moreBuiltinsExpanded by remember { mutableStateOf(false) }
 
     SheildlenzBackdrop(modifier = Modifier.testTag("about_screen_root")) {
         Scaffold(
@@ -216,135 +259,8 @@ fun AboutScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Top Minimalist Shutdown Switch Pill/Card (0% Battery / Zero Background Process Switch)
-                item {
-                    val cardShape = RoundedCornerShape(24.dp)
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .widthIn(max = 560.dp)
-                            .shadow(
-                                elevation = if (isMasterPowerOn) 8.dp else 4.dp,
-                                shape = cardShape,
-                                ambientColor = (if (isMasterPowerOn) AegisEmeraldTeal else AegisChampagneGold).copy(alpha = 0.18f),
-                                spotColor = (if (isMasterPowerOn) AegisPrimaryCyan else AegisWarningAmber).copy(alpha = 0.16f)
-                            )
-                            .testTag("master_power_card"),
-                        shape = cardShape,
-                        color = Color.Transparent,
-                        border = BorderStroke(
-                            width = 1.4.dp,
-                            color = if (isMasterPowerOn) AegisEmeraldBorder else AegisGoldBorder
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    brush = Brush.horizontalGradient(
-                                        colors = if (isMasterPowerOn) {
-                                            listOf(AegisEmeraldSoft, AegisEmeraldSurface)
-                                        } else {
-                                            listOf(AegisChampagneSoft, AegisGoldDeepTint)
-                                        }
-                                    )
-                                )
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(end = 12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                            brush = Brush.linearGradient(
-                                                colors = if (isMasterPowerOn) {
-                                                    listOf(AegisEmeraldTeal, AegisPrimaryCyan)
-                                                } else {
-                                                    listOf(AegisChampagneGold, AegisWarningAmber)
-                                                }
-                                            )
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PowerSettingsNew,
-                                        contentDescription = if (isMasterPowerOn) "Shutdown Switch On" else "Shutdown Switch Off",
-                                        tint = AegisOnPrimaryWhite,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Shutdown",
-                                        color = AegisTextPrimary,
-                                        fontSize = 16.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = ClassicalDisplayFont,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = if (isMasterPowerOn) {
-                                            "On • App running normally"
-                                        } else {
-                                            "Off • 0% background battery"
-                                        },
-                                        color = if (isMasterPowerOn) AegisEmeraldTeal else AegisWarningAmber,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontFamily = ClassicalBodyFont,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            Switch(
-                                checked = isMasterPowerOn,
-                                onCheckedChange = { targetEnabled ->
-                                    if (!targetEnabled) {
-                                        masterKeyGate.request("shutdown app to 0% battery") {
-                                            MasterPowerController.setMasterPowerEnabled(context, false)
-                                            Toast.makeText(
-                                                context,
-                                                "App shutdown complete (0% background battery).",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    } else {
-                                        AegisSoundEffects.playModeOn(context)
-                                        MasterPowerController.setMasterPowerEnabled(context, true)
-                                        Toast.makeText(
-                                            context,
-                                            "Sheildlenz powered back ON.",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = AegisOnPrimaryWhite,
-                                    checkedTrackColor = AegisEmeraldTeal,
-                                    uncheckedThumbColor = AegisOnPrimaryWhite,
-                                    uncheckedTrackColor = AegisWarningAmber.copy(alpha = 0.72f),
-                                    uncheckedBorderColor = AegisGoldBorder
-                                ),
-                                modifier = Modifier.testTag("master_power_switch")
-                            )
-                        }
-                    }
-                }
-
                 // 1. Charming Luminous Hero Showcase Card
-                item {
+                item(key = "about_hero") {
                     val heroShape = RoundedCornerShape(30.dp)
                     Surface(
                         modifier = Modifier
@@ -501,7 +417,7 @@ fun AboutScreen(
                 }
 
                 // 2. Live Release Channel (Update System untouched) & Open Preferences
-                item {
+                item(key = "about_updates") {
                     Column(modifier = Modifier.widthIn(max = 560.dp)) {
                         LuxurySectionHeader(title = "Live Updates", accentColor = AegisPurple)
                         Spacer(modifier = Modifier.height(8.dp))
@@ -510,7 +426,7 @@ fun AboutScreen(
                 }
 
                 // 3. Open User Preferences (Sounds & Language — no PIN needed)
-                item {
+                item(key = "about_preferences") {
                     Column(
                         modifier = Modifier.widthIn(max = 560.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -528,7 +444,7 @@ fun AboutScreen(
                 }
 
                 // 3. Open-Source License & Languages
-                item {
+                item(key = "about_license") {
                     Column(modifier = Modifier.widthIn(max = 560.dp)) {
                         LuxurySectionHeader(title = "Open Source & Languages", accentColor = AegisChampagneGold)
                         Spacer(modifier = Modifier.height(8.dp))
@@ -615,7 +531,7 @@ fun AboutScreen(
                             ) {
                                 AboutFeaturePill(
                                     icon = Icons.Default.Code,
-                                    label = "github.com/ahsantcr/SheildLenz",
+                                    label = "github.com/AhsanTCr/SheildLenz",
                                     accent = AegisPrimaryCyan,
                                     containerColor = Color.White.copy(alpha = 0.72f)
                                 )
@@ -631,7 +547,7 @@ fun AboutScreen(
                 }
 
                 // 4. Interactive Guide & Common Questions
-                item {
+                item(key = "about_faq_header") {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -662,7 +578,10 @@ fun AboutScreen(
                     }
                 }
 
-                itemsIndexed(SheildlenzFaqs) { index, faq ->
+                itemsIndexed(
+                    items = SheildlenzFaqs,
+                    key = { index, _ -> "faq_$index" }
+                ) { index, faq ->
                     val isExpanded = expandedFaqIndex == index
                     val (cardTone, borderTint, gradientColors, accentColor) = when (index % 3) {
                         0 -> QuadStyle(
@@ -735,6 +654,8 @@ fun AboutScreen(
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = ClassicalDisplayFont,
                                     lineHeight = 18.sp,
+                                    maxLines = if (isExpanded) Int.MAX_VALUE else 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(end = 8.dp)
@@ -778,6 +699,301 @@ fun AboutScreen(
                                         lineHeight = 18.5.sp,
                                         fontFamily = ClassicalBodyFont,
                                         modifier = Modifier.padding(horizontal = 13.dp, vertical = 11.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4b. Single-Line Collapsible Built-In Architecture, Troubleshooting & Roadmap Bar
+                item(key = "about_more_builtins") {
+                    val chevronRotation by animateFloatAsState(
+                        targetValue = if (moreBuiltinsExpanded) 180f else 0f,
+                        animationSpec = tween(220),
+                        label = "MoreBuiltinsChevron"
+                    )
+                    CyberCard(
+                        borderColor = AegisLavenderBorder,
+                        tone = CyberCardTone.LAVENDER,
+                        modifier = Modifier
+                            .widthIn(max = 560.dp)
+                            .testTag("about_more_builtins_card")
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { moreBuiltinsExpanded = !moreBuiltinsExpanded }
+                                .testTag("about_more_builtins_toggle")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 48.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            brush = Brush.linearGradient(
+                                                colors = listOf(AegisPurple, AegisPrimaryCyan)
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Build,
+                                        contentDescription = null,
+                                        tint = AegisOnPrimaryWhite,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "More: Built-In Engine, OEM Tips & Roadmap",
+                                    color = AegisTextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = ClassicalDisplayFont,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(AegisPurple.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ExpandMore,
+                                        contentDescription = if (moreBuiltinsExpanded) "Collapse more info" else "Expand more info",
+                                        tint = AegisPurple,
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .rotate(chevronRotation)
+                                    )
+                                }
+                            }
+
+                            AnimatedVisibility(
+                                visible = moreBuiltinsExpanded,
+                                enter = fadeIn(tween(200)) + expandVertically(),
+                                exit = fadeOut(tween(160)) + shrinkVertically()
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp)
+                                        .testTag("about_more_builtins_content"),
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = Color.White.copy(alpha = 0.72f),
+                                    border = BorderStroke(1.dp, AegisLavenderBorder)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(13.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "BUILT-IN PROTECTION STACK",
+                                            color = AegisPurple,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.9.sp,
+                                            fontFamily = ClassicalBodyFont
+                                        )
+                                        Text(
+                                            text = "• On-Device Vision: Local 256px TFLite inference with adaptive idle cadence & duplicate-frame skip.\n• Network & Search: Zero-battery loopback Safe DNS TUN + browser omnibox Safe Search packs.\n• Focus & Budgets: App time budgets track both during live capture and Accessibility standby, plus Bedtime & Study Lock.\n• Sync & Resilience: Anti-tamper guard, Device Admin hook, and Parent-Child sync preserving local Study timers.",
+                                            color = AegisTextSecondary,
+                                            fontSize = 11.5.sp,
+                                            lineHeight = 17.sp,
+                                            fontFamily = ClassicalBodyFont
+                                        )
+                                        HorizontalDivider(color = AegisLavenderBorder.copy(alpha = 0.55f))
+                                        Text(
+                                            text = "DEVICE SETUP & NEXT BUILT-INS",
+                                            color = AegisPrimaryCyan,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 0.9.sp,
+                                            fontFamily = ClassicalBodyFont
+                                        )
+                                        Text(
+                                            text = "• OEM Reliability: Keep battery optimization Unrestricted and disable system Private DNS when running Safe DNS VPN.\n• Next Built-In Updates: Scheduled Profile Auto-Switch (School vs Bedtime), Weekly Safety Digest, and One-Tap Safe Browser Lock.\n• Releases: github.com/AhsanTCr/SheildLenz/Releases • v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                                            color = AegisTextSecondary,
+                                            fontSize = 11.5.sp,
+                                            lineHeight = 17.sp,
+                                            fontFamily = ClassicalBodyFont
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 5. Bottom Power Control Switch (Placed below FAQ so users don't toggle off accidentally)
+                item(key = "about_master_power") {
+                    Column(
+                        modifier = Modifier.widthIn(max = 560.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        LuxurySectionHeader(
+                            title = "Power Control",
+                            accentColor = if (isMasterPowerOn) AegisEmeraldTeal else AegisWarningAmber
+                        )
+                        val cardShape = RoundedCornerShape(24.dp)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .shadow(
+                                    elevation = if (isMasterPowerOn) 8.dp else 4.dp,
+                                    shape = cardShape,
+                                    ambientColor = (if (isMasterPowerOn) AegisEmeraldTeal else AegisChampagneGold).copy(alpha = 0.18f),
+                                    spotColor = (if (isMasterPowerOn) AegisPrimaryCyan else AegisWarningAmber).copy(alpha = 0.16f)
+                                )
+                                .testTag("master_power_card"),
+                            shape = cardShape,
+                            color = Color.Transparent,
+                            border = BorderStroke(
+                                width = 1.4.dp,
+                                color = if (isMasterPowerOn) AegisEmeraldBorder else AegisGoldBorder
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        brush = Brush.horizontalGradient(
+                                            colors = if (isMasterPowerOn) {
+                                                listOf(AegisEmeraldSoft, AegisEmeraldSurface)
+                                            } else {
+                                                listOf(AegisChampagneSoft, AegisGoldDeepTint)
+                                            }
+                                        )
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 12.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(RoundedCornerShape(14.dp))
+                                                .background(
+                                                    brush = Brush.linearGradient(
+                                                        colors = if (isMasterPowerOn) {
+                                                            listOf(AegisEmeraldTeal, AegisPrimaryCyan)
+                                                        } else {
+                                                            listOf(AegisChampagneGold, AegisWarningAmber)
+                                                        }
+                                                    )
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PowerSettingsNew,
+                                                contentDescription = if (isMasterPowerOn) "Shutdown Switch On" else "Shutdown Switch Off",
+                                                tint = AegisOnPrimaryWhite,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(
+                                                text = "Shutdown",
+                                                color = AegisTextPrimary,
+                                                fontSize = 16.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = ClassicalDisplayFont,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = if (isMasterPowerOn) {
+                                                    "On • App running normally"
+                                                } else {
+                                                    "Off • 0% background battery"
+                                                },
+                                                color = if (isMasterPowerOn) AegisEmeraldTeal else AegisWarningAmber,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontFamily = ClassicalBodyFont,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+
+                                    Switch(
+                                        checked = isMasterPowerOn,
+                                        onCheckedChange = { targetEnabled ->
+                                            if (!targetEnabled) {
+                                                masterKeyGate.request("shutdown app and switch Accessibility OFF") {
+                                                    MasterPowerController.setMasterPowerEnabled(context, false)
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Shutdown complete: Accessibility, Shield & Safe DNS turned OFF (0% battery).",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                            } else {
+                                                AegisSoundEffects.playModeOn(context)
+                                                MasterPowerController.setMasterPowerEnabled(context, true)
+                                                Toast.makeText(
+                                                    context,
+                                                    "Sheildlenz powered ON. Re-enable Accessibility in Status if needed.",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        },
+                                        colors = SwitchDefaults.colors(
+                                            checkedThumbColor = AegisOnPrimaryWhite,
+                                            checkedTrackColor = AegisEmeraldTeal,
+                                            uncheckedThumbColor = AegisOnPrimaryWhite,
+                                            uncheckedTrackColor = AegisWarningAmber.copy(alpha = 0.72f),
+                                            uncheckedBorderColor = AegisGoldBorder
+                                        ),
+                                        modifier = Modifier.testTag("master_power_switch")
+                                    )
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color.White.copy(alpha = 0.62f),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isMasterPowerOn) AegisEmeraldBorder.copy(alpha = 0.55f) else AegisGoldBorder.copy(alpha = 0.7f)
+                                    ),
+                                    modifier = Modifier.testTag("master_power_accessibility_notice")
+                                ) {
+                                    Text(
+                                        text = if (isMasterPowerOn) {
+                                            "Switching OFF also turns Accessibility OFF along with Shield, Safe DNS VPN & Overlays."
+                                        } else {
+                                            "Accessibility, Shield, Safe DNS VPN & Overlays are switched OFF (0% battery)."
+                                        },
+                                        color = AegisTextSecondary,
+                                        fontSize = 11.5.sp,
+                                        lineHeight = 16.sp,
+                                        fontFamily = ClassicalBodyFont,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
                                 }
                             }

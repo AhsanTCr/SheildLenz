@@ -1,19 +1,41 @@
 package com.example.ui.navigation
 
+import androidx.annotation.StringRes
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -25,18 +47,15 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarDefaults
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,12 +64,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.annotation.StringRes
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,10 +102,14 @@ import com.example.ui.protection.LiveProtectionScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.settings.WellbeingHubScreen
 import com.example.ui.splash.SplashScreen
-import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
+import com.example.ui.theme.AegisElectricBlue
+import com.example.ui.theme.AegisGoldBright
+import com.example.ui.theme.AegisLavenderSoft
 import com.example.ui.theme.AegisPrimaryCyan
+import com.example.ui.theme.AegisPurple
+import com.example.ui.theme.AegisSecondaryBackground
 import com.example.ui.theme.AegisTextMuted
 import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.ClassicalBodyFont
@@ -143,18 +174,11 @@ fun AegisNavHost(
     onRequestGoogleSignOut: ((onComplete: () -> Unit) -> Unit)? = null
 ) {
     val isOnboardingDone by container.preferences.isOnboardingCompleted.collectAsState()
-    val hasGuardianPin by container.preferences.hasGuardianPin.collectAsState()
-    val isGuardianUnlocked by container.preferences.isGuardianSessionUnlocked.collectAsState()
-
-    val isGuardianAuthorized = isStartupGuardianAuthorized(
-        hasGuardianPin = hasGuardianPin,
-        isSessionUnlocked = isGuardianUnlocked
-    )
     val pendingPairingCode by container.pendingPairingCode.collectAsState()
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val showMainNavigation = MainTabItems.any { it.route == currentRoute }
+    val showMainNavigation = remember(currentRoute) { MainTabItems.any { it.route == currentRoute } }
 
     var previousRoute by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(currentRoute) {
@@ -174,14 +198,18 @@ fun AegisNavHost(
 
     val context = LocalContext.current
 
-    val navigateToTab: (String) -> Unit = { targetRoute ->
-        if (currentRoute != targetRoute) {
-            navController.navigate(targetRoute) {
-                popUpTo(AegisDestinations.HOME) {
-                    saveState = true
+    val navigateToTab: (String) -> Unit = remember(navController, context) {
+        { targetRoute ->
+            val activeRoute = navController.currentBackStackEntry?.destination?.route
+            if (activeRoute != targetRoute) {
+                AegisSoundEffects.playTap(context)
+                navController.navigate(targetRoute) {
+                    popUpTo(AegisDestinations.HOME) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
                 }
-                launchSingleTop = true
-                restoreState = true
             }
         }
     }
@@ -192,28 +220,16 @@ fun AegisNavHost(
         Row(modifier = Modifier.fillMaxSize()) {
             if (useNavigationRail) {
                 NavigationRail(
-                    containerColor = com.example.ui.theme.AegisLavenderSoft,
+                    containerColor = AegisLavenderSoft,
                     contentColor = AegisTextPrimary,
                     modifier = Modifier.fillMaxHeight()
                 ) {
                     MainTabItems.forEach { tab ->
                         val selected = currentRoute == tab.route
                         val tabLabel = stringResource(tab.labelRes)
-                        val tabInteractionSource = remember(tab.route) { MutableInteractionSource() }
-                        LaunchedEffect(tabInteractionSource) {
-                            tabInteractionSource.interactions.collect { interaction ->
-                                if (interaction is PressInteraction.Press) {
-                                    AegisSoundEffects.playTap(context)
-                                }
-                            }
-                        }
                         NavigationRailItem(
                             selected = selected,
-                            onClick = {
-                                AegisSoundEffects.playTap(context)
-                                navigateToTab(tab.route)
-                            },
-                            interactionSource = tabInteractionSource,
+                            onClick = { navigateToTab(tab.route) },
                             icon = {
                                 Icon(
                                     imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
@@ -233,7 +249,7 @@ fun AegisNavHost(
                             colors = NavigationRailItemDefaults.colors(
                                 selectedIconColor = AegisPrimaryCyan,
                                 selectedTextColor = AegisPrimaryCyan,
-                                indicatorColor = com.example.ui.theme.AegisPurple.copy(alpha = 0.18f),
+                                indicatorColor = AegisPurple.copy(alpha = 0.18f),
                                 unselectedIconColor = AegisTextMuted,
                                 unselectedTextColor = AegisTextMuted
                             ),
@@ -249,74 +265,11 @@ fun AegisNavHost(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
                     if (showMainNavigation && !useNavigationRail) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                        colors = listOf(
-                                            com.example.ui.theme.AegisSecondaryBackground,
-                                            com.example.ui.theme.AegisLavenderSoft
-                                        )
-                                    )
-                                )
-                        ) {
-                            HorizontalDivider(
-                                thickness = 1.5.dp,
-                                color = AegisChampagneGold.copy(alpha = 0.65f)
-                            )
-                            NavigationBar(
-                                containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                                contentColor = AegisTextPrimary,
-                                windowInsets = NavigationBarDefaults.windowInsets,
-                                tonalElevation = 0.dp
-                            ) {
-                                MainTabItems.forEach { tab ->
-                                    val selected = currentRoute == tab.route
-                                    val tabLabel = stringResource(tab.labelRes)
-                                    val tabInteractionSource = remember(tab.route) { MutableInteractionSource() }
-                                    LaunchedEffect(tabInteractionSource) {
-                                        tabInteractionSource.interactions.collect { interaction ->
-                                            if (interaction is PressInteraction.Press) {
-                                                AegisSoundEffects.playTap(context)
-                                            }
-                                        }
-                                    }
-                                    NavigationBarItem(
-                                        selected = selected,
-                                        onClick = {
-                                            AegisSoundEffects.playTap(context)
-                                            navigateToTab(tab.route)
-                                        },
-                                        interactionSource = tabInteractionSource,
-                                        icon = {
-                                            Icon(
-                                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                                contentDescription = tabLabel
-                                            )
-                                        },
-                                        label = {
-                                            Text(
-                                                text = tabLabel,
-                                                fontSize = 11.sp,
-                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                                fontFamily = ClassicalBodyFont,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        },
-                                        colors = NavigationBarItemDefaults.colors(
-                                            selectedIconColor = AegisPrimaryCyan,
-                                            selectedTextColor = AegisPrimaryCyan,
-                                            indicatorColor = com.example.ui.theme.AegisPurple.copy(alpha = 0.18f),
-                                            unselectedIconColor = AegisTextMuted,
-                                            unselectedTextColor = AegisTextMuted
-                                        ),
-                                        modifier = Modifier.testTag("nav_tab_${tab.route}")
-                                    )
-                                }
-                            }
-                        }
+                        VipAnimatedBottomBar(
+                            tabs = MainTabItems,
+                            currentRoute = currentRoute,
+                            onSelectTab = navigateToTab
+                        )
                     }
                 }
             ) { innerPadding ->
@@ -332,10 +285,10 @@ fun AegisNavHost(
                                 0.dp
                             }
                         ),
-                    enterTransition = { fadeIn(animationSpec = tween(220)) },
-                    exitTransition = { fadeOut(animationSpec = tween(220)) },
-                    popEnterTransition = { fadeIn(animationSpec = tween(220)) },
-                    popExitTransition = { fadeOut(animationSpec = tween(220)) }
+                    enterTransition = { fadeIn(animationSpec = tween(75)) },
+                    exitTransition = { fadeOut(animationSpec = tween(55)) },
+                    popEnterTransition = { fadeIn(animationSpec = tween(75)) },
+                    popExitTransition = { fadeOut(animationSpec = tween(55)) }
                 ) {
                     composable(AegisDestinations.SPLASH) {
                         SplashScreen(
@@ -354,6 +307,12 @@ fun AegisNavHost(
                             onComplete = {
                                 container.preferences.setOnboardingCompleted(true)
                                 navController.navigate(AegisDestinations.HOME) {
+                                    popUpTo(AegisDestinations.ONBOARDING) { inclusive = true }
+                                }
+                            },
+                            onNavigateToLinkDevice = {
+                                container.preferences.setOnboardingCompleted(true)
+                                navController.navigate(AegisDestinations.PARENTS) {
                                     popUpTo(AegisDestinations.ONBOARDING) { inclusive = true }
                                 }
                             }
@@ -404,6 +363,7 @@ fun AegisNavHost(
                         LiveProtectionScreen(
                             protectionRepo = container.protectionRepository,
                             preferences = container.preferences,
+                            blockedDnsLogRepo = container.blockedDnsLogRepository,
                             onRequestArmShield = onRequestStartProtection,
                             onNavigateToFocusHub = {
                                 navController.navigate(AegisDestinations.FOCUS_HUB) {
@@ -422,6 +382,9 @@ fun AegisNavHost(
                             },
                             onNavigateToParents = {
                                 navigateToTab(AegisDestinations.PARENTS)
+                            },
+                            onNavigateToEdits = {
+                                navigateToTab(AegisDestinations.EDITS)
                             }
                         )
                     }
@@ -445,6 +408,15 @@ fun AegisNavHost(
                     composable(AegisDestinations.FOCUS_HUB) {
                         FocusSafetyHubScreen(
                             preferences = container.preferences,
+                            onNavigateToSafeBrowser = { navController.navigate(AegisDestinations.SAFE_BROWSER) },
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(AegisDestinations.SAFE_BROWSER) {
+                        com.example.ui.browser.SafeBrowserScreen(
+                            preferences = container.preferences,
+                            blockedDnsLogRepo = container.blockedDnsLogRepository,
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }
@@ -493,6 +465,257 @@ fun AegisNavHost(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VipAnimatedBottomBar(
+    tabs: List<MainTabItem>,
+    currentRoute: String?,
+    onSelectTab: (String) -> Unit
+) {
+    val activeIndex = remember(currentRoute, tabs) {
+        tabs.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
+    }
+
+    val vipTransition = rememberInfiniteTransition(label = "VipBottomBarContinuous")
+    val auroraPhase by vipTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "VipAuroraSweep"
+    )
+    val glowPulse by vipTransition.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1500),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "VipLineGlowPulse"
+    )
+
+    val barBgBrush = remember {
+        Brush.horizontalGradient(
+            colors = listOf(
+                Color(0xFFF5FAFF),
+                AegisSecondaryBackground,
+                AegisLavenderSoft
+            )
+        )
+    }
+    val pillBrush = remember {
+        Brush.horizontalGradient(
+            colors = listOf(
+                AegisPrimaryCyan.copy(alpha = 0.17f),
+                AegisPurple.copy(alpha = 0.17f)
+            )
+        )
+    }
+
+    Surface(
+        color = Color.Transparent,
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 10.dp,
+                ambientColor = AegisPurple.copy(alpha = 0.16f),
+                spotColor = AegisPrimaryCyan.copy(alpha = 0.16f)
+            )
+            .background(barBgBrush)
+            .drawBehind {
+                // Continuous soft aurora shimmer sweeping across the whole bottom bar
+                val sweepWidth = size.width * 0.65f
+                val startX = (size.width + sweepWidth) * auroraPhase - sweepWidth
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            AegisPrimaryCyan.copy(alpha = 0.08f * glowPulse),
+                            AegisPurple.copy(alpha = 0.09f * glowPulse),
+                            AegisChampagneGold.copy(alpha = 0.07f * glowPulse),
+                            Color.Transparent
+                        ),
+                        startX = startX,
+                        endX = startX + sweepWidth
+                    )
+                )
+            }
+            .testTag("vip_animated_bottom_bar")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+        ) {
+            // Continuously flowing luminous top hairline across the bottom bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .drawBehind {
+                        val travel = size.width
+                        val shift = auroraPhase * travel
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    AegisElectricBlue.copy(alpha = 0.30f),
+                                    AegisPrimaryCyan.copy(alpha = 0.72f * glowPulse),
+                                    AegisPurple.copy(alpha = 0.65f),
+                                    AegisGoldBright.copy(alpha = 0.85f * glowPulse),
+                                    AegisElectricBlue.copy(alpha = 0.30f)
+                                ),
+                                startX = shift - travel,
+                                endX = shift + travel
+                            )
+                        )
+                    }
+            )
+
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(68.dp)
+            ) {
+                val tabCount = tabs.size.coerceAtLeast(1)
+                val tabWidth = maxWidth / tabCount
+                val pillWidth = (tabWidth * 0.72f).coerceIn(48.dp, 68.dp)
+                val lineWidth = (tabWidth * 0.54f).coerceIn(30.dp, 48.dp)
+
+                val animatedTabOffset by animateDpAsState(
+                    targetValue = tabWidth * activeIndex,
+                    animationSpec = spring(
+                        dampingRatio = 0.78f,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "VipNavIndicatorSlide"
+                )
+
+                // Gliding soft active pill behind the selected icon with subtle continuous pulse
+                Box(
+                    modifier = Modifier
+                        .offset(x = animatedTabOffset + (tabWidth - pillWidth) / 2f, y = 8.dp)
+                        .width(pillWidth)
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(pillBrush)
+                        .drawBehind {
+                            drawRoundRect(
+                                color = AegisPrimaryCyan.copy(alpha = 0.12f * glowPulse),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+                            )
+                        }
+                        .border(
+                            width = 1.dp,
+                            color = AegisPrimaryCyan.copy(alpha = 0.26f),
+                            shape = RoundedCornerShape(50)
+                        )
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    tabs.forEach { tab ->
+                        val selected = currentRoute == tab.route
+                        val tabLabel = stringResource(tab.labelRes)
+                        val interactionSource = remember(tab.route) { MutableInteractionSource() }
+                        val itemTint by animateColorAsState(
+                            targetValue = if (selected) AegisPrimaryCyan else AegisTextMuted,
+                            animationSpec = tween(durationMillis = 160),
+                            label = "NavItemTint_${tab.route}"
+                        )
+                        val iconScale by animateFloatAsState(
+                            targetValue = if (selected) 1.13f else 1f,
+                            animationSpec = spring(
+                                dampingRatio = 0.68f,
+                                stiffness = Spring.StiffnessMedium
+                            ),
+                            label = "NavIconScale_${tab.route}"
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .heightIn(min = 48.dp)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = ripple(bounded = false, radius = 34.dp, color = AegisPrimaryCyan),
+                                    role = Role.Tab,
+                                    onClick = { onSelectTab(tab.route) }
+                                )
+                                .testTag("nav_tab_${tab.route}"),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                contentDescription = tabLabel,
+                                tint = itemTint,
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .graphicsLayer {
+                                        scaleX = iconScale
+                                        scaleY = iconScale
+                                    }
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = tabLabel,
+                                color = if (selected) AegisTextPrimary else AegisTextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                fontFamily = ClassicalBodyFont,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
+                }
+
+                // VIP Luminous Gliding & Continuously Shimmering Bottom Line beneath the active tab
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .offset(x = animatedTabOffset + (tabWidth - lineWidth) / 2f)
+                        .padding(bottom = 3.dp)
+                        .width(lineWidth)
+                        .height(4.dp)
+                        .shadow(
+                            elevation = 7.dp,
+                            shape = RoundedCornerShape(50),
+                            ambientColor = AegisPrimaryCyan.copy(alpha = 0.7f),
+                            spotColor = AegisPurple.copy(alpha = 0.7f)
+                        )
+                        .clip(RoundedCornerShape(50))
+                        .drawBehind {
+                            val w = size.width
+                            val startX = (auroraPhase * 2f - 1f) * w
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        AegisElectricBlue,
+                                        AegisPrimaryCyan,
+                                        AegisGoldBright.copy(alpha = 0.85f + 0.15f * glowPulse),
+                                        AegisPurple,
+                                        AegisPrimaryCyan,
+                                        AegisElectricBlue
+                                    ),
+                                    startX = startX,
+                                    endX = startX + w * 2.2f
+                                )
+                            )
+                        }
+                        .testTag("vip_nav_active_line")
+                )
             }
         }
     }

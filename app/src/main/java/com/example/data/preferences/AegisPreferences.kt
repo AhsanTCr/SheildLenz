@@ -72,6 +72,37 @@ enum class PowerMode(
     )
 }
 
+enum class ProtectionProfile(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val badge: String
+) {
+    STRICT_KIDS(
+        id = "strict_kids",
+        title = "Strict Kids",
+        subtitle = "Deen Strict DNS • All SafeSearch packs • Max sensitivity",
+        badge = "MAX GUARD"
+    ),
+    HOMEWORK_FOCUS(
+        id = "homework_focus",
+        title = "Homework Focus",
+        subtitle = "45m Study lock • Balanced scan • SafeSearch + Proxy guard",
+        badge = "STUDY"
+    ),
+    BALANCED_GUARD(
+        id = "balanced_guard",
+        title = "Balanced Guard",
+        subtitle = "Daily family guard • Fast DNS • Adaptive battery",
+        badge = "DAILY"
+    );
+
+    companion object {
+        fun fromId(id: String?): ProtectionProfile? =
+            entries.firstOrNull { it.id == id }
+    }
+}
+
 enum class SafeDnsProvider(
     val id: String,
     val displayName: String,
@@ -300,6 +331,63 @@ class AegisPreferences(context: Context) {
         prefs.getStringSet(KEY_WHITELISTED_PACKAGES, emptySet()) ?: emptySet()
     )
     val whitelistedPackages: StateFlow<Set<String>> = _whitelistedPackages.asStateFlow()
+
+    private val _activeProtectionProfile = MutableStateFlow(
+        ProtectionProfile.fromId(prefs.getString(KEY_ACTIVE_PROTECTION_PROFILE, null))
+    )
+    val activeProtectionProfile: StateFlow<ProtectionProfile?> = _activeProtectionProfile.asStateFlow()
+
+    fun applyProtectionProfile(profile: ProtectionProfile) {
+        when (profile) {
+            ProtectionProfile.STRICT_KIDS -> {
+                setSensitivity(SensitivityLevel.STRICT)
+                setStrictEverything(true)
+                setSafeDnsEnabled(true)
+                setSafeDnsProvider(SafeDnsProvider.DEEN_STRICT)
+                setSmartSafeSearchEnabled(true)
+                setSafeSearchPacks(SafeSearchPack.entries.map { it.id }.toSet())
+                setBlockExplicitAdult(true)
+                setBlockSuggestiveContent(true)
+                setBlockSensitiveGraphic(true)
+                setBlockGamblingKeywords(true)
+                setWarningThresholdCount(2)
+                setWarningOnlyNoLockout(false)
+                setLockdownDurationMinutes(600)
+                setAntiTamperEnabled(true)
+            }
+            ProtectionProfile.HOMEWORK_FOCUS -> {
+                setSensitivity(SensitivityLevel.BALANCED)
+                setStrictEverything(false)
+                setSafeDnsEnabled(true)
+                setSafeDnsProvider(SafeDnsProvider.DEEN_STRICT)
+                setSmartSafeSearchEnabled(true)
+                setSafeSearchPacks(setOf(SafeSearchPack.ADULT_NSFW.id, SafeSearchPack.PROXY_VPN_BYPASS.id))
+                setBlockExplicitAdult(true)
+                setBlockGamblingKeywords(true)
+                setStudyDurationMinutes(45)
+                setStudySoftWarningSeconds(30)
+                setWarningThresholdCount(3)
+                setAntiTamperEnabled(true)
+            }
+            ProtectionProfile.BALANCED_GUARD -> {
+                setSensitivity(SensitivityLevel.BALANCED)
+                setStrictEverything(false)
+                setSafeDnsEnabled(true)
+                setSafeDnsProvider(SafeDnsProvider.CLEANBROWSING_ADULT)
+                setSmartSafeSearchEnabled(true)
+                setSafeSearchPacks(setOf(SafeSearchPack.ADULT_NSFW.id))
+                setBlockExplicitAdult(true)
+                setBlockSuggestiveContent(true)
+                setBlockSensitiveGraphic(true)
+                setBlockGamblingKeywords(true)
+                setWarningThresholdCount(3)
+                setWarningOnlyNoLockout(false)
+                setAntiTamperEnabled(true)
+            }
+        }
+        prefs.edit().putString(KEY_ACTIVE_PROTECTION_PROFILE, profile.id).apply()
+        _activeProtectionProfile.value = profile
+    }
 
     fun setWhitelistedPackages(packages: Set<String>) {
         prefs.edit().putStringSet(KEY_WHITELISTED_PACKAGES, packages).apply()
@@ -1766,6 +1854,7 @@ class AegisPreferences(context: Context) {
             put("blockShowQuickActions", _blockShowQuickActions.value)
             put("blockShowReturnHome", _blockShowReturnHome.value)
             put("showEmergencyDialerOnLockdown", _showEmergencyDialerOnLockdown.value)
+            put("activeProtectionProfile", _activeProtectionProfile.value?.id ?: "")
             put("whitelistedPackages", JSONArray(_whitelistedPackages.value.toList()))
             put("customBlockedDomains", JSONArray(_customBlockedDomains.value.toList()))
             put("customBlockedKeywords", JSONArray(_customBlockedKeywords.value.toList()))
@@ -1785,6 +1874,9 @@ class AegisPreferences(context: Context) {
             val root = JSONObject(fileContent)
             val checksum = root.optString("checksum", "")
             val payload = root.optJSONObject("payload") ?: root
+            if (!payload.has("schemaVersion") && !payload.has("sensitivity") && !payload.has("safeDnsEnabled")) {
+                return@runCatching false
+            }
             val payloadStr = payload.toString()
             val md = MessageDigest.getInstance("SHA-256")
             val computed = md.digest(payloadStr.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
@@ -1889,6 +1981,14 @@ class AegisPreferences(context: Context) {
                 }
                 setAppTimeBudgets(map)
             }
+            val profileId = payload.optString("activeProtectionProfile", "")
+            val restoredProfile = ProtectionProfile.fromId(profileId)
+            if (restoredProfile != null) {
+                prefs.edit().putString(KEY_ACTIVE_PROTECTION_PROFILE, restoredProfile.id).apply()
+            } else {
+                prefs.edit().remove(KEY_ACTIVE_PROTECTION_PROFILE).apply()
+            }
+            _activeProtectionProfile.value = restoredProfile
             true
         }.getOrDefault(false)
     }
@@ -2166,5 +2266,6 @@ class AegisPreferences(context: Context) {
         private const val KEY_BLOCK_SHOW_QR_UNLOCK = "key_block_show_qr_unlock"
         private const val KEY_BLOCK_SHOW_QUICK_ACTIONS = "key_block_show_quick_actions"
         private const val KEY_BLOCK_SHOW_RETURN_HOME = "key_block_show_return_home"
+        private const val KEY_ACTIVE_PROTECTION_PROFILE = "key_active_protection_profile"
     }
 }

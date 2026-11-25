@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -54,7 +55,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -67,8 +67,6 @@ import com.example.R
 import com.example.core.update.UpdateChecker
 import com.example.ui.components.AhsanTcrBrandingPill
 import com.example.ui.components.SheildlenzBackdrop
-import com.example.ui.components.drawVolumetric3DSphere
-import com.example.ui.components.projectOrbitPoint3D
 import com.example.ui.navigation.AegisDestinations
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisElectricBlue
@@ -102,10 +100,11 @@ fun SplashScreen(
     val context = LocalContext.current
     var phase by remember { mutableStateOf(SplashPhase.SHIELD_LOADING) }
 
-    // Instant energetic shield entrance (no dead fade wait)
-    val shieldScale = remember { Animatable(0.84f) }
-    val shieldAlpha = remember { Animatable(0.82f) }
-    val progressAnim = remember { Animatable(0.06f) }
+    // 3D emblem entrance & settle
+    val shieldScale = remember { Animatable(0.68f) }
+    val shieldAlpha = remember { Animatable(0.86f) }
+    val shieldTiltY = remember { Animatable(-24f) }
+    val progressAnim = remember { Animatable(0.08f) }
 
     // Smooth pearl-sky reveal & kinetic statement choreography
     val veilAlpha = remember { Animatable(0f) }
@@ -131,34 +130,52 @@ fun SplashScreen(
     val allWords = remember { lineOneWords + lineTwoWords }
     val wordProgress = remember { List(allWords.size) { Animatable(0f) } }
 
-    // Continuous lively orbital & pulse motion from frame 1
-    val infiniteTransition = rememberInfiniteTransition(label = "SplashEnergeticMotion")
-    val sonarWave1 by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
+    // Continuous VIP animation directly on the start logo itself (breath, levitation, prismatic rim & sheen)
+    val infiniteTransition = rememberInfiniteTransition(label = "SplashLogoHeroMotion")
+    val logoBreath by infiniteTransition.animateFloat(
+        initialValue = 0.985f,
+        targetValue = 1.038f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1550, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 1650, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "SplashLogoBreath"
+    )
+    val logoFloatY by infiniteTransition.animateFloat(
+        initialValue = -5f,
+        targetValue = 5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "SplashLogoFloatY"
+    )
+    val logoSheen by infiniteTransition.animateFloat(
+        initialValue = -0.6f,
+        targetValue = 1.6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "SplashSonar1"
+        label = "SplashLogoSheen"
     )
-    val sonarWave2 by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1550, delayMillis = 520, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "SplashSonar2"
-    )
-    val ringRotation by infiniteTransition.animateFloat(
+    val rimRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3600, easing = LinearEasing),
+            animation = tween(durationMillis = 3800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "SplashRingRotation"
+        label = "SplashRimRotation"
+    )
+    val sonarPulse by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "SplashSonarPulse"
     )
     val badgePulse by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -176,11 +193,11 @@ fun SplashScreen(
             UpdateChecker.startCheckForUpdates(context, showUpToDatePopup = false)
         }
 
-        // Step 1: Parallel spring-pop emblem + 3.5s to 4.5s update-check hold on the SL logo
+        // Step 1: 3D emblem settle + 3.5s to 4.5s update-check hold on the SL logo
         launch {
             shieldAlpha.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
             )
         }
         launch {
@@ -188,7 +205,16 @@ fun SplashScreen(
                 targetValue = 1f,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMedium
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+        launch {
+            shieldTiltY.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = 0.68f,
+                    stiffness = Spring.StiffnessMediumLow
                 )
             )
         }
@@ -231,7 +257,6 @@ fun SplashScreen(
         }
 
         delay(160)
-        // Staggered Phrase 1 ("You think you can bypass,")
         lineOneWords.indices.forEach { idx ->
             launch {
                 wordProgress[idx].animateTo(
@@ -246,7 +271,6 @@ fun SplashScreen(
         }
 
         delay(110)
-        // Staggered Climax Phrase 2 ("but you can't.")
         for (idx in lineOneWords.size until allWords.size) {
             launch {
                 wordProgress[idx].animateTo(
@@ -260,16 +284,13 @@ fun SplashScreen(
             delay(70)
         }
 
-        // Sweep luminous light ribbon beneath climax
         ribbonProgress.animateTo(
             targetValue = 1f,
             animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
         )
 
-        // Clean comfortable hold
         delay(820)
 
-        // Step 3: Navigate directly (no PIN gate on launch)
         phase = SplashPhase.NAVIGATE_OUT
         if (isOnboardingCompleted) {
             onNavigateNext(AegisDestinations.HOME)
@@ -283,7 +304,7 @@ fun SplashScreen(
             .fillMaxSize()
             .testTag("splash_screen_root")
     ) {
-        // ─── 1. Energetic Luminous Shield Boot Stage ───
+        // ─── 1. VIP Animated Start Logo Stage ───
         SheildlenzBackdrop(modifier = Modifier.fillMaxSize()) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -293,117 +314,116 @@ fun SplashScreen(
                     .padding(horizontal = 28.dp)
             ) {
                 Box(
-                    modifier = Modifier
-                        .size(236.dp)
-                        .graphicsLayer {
-                            scaleX = shieldScale.value
-                            scaleY = shieldScale.value
-                            alpha = shieldAlpha.value
-                        },
+                    modifier = Modifier.size(228.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Canvas(modifier = Modifier.size(236.dp)) {
+                    // Subtle soft halo pulse behind the animated logo
+                    Canvas(modifier = Modifier.size(228.dp)) {
                         val c = Offset(size.width / 2f, size.height / 2f)
-                        val maxR = size.minDimension * 0.48f
-
-                        // Rapid concentric sonar pulses
-                        listOf(
-                            sonarWave1 to AegisElectricBlue,
-                            sonarWave2 to AegisPurple
-                        ).forEach { (wave, color) ->
-                            val r = maxR * (0.54f + 0.45f * wave)
-                            val a = (1f - wave) * 0.48f
-                            drawCircle(
-                                color = color.copy(alpha = a),
-                                radius = r,
-                                center = c,
-                                style = Stroke(width = 2.6.dp.toPx() * (1f - wave * 0.4f))
-                            )
-                        }
-
-                        // Energetic sweep ring
-                        val arcR = maxR * 0.87f
-                        rotate(degrees = ringRotation, pivot = c) {
-                            drawArc(
-                                brush = Brush.sweepGradient(
-                                    colors = listOf(
-                                        Color.Transparent,
-                                        AegisElectricBlue.copy(alpha = 0.45f),
-                                        AegisPrimaryCyan.copy(alpha = 0.92f),
-                                        Color.White.copy(alpha = 0.85f),
-                                        Color.Transparent
-                                    ),
-                                    center = c
+                        val maxR = size.minDimension * 0.47f
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    AegisElectricBlue.copy(alpha = 0.16f + 0.08f * (1f - sonarPulse)),
+                                    AegisPurple.copy(alpha = 0.09f),
+                                    Color.Transparent
                                 ),
-                                startAngle = 0f,
-                                sweepAngle = 360f,
-                                useCenter = false,
-                                topLeft = Offset(c.x - arcR, c.y - arcR),
-                                size = Size(arcR * 2f, arcR * 2f),
-                                style = Stroke(width = 2.8.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
-
-                        // Tilted 3D orbiting spheres around emblem
-                        val rx = maxR * 0.96f
-                        val ry = maxR * 0.56f
-                        val zAmp = maxR * 0.72f
-                        val camDist = size.width * 2.1f
-                        for (i in 0..2) {
-                            val pt = projectOrbitPoint3D(
                                 center = c,
-                                radiusX = rx,
-                                radiusY = ry,
-                                zAmplitude = zAmp,
-                                angleDeg = ringRotation + i * 120f,
-                                tiltDeg = -18f,
-                                cameraDistance = camDist
-                            )
-                            val orbHue = lerp(
-                                if (i % 2 == 0) AegisElectricBlue else AegisPurple,
-                                Color.White,
-                                0.22f
-                            )
-                            drawVolumetric3DSphere(
-                                center = pt.offset,
-                                radius = 4.5.dp.toPx() * pt.perspectiveScale,
-                                baseColor = orbHue,
-                                alpha = (0.68f + 0.32f * ((pt.zNormalized + 1f) * 0.5f)).coerceIn(0.6f, 1f),
-                                depthNormalized = pt.zNormalized,
-                                drawHaloAndShadow = true
-                            )
-                        }
+                                radius = maxR
+                            ),
+                            radius = maxR,
+                            center = c
+                        )
+                        val pulseR = maxR * (0.68f + 0.30f * sonarPulse)
+                        drawCircle(
+                            color = AegisPrimaryCyan.copy(alpha = (1f - sonarPulse) * 0.36f),
+                            radius = pulseR,
+                            center = c,
+                            style = Stroke(width = 2.dp.toPx())
+                        )
                     }
 
+                    // Rotating luminous prismatic bezel + animated 3D centered logo itself
                     Box(
                         modifier = Modifier
-                            .size(144.dp)
-                            .shadow(
-                                elevation = 14.dp,
-                                shape = RoundedCornerShape(34.dp),
-                                ambientColor = AegisElectricBlue.copy(alpha = 0.35f),
-                                spotColor = AegisPurple.copy(alpha = 0.35f)
-                            )
-                            .clip(RoundedCornerShape(34.dp))
-                            .border(
-                                width = 2.dp,
-                                brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        AegisElectricBlue.copy(alpha = 0.85f),
-                                        Color.White.copy(alpha = 0.9f),
-                                        AegisPurple.copy(alpha = 0.85f)
-                                    )
-                                ),
-                                shape = RoundedCornerShape(34.dp)
-                            ),
+                            .size(164.dp)
+                            .graphicsLayer {
+                                val combinedScale = shieldScale.value * logoBreath
+                                scaleX = combinedScale
+                                scaleY = combinedScale
+                                translationY = logoFloatY.dp.toPx()
+                                rotationY = shieldTiltY.value
+                                cameraDistance = 14f * density
+                                alpha = shieldAlpha.value
+                            }
+                            .testTag("splash_animated_logo"),
                         contentAlignment = Alignment.Center
                     ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.sheildlenz_emblem_cropped),
-                            contentDescription = "Sheildlenz Emblem Logo",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val c = Offset(size.width / 2f, size.height / 2f)
+                            val rimR = (size.minDimension / 2f) - 2.dp.toPx()
+                            rotate(degrees = rimRotation, pivot = c) {
+                                drawArc(
+                                    brush = Brush.sweepGradient(
+                                        colors = listOf(
+                                            AegisElectricBlue,
+                                            AegisPrimaryCyan,
+                                            Color.White,
+                                            AegisPurple,
+                                            AegisGoldBright,
+                                            AegisElectricBlue
+                                        ),
+                                        center = c
+                                    ),
+                                    startAngle = 0f,
+                                    sweepAngle = 360f,
+                                    useCenter = false,
+                                    topLeft = Offset(c.x - rimR, c.y - rimR),
+                                    size = Size(rimR * 2f, rimR * 2f),
+                                    style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round)
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(150.dp)
+                                .shadow(
+                                    elevation = 16.dp,
+                                    shape = RoundedCornerShape(36.dp),
+                                    ambientColor = AegisElectricBlue.copy(alpha = 0.38f),
+                                    spotColor = AegisPurple.copy(alpha = 0.36f)
+                                )
+                                .clip(RoundedCornerShape(36.dp))
+                                .border(
+                                    width = 1.5.dp,
+                                    color = Color.White.copy(alpha = 0.72f),
+                                    shape = RoundedCornerShape(36.dp)
+                                )
+                                .drawWithContent {
+                                    drawContent()
+                                    val sheenX = size.width * logoSheen
+                                    drawRect(
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                Color.Transparent,
+                                                Color.White.copy(alpha = 0.38f),
+                                                Color.Transparent
+                                            ),
+                                            start = Offset(sheenX - size.width * 0.28f, 0f),
+                                            end = Offset(sheenX + size.width * 0.28f, size.height)
+                                        )
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.sheildlenz_emblem_centered),
+                                contentDescription = "Sheildlenz Emblem Logo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
 
