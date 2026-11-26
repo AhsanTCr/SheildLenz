@@ -252,6 +252,7 @@ class AegisProtectionService : Service() {
         serviceScope.launch {
             while (!isStopped) {
                 kotlinx.coroutines.delay(1000L)
+                ProfileAutoScheduler.evaluateAndApply(container.preferences)
                 if (isScreenInteractive && !container.preferences.isLockdownActive() && !container.preferences.maintenanceMode.value) {
                     val activePkg = resolveTrackedForegroundPackage()
                     val prefs = container.preferences

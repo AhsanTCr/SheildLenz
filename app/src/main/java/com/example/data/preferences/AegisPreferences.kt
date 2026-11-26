@@ -103,6 +103,28 @@ enum class ProtectionProfile(
     }
 }
 
+enum class QuickTileMode(
+    val id: String,
+    val label: String,
+    val subtitle: String
+) {
+    SAFE_DNS(
+        id = "safe_dns",
+        label = "Safe DNS",
+        subtitle = "Toggle Local Safe DNS VPN directly"
+    ),
+    STUDY_LOCK(
+        id = "study_lock",
+        label = "Study Lock",
+        subtitle = "Start or stop timed Study Lock directly"
+    );
+
+    companion object {
+        fun fromId(id: String?): QuickTileMode =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: SAFE_DNS
+    }
+}
+
 enum class SafeDnsProvider(
     val id: String,
     val displayName: String,
@@ -691,6 +713,90 @@ class AegisPreferences(context: Context) {
         prefs.getBoolean(KEY_DISCREET_BLOCKING_SCREEN_MODE, true)
     )
     val discreetBlockingScreenMode: StateFlow<Boolean> = _discreetBlockingScreenMode.asStateFlow()
+
+    // Scheduled Profile Auto-Switcher & Direct Quick Settings Tile Mode
+    private val _profileAutoSwitchEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_PROFILE_AUTO_SWITCH_ENABLED, false)
+    )
+    val profileAutoSwitchEnabled: StateFlow<Boolean> = _profileAutoSwitchEnabled.asStateFlow()
+
+    private val _profileScheduleStartMinutes = MutableStateFlow(
+        prefs.getInt(KEY_PROFILE_SCHEDULE_START_MINUTES, 15 * 60).coerceIn(0, 1439)
+    )
+    val profileScheduleStartMinutes: StateFlow<Int> = _profileScheduleStartMinutes.asStateFlow()
+
+    private val _profileScheduleEndMinutes = MutableStateFlow(
+        prefs.getInt(KEY_PROFILE_SCHEDULE_END_MINUTES, 20 * 60).coerceIn(0, 1439)
+    )
+    val profileScheduleEndMinutes: StateFlow<Int> = _profileScheduleEndMinutes.asStateFlow()
+
+    private val _scheduledTargetProfile = MutableStateFlow(
+        ProtectionProfile.fromId(prefs.getString(KEY_SCHEDULED_TARGET_PROFILE, null))
+            ?: ProtectionProfile.HOMEWORK_FOCUS
+    )
+    val scheduledTargetProfile: StateFlow<ProtectionProfile> = _scheduledTargetProfile.asStateFlow()
+
+    private val _scheduledFallbackProfile = MutableStateFlow(
+        ProtectionProfile.fromId(prefs.getString(KEY_SCHEDULED_FALLBACK_PROFILE, null))
+            ?: ProtectionProfile.BALANCED_GUARD
+    )
+    val scheduledFallbackProfile: StateFlow<ProtectionProfile> = _scheduledFallbackProfile.asStateFlow()
+
+    private val _lastAppliedAutoSwitchSlot = MutableStateFlow(
+        prefs.getString(KEY_LAST_AUTO_SWITCH_SLOT, null)
+    )
+    val lastAppliedAutoSwitchSlot: StateFlow<String?> = _lastAppliedAutoSwitchSlot.asStateFlow()
+
+    private val _quickTileMode = MutableStateFlow(
+        QuickTileMode.fromId(prefs.getString(KEY_QUICK_TILE_MODE, QuickTileMode.SAFE_DNS.id))
+    )
+    val quickTileMode: StateFlow<QuickTileMode> = _quickTileMode.asStateFlow()
+
+    // VIP Safe Browser (Light Quick Mode -> Full Chrome Replacement Engine)
+    private val _fullBrowserEngineInstalled = MutableStateFlow(
+        prefs.getBoolean(KEY_FULL_BROWSER_INSTALLED, false)
+    )
+    val fullBrowserEngineInstalled: StateFlow<Boolean> = _fullBrowserEngineInstalled.asStateFlow()
+
+    private val _browserDesktopModeDefault = MutableStateFlow(
+        prefs.getBoolean(KEY_BROWSER_DESKTOP_DEFAULT, false)
+    )
+    val browserDesktopModeDefault: StateFlow<Boolean> = _browserDesktopModeDefault.asStateFlow()
+
+    private val _browserBookmarksJson = MutableStateFlow(
+        prefs.getString(KEY_BROWSER_BOOKMARKS_JSON, "") ?: ""
+    )
+    val browserBookmarksJson: StateFlow<String> = _browserBookmarksJson.asStateFlow()
+
+    private val _browserHistoryJson = MutableStateFlow(
+        prefs.getString(KEY_BROWSER_HISTORY_JSON, "") ?: ""
+    )
+    val browserHistoryJson: StateFlow<String> = _browserHistoryJson.asStateFlow()
+
+    private val _browserDownloadsJson = MutableStateFlow(
+        prefs.getString(KEY_BROWSER_DOWNLOADS_JSON, "") ?: ""
+    )
+    val browserDownloadsJson: StateFlow<String> = _browserDownloadsJson.asStateFlow()
+
+    private val _chromeImportedFileCount = MutableStateFlow(
+        prefs.getInt(KEY_CHROME_IMPORTED_FILE_COUNT, 0).coerceAtLeast(0)
+    )
+    val chromeImportedFileCount: StateFlow<Int> = _chromeImportedFileCount.asStateFlow()
+
+    private val _chromeComponentsAutoCached = MutableStateFlow(
+        prefs.getBoolean(KEY_CHROME_COMPONENTS_AUTO_CACHED, false)
+    )
+    val chromeComponentsAutoCached: StateFlow<Boolean> = _chromeComponentsAutoCached.asStateFlow()
+
+    private val _chromeCachedComponentCount = MutableStateFlow(
+        prefs.getInt(KEY_CHROME_CACHED_COMPONENT_COUNT, 0).coerceAtLeast(0)
+    )
+    val chromeCachedComponentCount: StateFlow<Int> = _chromeCachedComponentCount.asStateFlow()
+
+    private val _chromeComponentCacheTimestampMillis = MutableStateFlow(
+        prefs.getLong(KEY_CHROME_COMPONENT_CACHE_TS, 0L).coerceAtLeast(0L)
+    )
+    val chromeComponentCacheTimestampMillis: StateFlow<Long> = _chromeComponentCacheTimestampMillis.asStateFlow()
 
     init {
         AegisSoundEffects.setEnabled(_touchSoundsEnabled.value)
@@ -1814,6 +1920,102 @@ class AegisPreferences(context: Context) {
         _discreetBlockingScreenMode.value = enabled
     }
 
+    // --- 10. Scheduled Profile Auto-Switcher & Direct Quick Settings Tile ---
+
+    fun setProfileAutoSwitchEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_PROFILE_AUTO_SWITCH_ENABLED, enabled).apply()
+        _profileAutoSwitchEnabled.value = enabled
+        if (!enabled) {
+            setLastAppliedAutoSwitchSlot(null)
+        }
+    }
+
+    fun setProfileScheduleWindow(startMinutes: Int, endMinutes: Int) {
+        val safeStart = startMinutes.coerceIn(0, 1439)
+        val safeEnd = endMinutes.coerceIn(0, 1439)
+        prefs.edit()
+            .putInt(KEY_PROFILE_SCHEDULE_START_MINUTES, safeStart)
+            .putInt(KEY_PROFILE_SCHEDULE_END_MINUTES, safeEnd)
+            .apply()
+        _profileScheduleStartMinutes.value = safeStart
+        _profileScheduleEndMinutes.value = safeEnd
+    }
+
+    fun setScheduledTargetProfile(profile: ProtectionProfile) {
+        prefs.edit().putString(KEY_SCHEDULED_TARGET_PROFILE, profile.id).apply()
+        _scheduledTargetProfile.value = profile
+    }
+
+    fun setScheduledFallbackProfile(profile: ProtectionProfile) {
+        prefs.edit().putString(KEY_SCHEDULED_FALLBACK_PROFILE, profile.id).apply()
+        _scheduledFallbackProfile.value = profile
+    }
+
+    fun setLastAppliedAutoSwitchSlot(slot: String?) {
+        if (slot.isNullOrBlank()) {
+            prefs.edit().remove(KEY_LAST_AUTO_SWITCH_SLOT).apply()
+            _lastAppliedAutoSwitchSlot.value = null
+        } else {
+            prefs.edit().putString(KEY_LAST_AUTO_SWITCH_SLOT, slot).apply()
+            _lastAppliedAutoSwitchSlot.value = slot
+        }
+    }
+
+    fun setQuickTileMode(mode: QuickTileMode) {
+        prefs.edit().putString(KEY_QUICK_TILE_MODE, mode.id).apply()
+        _quickTileMode.value = mode
+    }
+
+    // --- 11. Light-to-Full VIP Browser Engine & Chrome Import State ---
+
+    fun setFullBrowserEngineInstalled(installed: Boolean) {
+        prefs.edit().putBoolean(KEY_FULL_BROWSER_INSTALLED, installed).apply()
+        _fullBrowserEngineInstalled.value = installed
+    }
+
+    fun setBrowserDesktopModeDefault(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BROWSER_DESKTOP_DEFAULT, enabled).apply()
+        _browserDesktopModeDefault.value = enabled
+    }
+
+    fun setBrowserBookmarksJson(json: String) {
+        prefs.edit().putString(KEY_BROWSER_BOOKMARKS_JSON, json).apply()
+        _browserBookmarksJson.value = json
+    }
+
+    fun setBrowserHistoryJson(json: String) {
+        prefs.edit().putString(KEY_BROWSER_HISTORY_JSON, json).apply()
+        _browserHistoryJson.value = json
+    }
+
+    fun setBrowserDownloadsJson(json: String) {
+        prefs.edit().putString(KEY_BROWSER_DOWNLOADS_JSON, json).apply()
+        _browserDownloadsJson.value = json
+    }
+
+    fun setChromeImportedFileCount(count: Int) {
+        val safe = count.coerceAtLeast(0)
+        prefs.edit().putInt(KEY_CHROME_IMPORTED_FILE_COUNT, safe).apply()
+        _chromeImportedFileCount.value = safe
+    }
+
+    fun setChromeComponentsAutoCached(cached: Boolean) {
+        prefs.edit().putBoolean(KEY_CHROME_COMPONENTS_AUTO_CACHED, cached).apply()
+        _chromeComponentsAutoCached.value = cached
+    }
+
+    fun setChromeCachedComponentCount(count: Int) {
+        val safe = count.coerceAtLeast(0)
+        prefs.edit().putInt(KEY_CHROME_CACHED_COMPONENT_COUNT, safe).apply()
+        _chromeCachedComponentCount.value = safe
+    }
+
+    fun setChromeComponentCacheTimestampMillis(timestampMillis: Long) {
+        val safe = timestampMillis.coerceAtLeast(0L)
+        prefs.edit().putLong(KEY_CHROME_COMPONENT_CACHE_TS, safe).apply()
+        _chromeComponentCacheTimestampMillis.value = safe
+    }
+
     fun exportPolicyJson(): String {
         val json = JSONObject().apply {
             put("schemaVersion", 1)
@@ -1855,6 +2057,15 @@ class AegisPreferences(context: Context) {
             put("blockShowReturnHome", _blockShowReturnHome.value)
             put("showEmergencyDialerOnLockdown", _showEmergencyDialerOnLockdown.value)
             put("activeProtectionProfile", _activeProtectionProfile.value?.id ?: "")
+            put("profileAutoSwitchEnabled", _profileAutoSwitchEnabled.value)
+            put("profileScheduleStartMinutes", _profileScheduleStartMinutes.value)
+            put("profileScheduleEndMinutes", _profileScheduleEndMinutes.value)
+            put("scheduledTargetProfile", _scheduledTargetProfile.value.id)
+            put("scheduledFallbackProfile", _scheduledFallbackProfile.value.id)
+            put("quickTileMode", _quickTileMode.value.id)
+            put("fullBrowserEngineInstalled", _fullBrowserEngineInstalled.value)
+            put("chromeComponentsAutoCached", _chromeComponentsAutoCached.value)
+            put("chromeCachedComponentCount", _chromeCachedComponentCount.value)
             put("whitelistedPackages", JSONArray(_whitelistedPackages.value.toList()))
             put("customBlockedDomains", JSONArray(_customBlockedDomains.value.toList()))
             put("customBlockedKeywords", JSONArray(_customBlockedKeywords.value.toList()))
@@ -1989,6 +2200,31 @@ class AegisPreferences(context: Context) {
                 prefs.edit().remove(KEY_ACTIVE_PROTECTION_PROFILE).apply()
             }
             _activeProtectionProfile.value = restoredProfile
+
+            setProfileAutoSwitchEnabled(payload.optBoolean("profileAutoSwitchEnabled", false))
+            setProfileScheduleWindow(
+                payload.optInt("profileScheduleStartMinutes", 15 * 60),
+                payload.optInt("profileScheduleEndMinutes", 20 * 60)
+            )
+            ProtectionProfile.fromId(payload.optString("scheduledTargetProfile", ""))?.let {
+                setScheduledTargetProfile(it)
+            }
+            ProtectionProfile.fromId(payload.optString("scheduledFallbackProfile", ""))?.let {
+                setScheduledFallbackProfile(it)
+            }
+            val tileModeRaw = payload.optString("quickTileMode", "")
+            if (tileModeRaw.isNotBlank()) {
+                setQuickTileMode(QuickTileMode.fromId(tileModeRaw))
+            }
+            if (payload.has("fullBrowserEngineInstalled")) {
+                setFullBrowserEngineInstalled(payload.optBoolean("fullBrowserEngineInstalled", false))
+            }
+            if (payload.has("chromeComponentsAutoCached")) {
+                setChromeComponentsAutoCached(payload.optBoolean("chromeComponentsAutoCached", false))
+            }
+            if (payload.has("chromeCachedComponentCount")) {
+                setChromeCachedComponentCount(payload.optInt("chromeCachedComponentCount", 0))
+            }
             true
         }.getOrDefault(false)
     }
@@ -2267,5 +2503,21 @@ class AegisPreferences(context: Context) {
         private const val KEY_BLOCK_SHOW_QUICK_ACTIONS = "key_block_show_quick_actions"
         private const val KEY_BLOCK_SHOW_RETURN_HOME = "key_block_show_return_home"
         private const val KEY_ACTIVE_PROTECTION_PROFILE = "key_active_protection_profile"
+        private const val KEY_PROFILE_AUTO_SWITCH_ENABLED = "key_profile_auto_switch_enabled"
+        private const val KEY_PROFILE_SCHEDULE_START_MINUTES = "key_profile_schedule_start_minutes"
+        private const val KEY_PROFILE_SCHEDULE_END_MINUTES = "key_profile_schedule_end_minutes"
+        private const val KEY_SCHEDULED_TARGET_PROFILE = "key_scheduled_target_profile"
+        private const val KEY_SCHEDULED_FALLBACK_PROFILE = "key_scheduled_fallback_profile"
+        private const val KEY_LAST_AUTO_SWITCH_SLOT = "key_last_auto_switch_slot"
+        private const val KEY_QUICK_TILE_MODE = "key_quick_tile_mode"
+        private const val KEY_FULL_BROWSER_INSTALLED = "key_full_browser_installed"
+        private const val KEY_BROWSER_DESKTOP_DEFAULT = "key_browser_desktop_default"
+        private const val KEY_BROWSER_BOOKMARKS_JSON = "key_browser_bookmarks_json"
+        private const val KEY_BROWSER_HISTORY_JSON = "key_browser_history_json"
+        private const val KEY_BROWSER_DOWNLOADS_JSON = "key_browser_downloads_json"
+        private const val KEY_CHROME_IMPORTED_FILE_COUNT = "key_chrome_imported_file_count"
+        private const val KEY_CHROME_COMPONENTS_AUTO_CACHED = "key_chrome_components_auto_cached"
+        private const val KEY_CHROME_CACHED_COMPONENT_COUNT = "key_chrome_cached_component_count"
+        private const val KEY_CHROME_COMPONENT_CACHE_TS = "key_chrome_component_cache_ts"
     }
 }

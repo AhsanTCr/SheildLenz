@@ -22,6 +22,7 @@ class AegisBootReceiver : BroadcastReceiver() {
         ) {
             val prefs = AegisContainer.getInstance(context).preferences
             if (!prefs.masterPowerEnabled.value) return
+            ProfileAutoScheduler.evaluateAndApply(prefs)
             if (prefs.safeDnsEnabled.value && android.net.VpnService.prepare(context) == null) {
                 Log.i(TAG, "Device rebooted with Safe DNS enabled — starting AegisSafeDnsVpnService.")
                 com.example.services.dns.AegisSafeDnsVpnService.start(context)

@@ -66,6 +66,13 @@ class AegisContainer(context: Context) {
         _pendingPairingCode.value = code?.takeIf { it.isNotBlank() }
     }
 
+    private val _pendingBrowserUrl = MutableStateFlow<String?>(null)
+    val pendingBrowserUrl: StateFlow<String?> = _pendingBrowserUrl.asStateFlow()
+
+    fun setPendingBrowserUrl(url: String?) {
+        _pendingBrowserUrl.value = url?.takeIf { it.isNotBlank() }
+    }
+
     fun refreshModelTelemetry() {
         val info = modelManager.refreshStatus()
         protectionRepository.updateModelInfo(info)

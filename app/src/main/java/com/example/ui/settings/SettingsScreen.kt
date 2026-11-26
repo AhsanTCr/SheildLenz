@@ -143,16 +143,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
+import com.example.core.alerts.DiscreetAlertFormatter
 import com.example.core.audio.AegisSoundEffects
 import com.example.core.models.SensitivityLevel
 import com.example.core.notifications.AegisNotificationHelper
 import com.example.data.preferences.AegisPreferences
 import com.example.data.preferences.PowerMode
 import com.example.data.preferences.ProtectionProfile
+import com.example.data.preferences.QuickTileMode
 import com.example.data.preferences.RecoveryQrMode
 import com.example.data.repository.ProtectionRepository
 import com.example.detection.classifier.ModelManager
 import com.example.security.deviceowner.AegisDeviceAdminReceiver
+import com.example.services.protection.ProfileAutoScheduler
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
 import com.example.ui.components.CyberTopBar
@@ -468,6 +471,12 @@ private fun UnlockedEditsContent(
                     ).show()
                 }
             )
+        }
+        item(key = "edits_profile_auto_switch") {
+            ProfileAutoSwitcherCard(preferences = preferences)
+        }
+        item(key = "edits_quick_tile_mode") {
+            QuickTileModeCard(preferences = preferences)
         }
         // 1. AI Classification
         item(key = "edits_header_ai") {
@@ -3950,4 +3959,222 @@ private fun QuickProtectionProfilesCard(
         }
     }
 }
+
+@Composable
+private fun ProfileAutoSwitcherCard(
+    preferences: AegisPreferences
+) {
+    val context = LocalContext.current
+    val autoSwitchEnabled by preferences.profileAutoSwitchEnabled.collectAsState()
+    val startMinutes by preferences.profileScheduleStartMinutes.collectAsState()
+    val endMinutes by preferences.profileScheduleEndMinutes.collectAsState()
+    val targetProfile by preferences.scheduledTargetProfile.collectAsState()
+    val fallbackProfile by preferences.scheduledFallbackProfile.collectAsState()
+    val lastSlot by preferences.lastAppliedAutoSwitchSlot.collectAsState()
+    val discreetMode by preferences.discreetBlockingScreenMode.collectAsState()
+
+    CyberCard(
+        borderColor = AegisCardBorder,
+        tone = CyberCardTone.SKY,
+        modifier = Modifier.testTag("edits_profile_auto_switch_card")
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    Text(
+                        text = "Scheduled Profile Auto-Switcher",
+                        color = AegisTextPrimary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont
+                    )
+                    Text(
+                        text = if (autoSwitchEnabled) {
+                            "Active slot: ${lastSlot ?: "PENDING"} • ${targetProfile.title} inside window"
+                        } else {
+                            "Automatically switch between Homework & Family Guard by time"
+                        },
+                        color = AegisTextSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = ClassicalBodyFont
+                    )
+                }
+                Switch(
+                    checked = autoSwitchEnabled,
+                    onCheckedChange = { checked ->
+                        AegisSoundEffects.playTap(context)
+                        preferences.setProfileAutoSwitchEnabled(checked)
+                        if (checked) {
+                            val applied = ProfileAutoScheduler.evaluateAndApply(preferences, forceApply = true)
+                            if (applied != null) {
+                                Toast.makeText(
+                                    context,
+                                    DiscreetAlertFormatter.autoSwitchProfileToast(discreetMode, applied.title),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = AegisOnPrimaryWhite,
+                        checkedTrackColor = AegisPurple
+                    ),
+                    modifier = Modifier.testTag("edits_profile_auto_switch_toggle")
+                )
+            }
+
+            if (autoSwitchEnabled) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ScheduleHourStepper(
+                        label = "Start",
+                        minuteOfDay = startMinutes,
+                        onMinusHour = {
+                            val next = (startMinutes - 60 + 1440) % 1440
+                            preferences.setProfileScheduleWindow(next, endMinutes)
+                            ProfileAutoScheduler.evaluateAndApply(preferences, forceApply = true)
+                        },
+                        onPlusHour = {
+                            val next = (startMinutes + 60) % 1440
+                            preferences.setProfileScheduleWindow(next, endMinutes)
+                            ProfileAutoScheduler.evaluateAndApply(preferences, forceApply = true)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ScheduleHourStepper(
+                        label = "End",
+                        minuteOfDay = endMinutes,
+                        onMinusHour = {
+                            val next = (endMinutes - 60 + 1440) % 1440
+                            preferences.setProfileScheduleWindow(startMinutes, next)
+                            ProfileAutoScheduler.evaluateAndApply(preferences, forceApply = true)
+                        },
+                        onPlusHour = {
+                            val next = (endMinutes + 60) % 1440
+                            preferences.setProfileScheduleWindow(startMinutes, next)
+                            ProfileAutoScheduler.evaluateAndApply(preferences, forceApply = true)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Text(
+                    text = "Window Profile: ${targetProfile.title}  •  Rest-of-Day: ${fallbackProfile.title}",
+                    color = AegisPurple,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = ClassicalBodyFont
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ProtectionProfile.entries.forEach { prof ->
+                        val selected = targetProfile == prof
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (selected) AegisPrimaryCyan else AegisCardBackground,
+                            border = BorderStroke(1.dp, if (selected) AegisPrimaryCyan else AegisCardBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    preferences.setScheduledTargetProfile(prof)
+                                    ProfileAutoScheduler.evaluateAndApply(preferences, forceApply = true)
+                                }
+                                .testTag("auto_target_${prof.id}")
+                        ) {
+                            Text(
+                                text = prof.badge,
+                                color = if (selected) AegisOnPrimaryWhite else AegisTextSecondary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickTileModeCard(
+    preferences: AegisPreferences
+) {
+    val context = LocalContext.current
+    val quickTileMode by preferences.quickTileMode.collectAsState()
+
+    CyberCard(
+        borderColor = AegisLavenderBorder,
+        tone = CyberCardTone.LAVENDER,
+        modifier = Modifier.testTag("edits_quick_tile_mode_selector")
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Quick Settings Tile Tap Action",
+                color = AegisTextPrimary,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = ClassicalDisplayFont
+            )
+            Text(
+                text = "Tap Sheildlenz shade tile to toggle ${quickTileMode.label} directly",
+                color = AegisTextSecondary,
+                fontSize = 11.sp,
+                fontFamily = ClassicalBodyFont
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                QuickTileMode.entries.forEach { mode ->
+                    val selected = quickTileMode == mode
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (selected) AegisPurple else AegisCardBackground,
+                        border = BorderStroke(1.dp, if (selected) AegisPurple else AegisCardBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .clickable {
+                                AegisSoundEffects.playTap(context)
+                                preferences.setQuickTileMode(mode)
+                            }
+                            .testTag("quick_tile_mode_${mode.id}")
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = mode.label,
+                                color = if (selected) AegisOnPrimaryWhite else AegisTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = ClassicalBodyFont
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 

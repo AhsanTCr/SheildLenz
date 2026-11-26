@@ -1166,11 +1166,12 @@ class SystemOverlayController(private val context: Context) {
 
         if (showAppBadge) {
             val badge = TextView(context).apply {
-                text = when {
-                    discreet -> "CONTENT FILTER NOTICE (#$warningNumber)"
-                    warningOnly -> "WARNING ONLY • NO LOCKOUT (#$warningNumber)"
-                    else -> "WARNING $warningNumber OF $maxWarnings BEFORE LOCKDOWN"
-                }
+                text = com.example.core.alerts.DiscreetAlertFormatter.warningNoticeBadge(
+                    discreetMode = discreet,
+                    warningNumber = warningNumber,
+                    maxWarnings = maxWarnings,
+                    warningOnly = warningOnly
+                )
                 setTextColor(Color.parseColor(if (discreet) "#334155" else "#D9820B"))
                 textSize = 11f
                 typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
@@ -1183,7 +1184,7 @@ class SystemOverlayController(private val context: Context) {
 
         val title = TextView(context).apply {
             text = customHeadline.ifBlank {
-                if (discreet) "Page or App Paused" else "Unsafe Content Blocked"
+                com.example.core.alerts.DiscreetAlertFormatter.warningNoticeHeadline(discreet)
             }
             setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#1A3673"))
             textSize = 24f
@@ -1194,30 +1195,17 @@ class SystemOverlayController(private val context: Context) {
         root.addView(title)
 
         val desc = TextView(context).apply {
-            val remaining = (maxWarnings - warningNumber).coerceAtLeast(0)
             text = customMessage.ifBlank {
-                if (discreet) {
-                    if (showAppBadge) {
-                        "$appName was paused because displayed content matched active system safety filters."
-                    } else {
-                        "This page or app was paused because it matched active system safety filters."
-                    }
-                } else if (warningOnly) {
-                    if (showAppBadge) {
-                        "Detected $categoryName in $appName ($packageName).\n" +
-                            "The app was closed automatically. Warning-Only mode is active so no device lockdown was engaged."
-                    } else {
-                        "The app was closed automatically. Warning-Only mode is active so no device lockdown was engaged."
-                    }
-                } else {
-                    val prefix = if (showAppBadge) "Detected $categoryName in $appName ($packageName).\n" else ""
-                    prefix + "The app was closed automatically. " +
-                        if (remaining == 0) {
-                            "This is your final warning—the next violation will trigger a full device lockdown."
-                        } else {
-                            "$remaining warning(s) remaining before a full device lockdown engages."
-                        }
-                }
+                com.example.core.alerts.DiscreetAlertFormatter.warningNoticeBody(
+                    discreetMode = discreet,
+                    appName = appName,
+                    packageName = packageName,
+                    categoryName = categoryName,
+                    warningNumber = warningNumber,
+                    maxWarnings = maxWarnings,
+                    warningOnly = warningOnly,
+                    showAppBadge = showAppBadge
+                )
             }
             setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
             textSize = 13f

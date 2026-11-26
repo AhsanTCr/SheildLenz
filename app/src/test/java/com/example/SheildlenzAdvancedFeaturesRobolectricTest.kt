@@ -1091,6 +1091,7 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
 
         composeRule.onNodeWithTag("about_more_builtins_toggle").performClick()
         composeRule.waitForIdle()
+        composeRule.onNodeWithTag("about_more_builtins_content").performScrollTo()
         composeRule.onNodeWithTag("about_more_builtins_content").assertIsDisplayed()
         composeRule.onNodeWithText("BUILT-IN PROTECTION STACK").assertIsDisplayed()
 

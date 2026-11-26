@@ -71,6 +71,7 @@ class AegisAccessibilityService : AccessibilityService() {
             disableSelf()
             return
         }
+        com.example.services.protection.ProfileAutoScheduler.evaluateAndApply(prefs)
         val now = SystemClock.uptimeMillis()
 
         // 1. Whole-Device Lockdown Enforcement

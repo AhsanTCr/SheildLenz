@@ -1,5 +1,12 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,17 +28,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.AegisCardBackground
@@ -213,6 +226,20 @@ fun CyberCard(
     }
 
     val shape = remember { RoundedCornerShape(24.dp) }
+    val cornerStart = when (resolvedTone) {
+        CyberCardTone.LAVENDER -> AegisPurple
+        CyberCardTone.GOLD -> AegisChampagneGold
+        CyberCardTone.EMERALD -> AegisEmeraldTeal
+        CyberCardTone.INDIGO -> AegisIndigo
+        else -> AegisPrimaryCyan
+    }
+    val cornerEnd = when (resolvedTone) {
+        CyberCardTone.LAVENDER -> AegisPrimaryCyan
+        CyberCardTone.GOLD -> AegisGoldBright
+        CyberCardTone.EMERALD -> AegisPrimaryCyan
+        CyberCardTone.INDIGO -> AegisPurple
+        else -> AegisPurple
+    }
     val cardModifier = modifier
         .fillMaxWidth()
         .shadow(
@@ -224,6 +251,12 @@ fun CyberCard(
         .clip(shape)
         .background(brush = bgBrush)
         .border(BorderStroke(1.1.dp, borderBrush), shape)
+        .vipAnimatedCorners(
+            cornerRadius = 24.dp,
+            accentStart = cornerStart,
+            accentEnd = cornerEnd,
+            strokeWidth = 2.dp
+        )
         .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
 
     Column(modifier = cardModifier) {
@@ -250,6 +283,114 @@ private data class Quad<A, B, C, D>(
     val third: C,
     val fourth: D
 )
+
+/**
+ * Shared VIP Corner Animation Modifier enforced strictly across Home, Settings/Edits,
+ * Live Status, and Browser surfaces. Draws smooth breathing dual-tone luminous arcs & corner glints
+ * along all 4 rounded corners without obscuring content or tap targets.
+ */
+@Composable
+fun Modifier.vipAnimatedCorners(
+    cornerRadius: Dp = 22.dp,
+    accentStart: Color = AegisPrimaryCyan,
+    accentEnd: Color = AegisPurple,
+    strokeWidth: Dp = 2.dp
+): Modifier {
+    val transition = rememberInfiniteTransition(label = "VipCornerMotion")
+    val pulse by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "VipCornerPulse"
+    )
+    val sweepShift by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "VipCornerSweep"
+    )
+
+    return this.drawWithContent {
+        drawContent()
+        val w = size.width
+        val h = size.height
+        val r = cornerRadius.toPx().coerceAtMost(minOf(w, h) * 0.42f)
+        val arcBox = Size(r * 2f, r * 2f)
+        val inset = strokeWidth.toPx() * 0.55f
+        val stroke = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
+
+        val sweepX = w * sweepShift
+        val primaryBrush = Brush.linearGradient(
+            colors = listOf(
+                accentStart.copy(alpha = 0.85f * pulse),
+                AegisGoldBright.copy(alpha = 0.65f * pulse),
+                accentEnd.copy(alpha = 0.85f * pulse)
+            ),
+            start = Offset(sweepX - w * 0.5f, 0f),
+            end = Offset(sweepX + w * 0.5f, h)
+        )
+
+        // Top-Left corner luminous arc
+        drawArc(
+            brush = primaryBrush,
+            startAngle = 180f,
+            sweepAngle = 72f,
+            useCenter = false,
+            topLeft = Offset(inset, inset),
+            size = arcBox,
+            style = stroke
+        )
+        // Top-Right corner luminous arc
+        drawArc(
+            brush = primaryBrush,
+            startAngle = 288f,
+            sweepAngle = 72f,
+            useCenter = false,
+            topLeft = Offset(w - r * 2f - inset, inset),
+            size = arcBox,
+            style = stroke
+        )
+        // Bottom-Right corner luminous arc
+        drawArc(
+            brush = primaryBrush,
+            startAngle = 18f,
+            sweepAngle = 72f,
+            useCenter = false,
+            topLeft = Offset(w - r * 2f - inset, h - r * 2f - inset),
+            size = arcBox,
+            style = stroke
+        )
+        // Bottom-Left corner luminous arc
+        drawArc(
+            brush = primaryBrush,
+            startAngle = 108f,
+            sweepAngle = 72f,
+            useCenter = false,
+            topLeft = Offset(inset, h - r * 2f - inset),
+            size = arcBox,
+            style = stroke
+        )
+
+        // Delicate sparkling pinpoints on diagonal corners
+        val dotRadius = 2.1.dp.toPx() * (0.8f + 0.35f * pulse)
+        drawCircle(
+            color = accentStart.copy(alpha = 0.65f * pulse),
+            radius = dotRadius,
+            center = Offset(r * 0.36f, r * 0.36f)
+        )
+        drawCircle(
+            color = accentEnd.copy(alpha = 0.65f * pulse),
+            radius = dotRadius,
+            center = Offset(w - r * 0.36f, h - r * 0.36f)
+        )
+    }
+}
 
 @Composable
 fun LuxurySectionHeader(

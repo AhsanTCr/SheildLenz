@@ -182,6 +182,8 @@ class MainActivity : ComponentActivity() {
             if (!code.isNullOrBlank()) {
                 container.setPendingPairingCode(code)
             }
+        } else if (data.scheme.equals("http", ignoreCase = true) || data.scheme.equals("https", ignoreCase = true)) {
+            container.setPendingBrowserUrl(data.toString())
         }
     }
 

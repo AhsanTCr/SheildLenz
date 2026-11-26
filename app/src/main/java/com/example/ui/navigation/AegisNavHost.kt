@@ -175,6 +175,7 @@ fun AegisNavHost(
 ) {
     val isOnboardingDone by container.preferences.isOnboardingCompleted.collectAsState()
     val pendingPairingCode by container.pendingPairingCode.collectAsState()
+    val pendingBrowserUrl by container.pendingBrowserUrl.collectAsState()
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -191,6 +192,14 @@ fun AegisNavHost(
     LaunchedEffect(pendingPairingCode) {
         if (!pendingPairingCode.isNullOrBlank()) {
             navController.navigate(AegisDestinations.PARENTS) {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    LaunchedEffect(pendingBrowserUrl) {
+        if (!pendingBrowserUrl.isNullOrBlank()) {
+            navController.navigate(AegisDestinations.SAFE_BROWSER) {
                 launchSingleTop = true
             }
         }
@@ -344,6 +353,11 @@ fun AegisNavHost(
                                 navController.navigate(AegisDestinations.FOCUS_HUB) {
                                     launchSingleTop = true
                                 }
+                            },
+                            onNavigateToSafeBrowser = {
+                                navController.navigate(AegisDestinations.SAFE_BROWSER) {
+                                    launchSingleTop = true
+                                }
                             }
                         )
                     }
@@ -416,7 +430,11 @@ fun AegisNavHost(
                     composable(AegisDestinations.SAFE_BROWSER) {
                         com.example.ui.browser.SafeBrowserScreen(
                             preferences = container.preferences,
+                            protectionRepo = container.protectionRepository,
                             blockedDnsLogRepo = container.blockedDnsLogRepository,
+                            overlayController = container.overlayController,
+                            pendingExternalUrl = pendingBrowserUrl,
+                            onConsumePendingUrl = { container.setPendingBrowserUrl(null) },
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }
@@ -622,7 +640,7 @@ private fun VipAnimatedBottomBar(
                     modifier = Modifier.fillMaxSize(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    tabs.forEach { tab ->
+                    tabs.forEachIndexed { idx, tab ->
                         val selected = currentRoute == tab.route
                         val tabLabel = stringResource(tab.labelRes)
                         val interactionSource = remember(tab.route) { MutableInteractionSource() }
@@ -631,14 +649,20 @@ private fun VipAnimatedBottomBar(
                             animationSpec = tween(durationMillis = 160),
                             label = "NavItemTint_${tab.route}"
                         )
-                        val iconScale by animateFloatAsState(
-                            targetValue = if (selected) 1.13f else 1f,
+                        val baseScale by animateFloatAsState(
+                            targetValue = if (selected) 1.15f else 1f,
                             animationSpec = spring(
-                                dampingRatio = 0.68f,
+                                dampingRatio = 0.65f,
                                 stiffness = Spring.StiffnessMedium
                             ),
                             label = "NavIconScale_${tab.route}"
                         )
+                        // Continuous per-icon breathing & micro-tilt directly on each switcher icon
+                        val phaseAngle = (auroraPhase * 2f * Math.PI + idx * 1.1).toFloat()
+                        val continuousBob = kotlin.math.sin(phaseAngle)
+                        val iconLiftDp = if (selected) (-1.8f + continuousBob * 1.6f) else (continuousBob * 0.9f)
+                        val iconBreath = 1f + (if (selected) 0.06f else 0.025f) * continuousBob
+                        val iconTilt = if (selected) kotlin.math.cos(phaseAngle) * 5.5f else kotlin.math.cos(phaseAngle) * 2.2f
 
                         Column(
                             modifier = Modifier
@@ -655,18 +679,43 @@ private fun VipAnimatedBottomBar(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            Icon(
-                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                contentDescription = tabLabel,
-                                tint = itemTint,
+                            Box(
                                 modifier = Modifier
-                                    .size(22.dp)
+                                    .testTag("vip_animated_nav_icon_${tab.route}")
+                                    .size(32.dp)
                                     .graphicsLayer {
-                                        scaleX = iconScale
-                                        scaleY = iconScale
+                                        translationY = iconLiftDp.dp.toPx()
+                                        val s = baseScale * iconBreath
+                                        scaleX = s
+                                        scaleY = s
+                                        rotationZ = iconTilt
                                     }
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
+                                    .drawBehind {
+                                        if (selected) {
+                                            drawCircle(
+                                                brush = Brush.sweepGradient(
+                                                    colors = listOf(
+                                                        AegisPrimaryCyan.copy(alpha = 0.45f * glowPulse),
+                                                        AegisPurple.copy(alpha = 0.45f * glowPulse),
+                                                        AegisGoldBright.copy(alpha = 0.40f * glowPulse),
+                                                        AegisPrimaryCyan.copy(alpha = 0.45f * glowPulse)
+                                                    )
+                                                ),
+                                                radius = size.minDimension * 0.56f,
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx())
+                                            )
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                                    contentDescription = tabLabel,
+                                    tint = itemTint,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
                                 text = tabLabel,
                                 color = if (selected) AegisTextPrimary else AegisTextMuted,
@@ -676,46 +725,9 @@ private fun VipAnimatedBottomBar(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
                         }
                     }
                 }
-
-                // VIP Luminous Gliding & Continuously Shimmering Bottom Line beneath the active tab
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .offset(x = animatedTabOffset + (tabWidth - lineWidth) / 2f)
-                        .padding(bottom = 3.dp)
-                        .width(lineWidth)
-                        .height(4.dp)
-                        .shadow(
-                            elevation = 7.dp,
-                            shape = RoundedCornerShape(50),
-                            ambientColor = AegisPrimaryCyan.copy(alpha = 0.7f),
-                            spotColor = AegisPurple.copy(alpha = 0.7f)
-                        )
-                        .clip(RoundedCornerShape(50))
-                        .drawBehind {
-                            val w = size.width
-                            val startX = (auroraPhase * 2f - 1f) * w
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colors = listOf(
-                                        AegisElectricBlue,
-                                        AegisPrimaryCyan,
-                                        AegisGoldBright.copy(alpha = 0.85f + 0.15f * glowPulse),
-                                        AegisPurple,
-                                        AegisPrimaryCyan,
-                                        AegisElectricBlue
-                                    ),
-                                    startX = startX,
-                                    endX = startX + w * 2.2f
-                                )
-                            )
-                        }
-                        .testTag("vip_nav_active_line")
-                )
             }
         }
     }

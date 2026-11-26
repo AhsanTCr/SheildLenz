@@ -603,7 +603,11 @@ class SheildlenzUiOverhaulRobolectricTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag("vip_animated_bottom_bar").assertIsDisplayed()
-        composeRule.onNodeWithTag("vip_nav_active_line").assertIsDisplayed()
+        composeRule.onNodeWithTag(
+            "vip_animated_nav_icon_${AegisDestinations.HOME}",
+            useUnmergedTree = true
+        ).assertIsDisplayed()
+        composeRule.onNodeWithTag("vip_nav_active_line").assertDoesNotExist()
 
         composeRule.onNodeWithTag("nav_tab_${AegisDestinations.EDITS}").performClick()
         composeRule.waitForIdle()

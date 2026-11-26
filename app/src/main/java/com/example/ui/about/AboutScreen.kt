@@ -721,16 +721,15 @@ fun AboutScreen(
                             .testTag("about_more_builtins_card")
                     ) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { moreBuiltinsExpanded = !moreBuiltinsExpanded }
-                                .testTag("about_more_builtins_toggle")
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(min = 48.dp),
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { moreBuiltinsExpanded = !moreBuiltinsExpanded }
+                                    .heightIn(min = 48.dp)
+                                    .testTag("about_more_builtins_toggle"),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(

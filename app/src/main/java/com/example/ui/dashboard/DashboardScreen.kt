@@ -133,10 +133,12 @@ import com.example.ui.components.CyberTopBar
 import com.example.ui.components.HomeModelDownloadCard
 import com.example.ui.components.ModelManagerCard
 import com.example.ui.components.ProjectedOrbitPoint
+import com.example.ui.components.SafeBrowserBrandIcon
 import com.example.ui.components.SheildlenzBackdrop
 import com.example.ui.components.drawVolumetric3DSphere
 import com.example.ui.components.projectOrbitPoint3D
 import com.example.ui.components.rememberMasterKeyGate
+import com.example.ui.components.vipAnimatedCorners
 import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
@@ -175,7 +177,8 @@ fun DashboardScreen(
     onNavigateToStatus: () -> Unit = {},
     onNavigateToProgress: () -> Unit = {},
     onNavigateToWellbeing: () -> Unit = {},
-    onNavigateToFocusHub: () -> Unit = {}
+    onNavigateToFocusHub: () -> Unit = {},
+    onNavigateToSafeBrowser: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -204,6 +207,7 @@ fun DashboardScreen(
     val pauseWhenScreenOff by preferences.pauseWhenScreenOff.collectAsState()
     val skipDuplicateFrames by preferences.skipDuplicateFrames.collectAsState()
     val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
+    val fullBrowserInstalled by preferences.fullBrowserEngineInstalled.collectAsState()
 
     val isStudyActive = remember(studyModeEnabled, studySessionEndMillis) {
         studyModeEnabled && preferences.getRemainingStudyMillis() > 0L
@@ -870,6 +874,12 @@ fun DashboardScreen(
                                 ambientColor = heroShadowColor,
                                 spotColor = heroShadowColor
                             )
+                            .vipAnimatedCorners(
+                                cornerRadius = 34.dp,
+                                accentStart = if (isOn) AegisElectricBlue else AegisPrimaryCyan,
+                                accentEnd = AegisPurple,
+                                strokeWidth = 2.2.dp
+                            )
                             .testTag("vip_quantum_shield_card"),
                         shape = heroShape,
                         color = Color.Transparent,
@@ -1303,6 +1313,107 @@ fun DashboardScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // 1aa. VIP Safe Browser Card on Home (Light Quick Mode -> Full Chrome Replacement)
+                item(key = "home_safe_browser") {
+                    CyberCard(
+                        borderColor = AegisLavenderBorder,
+                        tone = CyberCardTone.SKY,
+                        onClick = {
+                            AegisSoundEffects.playTap(context)
+                            onNavigateToSafeBrowser()
+                        },
+                        modifier = Modifier
+                            .widthIn(max = 540.dp)
+                            .testTag("home_safe_browser_card")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 10.dp)
+                            ) {
+                                SafeBrowserBrandIcon(
+                                    size = 46.dp,
+                                    isProUnlocked = fullBrowserInstalled
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Safe Browser",
+                                            color = AegisTextPrimary,
+                                            fontSize = 15.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = ClassicalDisplayFont,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(50))
+                                                .background(
+                                                    if (fullBrowserInstalled) AegisPurple.copy(alpha = 0.14f)
+                                                    else AegisPrimaryCyan.copy(alpha = 0.14f)
+                                                )
+                                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = if (fullBrowserInstalled) "FULL PRO" else "LIGHT MODE",
+                                                color = if (fullBrowserInstalled) AegisPurple else AegisPrimaryCyan,
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = if (fullBrowserInstalled) {
+                                            "Full Chrome engine • Tabs, imports & dual Shield filter"
+                                        } else {
+                                            "Fast private browser • Tap to launch or upgrade Pro"
+                                        },
+                                        color = AegisTextSecondary,
+                                        fontSize = 11.sp,
+                                        fontFamily = ClassicalBodyFont,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Button(
+                                onClick = {
+                                    AegisSoundEffects.playTap(context)
+                                    onNavigateToSafeBrowser()
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (fullBrowserInstalled) AegisPurple else AegisPrimaryCyan,
+                                    contentColor = AegisOnPrimaryWhite
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("home_safe_browser_open_button")
+                            ) {
+                                Text(
+                                    text = "OPEN",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
                     }
@@ -2006,6 +2117,12 @@ private fun HomeOneTapFeatureTile(
                 shape = tileShape,
                 ambientColor = accentColor.copy(alpha = 0.14f),
                 spotColor = accentColor.copy(alpha = 0.14f)
+            )
+            .vipAnimatedCorners(
+                cornerRadius = 18.dp,
+                accentStart = accentColor,
+                accentEnd = borderColor,
+                strokeWidth = 1.6.dp
             )
             .testTag(testTag)
     ) {
