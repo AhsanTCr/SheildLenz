@@ -1143,7 +1143,7 @@ fun SafeBrowserScreen(
                                          tag = "safe_browser_settings_button",
                                          onClick = { showBrowserSettingsDialog = true }
                                      )
-
+                                 }
                             }
                         }
 
