@@ -11,6 +11,8 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.core.models.SafeSearchPack
 import com.example.core.models.SecurityIncident
+import com.example.core.models.ShortVideoPlatform
+import com.example.core.models.ShortVideoScrollDetector
 import com.example.core.models.ThreatCategory
 import com.example.core.models.ThreatSeverity
 import com.example.data.preferences.AegisPreferences
@@ -37,6 +39,11 @@ class AegisAccessibilityService : AccessibilityService() {
     private var lastBrowserBlockTimeMs: Long = 0L
     private var lastUsageTrackedPkg: String? = null
     private var lastUsageTickUptimeMs: Long = 0L
+    private var lastOpenedTrackedPkg: String? = null
+    private var lastScrollSignature: String = ""
+    private var lastScrollCountTimeMs: Long = 0L
+    private var lastReelsScanTimeMs: Long = 0L
+    private var lastDetoxOrScrollLockTimeMs: Long = 0L
     private val studyLockedPackagesThisSession = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     @Volatile
     private var activeSoftWarningPkg: String? = null
@@ -60,7 +67,8 @@ class AegisAccessibilityService : AccessibilityService() {
         val eventType = event.eventType
         if (eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
-            eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED
+            eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED &&
+            eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED
         ) {
             return
         }
@@ -99,6 +107,18 @@ class AegisAccessibilityService : AccessibilityService() {
         }
         com.example.services.protection.ProfileAutoScheduler.evaluateAndApply(prefs)
         val now = SystemClock.uptimeMillis()
+
+        // Fast-path for vertical scroll swipes inside Short-Video apps (works whether Shield is ON or OFF)
+        if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            if (!prefs.maintenanceMode.value &&
+                !prefs.isLockdownActive() &&
+                !overlayController.isOverlayVisible &&
+                resolvedPkg in ShortVideoPlatform.ALL_PACKAGES
+            ) {
+                inspectShortVideoScroll(resolvedPkg, event, now)
+            }
+            return
+        }
 
         // 1. Whole-Device Lockdown Enforcement
         if (prefs.isLockdownActive() && !isAllowedDuringLockdown(resolvedPkg)) {
@@ -153,10 +173,21 @@ class AegisAccessibilityService : AccessibilityService() {
             return
         }
 
-        // 4. Track active monitored foreground application accurately across apps (including Chrome & returning to Sheildlenz)
+        // 4. Track active monitored foreground application accurately across apps (works whether Shield is ON or OFF)
         updateTrackedForegroundPackage(eventType, resolvedPkg)
         if (!isTransientOverlayPackage(resolvedPkg) && resolvedPkg != packageName) {
             prefs.onForegroundPackageChanged(resolvedPkg)
+        }
+        if (!isTransientOverlayPackage(resolvedPkg) && !isExemptSystemOrLauncherPackage(resolvedPkg)) {
+            if (resolvedPkg != lastOpenedTrackedPkg) {
+                lastOpenedTrackedPkg = resolvedPkg
+                lastScrollSignature = ""
+                prefs.recordAppOpen(resolvedPkg)
+            }
+        } else if (resolvedPkg == packageName || isExemptSystemOrLauncherPackage(resolvedPkg)) {
+            if (resolvedPkg != packageName) {
+                lastOpenedTrackedPkg = null
+            }
         }
 
         // 4b. Bedtime Lock & Daily Per-App Time Budget Enforcement (zero special usage permissions)
@@ -269,6 +300,83 @@ class AegisAccessibilityService : AccessibilityService() {
             return
         }
 
+        // 4e. Instant Detox & Reels/Shorts Scroll-Limit Cooldown Lock (Shield-independent)
+        if (!prefs.maintenanceMode.value && !isExemptSystemOrLauncherPackage(resolvedPkg)) {
+            if (prefs.isPackageBlockedByInstantDetox(resolvedPkg)) {
+                if (now - lastDetoxOrScrollLockTimeMs > 800L) {
+                    lastDetoxOrScrollLockTimeMs = now
+                    val appLabel = getAppLabel(resolvedPkg)
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    killBackgroundApp(this, resolvedPkg)
+                    overlayController.showScrollLimitLockOverlay(
+                        appName = appLabel,
+                        packageName = resolvedPkg,
+                        platformName = appLabel,
+                        watchedCount = prefs.dailyReelsTotalCount.value,
+                        limitCount = prefs.scrollLimitCount.value,
+                        isDetoxMode = true
+                    )
+                }
+                return
+            }
+
+            if (prefs.getRemainingScrollLockMillis(resolvedPkg) > 0L) {
+                if (now - lastDetoxOrScrollLockTimeMs > 800L) {
+                    lastDetoxOrScrollLockTimeMs = now
+                    val appLabel = getAppLabel(resolvedPkg)
+                    val plat = ShortVideoPlatform.findByPackage(resolvedPkg).firstOrNull()
+                    val watched = plat?.let { prefs.dailyReelsByPlatform.value[it.id] } ?: prefs.dailyReelsTotalCount.value
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    killBackgroundApp(this, resolvedPkg)
+                    overlayController.showScrollLimitLockOverlay(
+                        appName = appLabel,
+                        packageName = resolvedPkg,
+                        platformName = plat?.shortLabel ?: appLabel,
+                        watchedCount = watched,
+                        limitCount = prefs.scrollLimitCount.value,
+                        isDetoxMode = false
+                    )
+                }
+                return
+            }
+        }
+
+        // 4f. 5-Second Mindful Breathing Pause (Shield-independent)
+        if (!prefs.maintenanceMode.value &&
+            !isExemptSystemOrLauncherPackage(resolvedPkg) &&
+            (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) &&
+            prefs.shouldTriggerMindfulPauseForPackage(resolvedPkg) &&
+            !overlayController.isOverlayVisible
+        ) {
+            val appLabel = getAppLabel(resolvedPkg)
+            val opensToday = prefs.dailyAppOpensCount.value[resolvedPkg] ?: 1
+            val usedMinutesToday = prefs.getAppUsedSecondsToday(resolvedPkg) / 60
+            prefs.recordMindfulPauseShown(resolvedPkg, appLabel)
+            overlayController.showMindfulBreathingOverlay(
+                appName = appLabel,
+                packageName = resolvedPkg,
+                opensToday = opensToday,
+                usedMinutesToday = usedMinutesToday,
+                graceMinutes = prefs.mindfulGraceMinutes.value,
+                onExitHome = {
+                    prefs.recordMindfulExit(resolvedPkg, appLabel)
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                },
+                onContinue = {
+                    prefs.grantMindfulGracePass(resolvedPkg)
+                }
+            )
+            return
+        }
+
+        // 4g. Reels/Shorts Counter, Binge Nudge & Auto-Stop Scroll Guard (Shield-independent)
+        if (!prefs.maintenanceMode.value &&
+            !overlayController.isOverlayVisible &&
+            resolvedPkg in ShortVideoPlatform.ALL_PACKAGES
+        ) {
+            inspectShortVideoScroll(resolvedPkg, event, now)
+        }
+
         // 5. Real-time Chrome & Third-Party Browser URL / Search Safety Guard
         val isShieldArmed = prefs.isShieldDesiredActive.value ||
             container.protectionRepository.telemetry.value.isProtectionEnabled
@@ -308,15 +416,17 @@ class AegisAccessibilityService : AccessibilityService() {
         val nowUptime = SystemClock.uptimeMillis()
         val prevPkg = lastUsageTrackedPkg
         val prevTick = lastUsageTickUptimeMs
+        val shieldIsTrackingPrevPkg = container.protectionRepository.telemetry.value.isProtectionEnabled &&
+            !prevPkg.isNullOrBlank() &&
+            !container.preferences.isPackageWhitelisted(prevPkg)
         if (prevTick > 0L && !prevPkg.isNullOrBlank() &&
-            !container.protectionRepository.telemetry.value.isProtectionEnabled &&
+            !shieldIsTrackingPrevPkg &&
             !container.preferences.maintenanceMode.value &&
             !container.preferences.isLockdownActive() &&
-            !isExemptSystemOrLauncherPackage(prevPkg) &&
-            !container.preferences.isPackageWhitelisted(prevPkg)
+            !isExemptSystemOrLauncherPackage(prevPkg)
         ) {
             val deltaSec = ((nowUptime - prevTick) / 1000L).toInt()
-            if (deltaSec in 1..30) {
+            if (deltaSec in 1..300) {
                 container.preferences.recordAppUsageSeconds(prevPkg, deltaSec)
                 lastUsageTickUptimeMs = nowUptime
             }
@@ -331,6 +441,138 @@ class AegisAccessibilityService : AccessibilityService() {
             container.protectionRepository.updateActivePackage(verifiedPkg, appLabel)
         } else if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             container.protectionRepository.notifyScreenContextChanged()
+        }
+    }
+
+    private fun inspectShortVideoScroll(
+        pkgName: String,
+        event: AccessibilityEvent,
+        nowUptime: Long
+    ) {
+        if (nowUptime - lastReelsScanTimeMs < 450L) return
+        lastReelsScanTimeMs = nowUptime
+
+        val viewIds = mutableListOf<String>()
+        val labels = mutableListOf<String>()
+        val classNames = mutableListOf<String>()
+
+        for (item in event.text) {
+            val s = item?.toString()?.trim()
+            if (!s.isNullOrBlank() && s.length <= 160) {
+                labels.add(s)
+            }
+        }
+        event.className?.toString()?.let { classNames.add(it) }
+
+        val root = try {
+            rootInActiveWindow
+        } catch (_: Exception) {
+            null
+        }
+        if (root != null) {
+            try {
+                val rootPkg = root.packageName?.toString()
+                if (rootPkg == null || rootPkg == pkgName) {
+                    collectShortVideoSignals(root, depth = 0, viewIds = viewIds, labels = labels, classNames = classNames)
+                }
+            } finally {
+                @Suppress("DEPRECATION")
+                try {
+                    root.recycle()
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        val platform = ShortVideoScrollDetector.detectActivePlatform(
+            packageName = pkgName,
+            viewIds = viewIds,
+            labels = labels,
+            classNames = classNames,
+            enabledPlatformIds = ShortVideoPlatform.ALL_IDS
+        ) ?: return
+
+        val contentSig = ShortVideoScrollDetector.buildContentSignature(labels, viewIds)
+        if (contentSig.isBlank()) return
+        val fullSignature = "${platform.id}|$contentSig"
+        if (fullSignature == lastScrollSignature) return
+        if (nowUptime - lastScrollCountTimeMs < 1800L) return
+
+        lastScrollSignature = fullSignature
+        lastScrollCountTimeMs = nowUptime
+
+        val prefs = container.preferences
+        val appLabel = getAppLabel(pkgName)
+        val result = prefs.recordShortVideoScrolled(
+            platform = platform,
+            packageName = pkgName,
+            appLabel = appLabel
+        )
+
+        if (result.shouldTriggerScrollLock) {
+            Log.w(TAG, "Scroll limit reached in $appLabel (${result.sessionReelsSinceUnlock}/${result.scrollLimit}) — auto-stopping app.")
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            killBackgroundApp(this, pkgName)
+            overlayController.showScrollLimitLockOverlay(
+                appName = appLabel,
+                packageName = pkgName,
+                platformName = platform.shortLabel,
+                watchedCount = result.sessionReelsSinceUnlock,
+                limitCount = result.scrollLimit,
+                isDetoxMode = false
+            )
+        } else if (result.shouldTriggerBingeNudge) {
+            overlayController.showScrollBingeNudgeOverlay(
+                platformName = platform.shortLabel,
+                watchedCount = result.sessionReelsSinceUnlock,
+                limitCount = result.scrollLimit,
+                onStepAway = {
+                    prefs.recordMindfulExit(
+                        packageName = pkgName,
+                        appLabel = appLabel,
+                        detail = "Stepped away after ${result.sessionReelsSinceUnlock} ${platform.shortLabel} nudge"
+                    )
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                },
+                onKeepWatching = {}
+            )
+        }
+    }
+
+    private fun collectShortVideoSignals(
+        node: AccessibilityNodeInfo,
+        depth: Int,
+        viewIds: MutableList<String>,
+        labels: MutableList<String>,
+        classNames: MutableList<String>
+    ) {
+        if (depth > 7 || (viewIds.size >= 60 && labels.size >= 40)) return
+        node.viewIdResourceName?.takeIf { it.isNotBlank() }?.let {
+            if (viewIds.size < 60) viewIds.add(it)
+        }
+        node.className?.toString()?.takeIf { it.isNotBlank() }?.let {
+            if (classNames.size < 40) classNames.add(it)
+        }
+        node.text?.toString()?.trim()?.takeIf { it.isNotBlank() && it.length <= 160 }?.let {
+            if (labels.size < 40) labels.add(it)
+        }
+        node.contentDescription?.toString()?.trim()?.takeIf { it.isNotBlank() && it.length <= 160 }?.let {
+            if (labels.size < 40) labels.add(it)
+        }
+
+        val count = node.childCount.coerceAtMost(18)
+        for (i in 0 until count) {
+            if (viewIds.size >= 60 && labels.size >= 40) break
+            val child = node.getChild(i) ?: continue
+            try {
+                collectShortVideoSignals(child, depth + 1, viewIds, labels, classNames)
+            } finally {
+                @Suppress("DEPRECATION")
+                try {
+                    child.recycle()
+                } catch (_: Exception) {
+                }
+            }
         }
     }
 

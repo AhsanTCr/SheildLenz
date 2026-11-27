@@ -11,7 +11,9 @@ data class TimeBlockedAppEntity(
     val windowStartElapsedMs: Long = 0L,
     val usedMsInWindow: Long = 0L,
     val passExpiresAtElapsedMs: Long = 0L,
-    val addedAtElapsedMs: Long = 0L
+    val addedAtElapsedMs: Long = 0L,
+    val allowanceMs: Long = 300_000L,
+    val windowMs: Long = 3_600_000L
 )
 
 @Entity(tableName = "time_blocker_meta")

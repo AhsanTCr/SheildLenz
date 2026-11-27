@@ -22,18 +22,29 @@ class AppPassConnectorReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != ACTION_GRANT_APP_PASS) return
         val appContext = context.applicationContext
+        val container = AegisContainer.getInstance(appContext)
+        if (!container.preferences.piqoraxConnectorConnected.value) {
+            Log.w(TAG, "Ignored PiqoraX pass broadcast because PiqoraX Connector is not connected in Sheildlenz.")
+            return
+        }
+        val targetPackage = intent.getStringExtra(EXTRA_TARGET_PACKAGE)?.trim().orEmpty()
+        val durationMinutes = intent.getIntExtra(EXTRA_DURATION_MINUTES, DEFAULT_DURATION_MINUTES)
         val pendingResult = runCatching { goAsync() }.getOrNull()
 
         if (pendingResult == null) {
-            val repo = AegisContainer.getInstance(appContext).timeBlockerRepository
-            processPassBroadcast(intent, repo)
+            val res = processPassBroadcast(intent, container.timeBlockerRepository)
+            if (res == PassBridgeResult.GRANTED && targetPackage.isNotBlank()) {
+                container.preferences.recordPiqoraxPassGranted(targetPackage, durationMinutes)
+            }
             return
         }
 
         receiverScope.launch {
             try {
-                val repo = AegisContainer.getInstance(appContext).timeBlockerRepository
-                processPassBroadcast(intent, repo)
+                val res = processPassBroadcast(intent, container.timeBlockerRepository)
+                if (res == PassBridgeResult.GRANTED && targetPackage.isNotBlank()) {
+                    container.preferences.recordPiqoraxPassGranted(targetPackage, durationMinutes)
+                }
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed handling companion pass broadcast", t)
             } finally {

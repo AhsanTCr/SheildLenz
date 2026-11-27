@@ -41,6 +41,15 @@ object TimeBlockerEngine {
     const val BASE_ALLOWANCE_MS: Long = 300_000L
     const val HOURLY_WINDOW_MS: Long = 3_600_000L
 
+    fun effectiveAllowanceMs(record: TimeBlockedAppEntity): Long =
+        if (record.allowanceMs > 0L) record.allowanceMs else BASE_ALLOWANCE_MS
+
+    fun effectiveWindowMs(record: TimeBlockedAppEntity): Long {
+        val allowance = effectiveAllowanceMs(record)
+        val raw = if (record.windowMs > 0L) record.windowMs else HOURLY_WINDOW_MS
+        return raw.coerceAtLeast(allowance)
+    }
+
     fun hasActivePass(record: TimeBlockedAppEntity, nowElapsedMs: Long): Boolean {
         return record.passExpiresAtElapsedMs > 0L && nowElapsedMs < record.passExpiresAtElapsedMs
     }
@@ -70,8 +79,9 @@ object TimeBlockerEngine {
             )
         }
 
+        val windowDuration = effectiveWindowMs(clearedExpiredPass)
         val elapsedSinceWindowStart = nowElapsedMs - clearedExpiredPass.windowStartElapsedMs
-        return if (elapsedSinceWindowStart >= HOURLY_WINDOW_MS) {
+        return if (elapsedSinceWindowStart >= windowDuration) {
             clearedExpiredPass.copy(
                 windowStartElapsedMs = nowElapsedMs.coerceAtLeast(1L),
                 usedMsInWindow = 0L
@@ -92,7 +102,8 @@ object TimeBlockerEngine {
             // Tier 2 temporary pass bypasses Tier 1 allowance consumption
             return normalized
         }
-        val nextUsed = (normalized.usedMsInWindow + deltaMs).coerceAtMost(BASE_ALLOWANCE_MS)
+        val allowanceLimit = effectiveAllowanceMs(normalized)
+        val nextUsed = (normalized.usedMsInWindow + deltaMs).coerceAtMost(allowanceLimit)
         return normalized.copy(usedMsInWindow = nextUsed)
     }
 
@@ -113,6 +124,8 @@ object TimeBlockerEngine {
         }
 
         val normalized = normalizeWindow(record, nowElapsedMs)
+        val allowanceLimit = effectiveAllowanceMs(normalized)
+        val windowDuration = effectiveWindowMs(normalized)
         val passRemaining = (normalized.passExpiresAtElapsedMs - nowElapsedMs).coerceAtLeast(0L)
         val passActive = passRemaining > 0L
         if (!normalized.isRestricted) {
@@ -121,16 +134,16 @@ object TimeBlockerEngine {
                 isRestricted = false,
                 shouldBlock = false,
                 hasActivePass = passActive,
-                remainingAllowanceMs = BASE_ALLOWANCE_MS,
-                remainingResetMs = HOURLY_WINDOW_MS,
+                remainingAllowanceMs = allowanceLimit,
+                remainingResetMs = windowDuration,
                 passRemainingMs = passRemaining
             )
         }
-        val remainingAllowance = (BASE_ALLOWANCE_MS - normalized.usedMsInWindow).coerceAtLeast(0L)
+        val remainingAllowance = (allowanceLimit - normalized.usedMsInWindow).coerceAtLeast(0L)
         val remainingReset = if (normalized.windowStartElapsedMs > 0L) {
-            (HOURLY_WINDOW_MS - (nowElapsedMs - normalized.windowStartElapsedMs)).coerceIn(0L, HOURLY_WINDOW_MS)
+            (windowDuration - (nowElapsedMs - normalized.windowStartElapsedMs)).coerceIn(0L, windowDuration)
         } else {
-            HOURLY_WINDOW_MS
+            windowDuration
         }
 
         val shouldBlock = !passActive && remainingAllowance <= 0L
@@ -178,7 +191,7 @@ object TimeBlockerEngine {
         }
         val rebasedPassExpiry = if (remainingPassMs > 0L) safeNow + remainingPassMs else 0L
 
-        // Re-anchor hourly window cleanly in the new boot epoch so counters never get stuck
+        // Re-anchor rolling window cleanly in the new boot epoch so counters never get stuck
         // in a permanent negative-offset lock across reboots.
         return record.copy(
             windowStartElapsedMs = safeNow,
@@ -197,6 +210,17 @@ object TimeBlockerEngine {
             String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
         } else {
             String.format(Locale.US, "%02d:%02d", minutes, seconds)
+        }
+    }
+
+    fun formatMinutesCompact(totalMinutes: Int): String {
+        val safe = totalMinutes.coerceAtLeast(1)
+        val hours = safe / 60
+        val mins = safe % 60
+        return when {
+            hours > 0 && mins > 0 -> "${hours}h ${mins}m"
+            hours > 0 -> "${hours}h"
+            else -> "${mins}m"
         }
     }
 }

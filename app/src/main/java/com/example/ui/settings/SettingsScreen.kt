@@ -66,6 +66,7 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
@@ -258,7 +259,8 @@ fun SettingsScreen(
     protectionRepo: ProtectionRepository,
     onModelUpdated: () -> Unit = {},
     onNavigateToStatus: () -> Unit = {},
-    onNavigateToParents: () -> Unit = {}
+    onNavigateToParents: () -> Unit = {},
+    onNavigateToUsageScrollGuard: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val hasPin by preferences.hasGuardianPin.collectAsState()
@@ -313,6 +315,7 @@ fun SettingsScreen(
                     hasPin = hasPin,
                     parentalRole = parentalRole,
                     onModelUpdated = onModelUpdated,
+                    onNavigateToUsageScrollGuard = onNavigateToUsageScrollGuard,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
@@ -332,6 +335,7 @@ private fun UnlockedEditsContent(
     hasPin: Boolean,
     parentalRole: String?,
     onModelUpdated: () -> Unit,
+    onNavigateToUsageScrollGuard: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -352,6 +356,9 @@ private fun UnlockedEditsContent(
     val adaptiveCadenceEnabled by preferences.adaptiveCadenceEnabled.collectAsState()
     val autoThrottleLowBattery by preferences.autoThrottleLowBattery.collectAsState()
     val activeProtectionProfile by preferences.activeProtectionProfile.collectAsState()
+    val scrollLockEnabled by preferences.scrollLockEnabled.collectAsState()
+    val scrollLimitCount by preferences.scrollLimitCount.collectAsState()
+    val dailyReelsTotalCount by preferences.dailyReelsTotalCount.collectAsState()
 
     val stage1DurationLabel = AegisPreferences.formatMinutesLabel(lockdownDurationMinutes)
 
@@ -814,6 +821,20 @@ private fun UnlockedEditsContent(
                 item {
                     AppLockerSection(
                         preferences = preferences
+                    )
+                }
+                item(key = "edits_usage_scroll_guard") {
+                    EditsActionCard(
+                        title = "Usage & Scroll Guard",
+                        summary = "$dailyReelsTotalCount/$scrollLimitCount Reels • ${if (scrollLockEnabled) "Auto-Stop ON" else "Counter ON"}",
+                        icon = Icons.Default.HourglassBottom,
+                        accentColor = AegisEmeraldTeal,
+                        tone = CyberCardTone.EMERALD,
+                        borderColor = AegisEmeraldBorder,
+                        actionLabel = "OPEN",
+                        testTag = "edits_usage_scroll_guard_card",
+                        buttonTestTag = "edits_usage_scroll_guard_button",
+                        onClick = onNavigateToUsageScrollGuard
                     )
                 }
 

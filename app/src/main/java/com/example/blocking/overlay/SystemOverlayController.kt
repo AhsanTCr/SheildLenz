@@ -1,5 +1,6 @@
 package com.example.blocking.overlay
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -67,6 +68,19 @@ class SystemOverlayController(private val context: Context) {
     private var softWarningOnExpired: (() -> Unit)? = null
     private var appLockerPackageName: String = ""
 
+    private var mindfulBreathRemainingSec: Int = 5
+    private var mindfulBreathPackageName: String = ""
+    private var mindfulBreathHaloView: View? = null
+    private var mindfulBreathPhaseView: TextView? = null
+    private var mindfulBreathClockView: TextView? = null
+    private var mindfulContinueButton: Button? = null
+    private var mindfulContinueLabel: String = "CONTINUE"
+    private var mindfulHaloAnimator: ValueAnimator? = null
+
+    private var scrollLockPackageName: String = ""
+    private var scrollLockTimerView: TextView? = null
+    private var scrollLockIsDetox: Boolean = false
+
     private val tickerRunnable = object : Runnable {
         override fun run() {
             if (!isOverlayVisible || activeOverlayMode != OverlayMode.LOCKDOWN) return
@@ -91,9 +105,60 @@ class SystemOverlayController(private val context: Context) {
         }
     }
 
+    private val mindfulBreathTickerRunnable = object : Runnable {
+        override fun run() {
+            if (!isOverlayVisible || activeOverlayMode != OverlayMode.MINDFUL_BREATHING) return
+            mindfulBreathRemainingSec -= 1
+            if (mindfulBreathRemainingSec <= 0) {
+                mindfulBreathClockView?.text = "Ready"
+                mindfulBreathPhaseView?.text = "Take your time — choose intentionally"
+                mindfulContinueButton?.apply {
+                    isEnabled = true
+                    text = mindfulContinueLabel
+                    background = roundedBox("#E8F2FF", "#9AC2FE", 24f)
+                    setTextColor(Color.parseColor("#2563EB"))
+                }
+                return
+            }
+            mindfulBreathClockView?.text = "${mindfulBreathRemainingSec}s"
+            mindfulBreathPhaseView?.text = when (mindfulBreathRemainingSec) {
+                4, 5 -> "Breathe in slowly..."
+                2, 3 -> "Hold gently..."
+                else -> "Exhale & decide..."
+            }
+            mindfulContinueButton?.text = "BREATHE (${mindfulBreathRemainingSec}s)"
+            mainHandler.postDelayed(this, 1000L)
+        }
+    }
+
+    private val scrollLockTickerRunnable = object : Runnable {
+        override fun run() {
+            if (!isOverlayVisible || activeOverlayMode != OverlayMode.SCROLL_LIMIT_LOCK) return
+            val prefs = AegisContainer.getInstance(context).preferences
+            val remainingMs = if (scrollLockIsDetox) {
+                prefs.getRemainingDetoxMillis()
+            } else {
+                prefs.getRemainingScrollLockMillis(scrollLockPackageName)
+            }
+            if (remainingMs <= 0L) {
+                dismissBlockOverlay()
+                return
+            }
+            scrollLockTimerView?.text = "Unlocks in ${formatDuration(remainingMs)}"
+            mainHandler.postDelayed(this, 1000L)
+        }
+    }
+
     @Volatile
     var isOverlayVisible: Boolean = false
         private set
+
+    fun isShowingMindfulOrScrollOverlay(): Boolean =
+        isOverlayVisible && (
+            activeOverlayMode == OverlayMode.MINDFUL_BREATHING ||
+                activeOverlayMode == OverlayMode.SCROLL_BINGE_NUDGE ||
+                activeOverlayMode == OverlayMode.SCROLL_LIMIT_LOCK
+            )
 
     fun showLockdownOverlay(incidentInfo: LockdownIncidentInfo) {
         if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) {
@@ -422,10 +487,183 @@ class SystemOverlayController(private val context: Context) {
         }
     }
 
+    fun showMindfulBreathingOverlay(
+        appName: String,
+        packageName: String,
+        opensToday: Int,
+        usedMinutesToday: Int,
+        graceMinutes: Int,
+        onExitHome: () -> Unit,
+        onContinue: () -> Unit
+    ) {
+        if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) {
+            dismissBlockOverlay()
+            return
+        }
+        if (!PermissionHelper.hasOverlayPermission(context)) {
+            Log.w(TAG, "Cannot show mindful breathing overlay: SYSTEM_ALERT_WINDOW permission missing.")
+            return
+        }
+
+        mainHandler.post {
+            val prefs = AegisContainer.getInstance(context).preferences
+            if (!prefs.masterPowerEnabled.value) {
+                removeCurrentViewImmediate()
+                activeOverlayMode = OverlayMode.NONE
+                return@post
+            }
+            if (prefs.isLockdownActive()) {
+                showLockdownOverlay(prefs.lockdownIncidentInfo.value)
+                return@post
+            }
+            if (isOverlayVisible &&
+                activeOverlayMode == OverlayMode.MINDFUL_BREATHING &&
+                mindfulBreathPackageName == packageName
+            ) {
+                return@post
+            }
+            removeCurrentViewImmediate()
+            activeOverlayMode = OverlayMode.MINDFUL_BREATHING
+            mindfulBreathPackageName = packageName
+            mindfulBreathRemainingSec = 5
+            mindfulContinueLabel = if (graceMinutes > 0) {
+                "CONTINUE TO $appName (${graceMinutes}m)".uppercase(Locale.US)
+            } else {
+                "CONTINUE TO $appName".uppercase(Locale.US)
+            }
+            try {
+                val view = createMindfulBreathingLayout(
+                    appName = appName,
+                    opensToday = opensToday,
+                    usedMinutesToday = usedMinutesToday,
+                    onExitHome = onExitHome,
+                    onContinue = onContinue
+                )
+                windowManager?.addView(view, buildFullscreenLayoutParams())
+                overlayView = view
+                isOverlayVisible = true
+                mainHandler.removeCallbacks(mindfulBreathTickerRunnable)
+                mainHandler.postDelayed(mindfulBreathTickerRunnable, 1000L)
+                Log.i(TAG, "Mindful 5s breathing overlay presented for $packageName.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to present Mindful Breathing Overlay", e)
+            }
+        }
+    }
+
+    fun showScrollBingeNudgeOverlay(
+        platformName: String,
+        watchedCount: Int,
+        limitCount: Int,
+        onStepAway: () -> Unit,
+        onKeepWatching: () -> Unit
+    ) {
+        if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) {
+            dismissBlockOverlay()
+            return
+        }
+        if (!PermissionHelper.hasOverlayPermission(context)) return
+
+        mainHandler.post {
+            val prefs = AegisContainer.getInstance(context).preferences
+            if (!prefs.masterPowerEnabled.value) {
+                removeCurrentViewImmediate()
+                activeOverlayMode = OverlayMode.NONE
+                return@post
+            }
+            if (prefs.isLockdownActive()) {
+                showLockdownOverlay(prefs.lockdownIncidentInfo.value)
+                return@post
+            }
+            if (isOverlayVisible && activeOverlayMode == OverlayMode.SCROLL_BINGE_NUDGE) {
+                return@post
+            }
+            removeCurrentViewImmediate()
+            activeOverlayMode = OverlayMode.SCROLL_BINGE_NUDGE
+            try {
+                val view = createScrollBingeNudgeLayout(
+                    platformName = platformName,
+                    watchedCount = watchedCount,
+                    limitCount = limitCount,
+                    onStepAway = onStepAway,
+                    onKeepWatching = onKeepWatching
+                )
+                windowManager?.addView(view, buildFullscreenLayoutParams())
+                overlayView = view
+                isOverlayVisible = true
+                Log.i(TAG, "Scroll binge halfway nudge presented ($watchedCount / $limitCount).")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to present Binge Nudge Overlay", e)
+            }
+        }
+    }
+
+    fun showScrollLimitLockOverlay(
+        appName: String,
+        packageName: String,
+        platformName: String,
+        watchedCount: Int,
+        limitCount: Int,
+        isDetoxMode: Boolean = false
+    ) {
+        if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) {
+            dismissBlockOverlay()
+            return
+        }
+        if (!PermissionHelper.hasOverlayPermission(context)) {
+            Log.w(TAG, "Cannot show scroll limit lock overlay: SYSTEM_ALERT_WINDOW permission missing.")
+            return
+        }
+
+        mainHandler.post {
+            val prefs = AegisContainer.getInstance(context).preferences
+            if (!prefs.masterPowerEnabled.value) {
+                removeCurrentViewImmediate()
+                activeOverlayMode = OverlayMode.NONE
+                return@post
+            }
+            if (prefs.isLockdownActive()) {
+                showLockdownOverlay(prefs.lockdownIncidentInfo.value)
+                return@post
+            }
+            if (isOverlayVisible &&
+                activeOverlayMode == OverlayMode.SCROLL_LIMIT_LOCK &&
+                scrollLockPackageName == packageName &&
+                scrollLockIsDetox == isDetoxMode
+            ) {
+                return@post
+            }
+            removeCurrentViewImmediate()
+            activeOverlayMode = OverlayMode.SCROLL_LIMIT_LOCK
+            scrollLockPackageName = packageName
+            scrollLockIsDetox = isDetoxMode
+            try {
+                val view = createScrollLimitLockLayout(
+                    appName = appName,
+                    packageName = packageName,
+                    platformName = platformName,
+                    watchedCount = watchedCount,
+                    limitCount = limitCount,
+                    isDetoxMode = isDetoxMode
+                )
+                windowManager?.addView(view, buildFullscreenLayoutParams())
+                overlayView = view
+                isOverlayVisible = true
+                mainHandler.removeCallbacks(scrollLockTickerRunnable)
+                mainHandler.postDelayed(scrollLockTickerRunnable, 1000L)
+                Log.i(TAG, "Scroll Limit Lock overlay presented for $packageName (detox=$isDetoxMode).")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to present Scroll Limit Lock Overlay", e)
+            }
+        }
+    }
+
     fun dismissBlockOverlay() {
         mainHandler.post {
             mainHandler.removeCallbacks(tickerRunnable)
             mainHandler.removeCallbacks(softWarningTickerRunnable)
+            mainHandler.removeCallbacks(mindfulBreathTickerRunnable)
+            mainHandler.removeCallbacks(scrollLockTickerRunnable)
             removeCurrentViewImmediate()
             activeOverlayMode = OverlayMode.NONE
         }
@@ -433,6 +671,10 @@ class SystemOverlayController(private val context: Context) {
 
     private fun removeCurrentViewImmediate() {
         mainHandler.removeCallbacks(softWarningTickerRunnable)
+        mainHandler.removeCallbacks(mindfulBreathTickerRunnable)
+        mainHandler.removeCallbacks(scrollLockTickerRunnable)
+        mindfulHaloAnimator?.cancel()
+        mindfulHaloAnimator = null
         if (overlayView != null) {
             try {
                 windowManager?.removeView(overlayView)
@@ -453,6 +695,14 @@ class SystemOverlayController(private val context: Context) {
                 softWarningAppLabel = ""
                 softWarningOnExpired = null
                 appLockerPackageName = ""
+                mindfulBreathHaloView = null
+                mindfulBreathPhaseView = null
+                mindfulBreathClockView = null
+                mindfulContinueButton = null
+                mindfulBreathPackageName = ""
+                scrollLockPackageName = ""
+                scrollLockTimerView = null
+                scrollLockIsDetox = false
             }
         }
     }
@@ -2076,6 +2326,404 @@ class SystemOverlayController(private val context: Context) {
         }
     }
 
+    private fun createMindfulBreathingLayout(
+        appName: String,
+        opensToday: Int,
+        usedMinutesToday: Int,
+        onExitHome: () -> Unit,
+        onContinue: () -> Unit
+    ): View {
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(
+                    Color.parseColor("#DCEBFF"),
+                    Color.parseColor("#E3FAF4"),
+                    Color.parseColor("#EDE6FF")
+                )
+            )
+            setPadding(56, 72, 56, 72)
+            isClickable = true
+            isFocusable = true
+        }
+
+        val badge = TextView(context).apply {
+            text = "MINDFUL BREATHING PAUSE"
+            setTextColor(Color.parseColor("#0D9488"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = roundedBox("#E3FAF4", "#7ADBC9", 50f)
+            setPadding(32, 12, 32, 12)
+        }
+        root.addView(badge)
+
+        val title = TextView(context).apply {
+            text = "Pause Before Opening $appName"
+            setTextColor(Color.parseColor("#1A3673"))
+            textSize = 23f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 22, 0, 8)
+        }
+        root.addView(title)
+
+        val statsChip = TextView(context).apply {
+            text = "Opened $opensToday time(s) today • ${usedMinutesToday}m used today"
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 12f
+            gravity = Gravity.CENTER
+            background = roundedBox("#E8F2FF", "#9AC2FE", 40f)
+            setPadding(28, 12, 28, 12)
+        }
+        root.addView(statsChip)
+        root.addView(verticalSpacer(28))
+
+        val halo = View(context).apply {
+            val sizePx = (146 * context.resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#330D9488"))
+                setStroke(6, Color.parseColor("#0D9488"))
+            }
+        }
+        mindfulBreathHaloView = halo
+        root.addView(halo)
+
+        mindfulHaloAnimator = ValueAnimator.ofFloat(0.76f, 1.08f).apply {
+            duration = 2500L
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            addUpdateListener { anim ->
+                val v = anim.animatedValue as Float
+                halo.scaleX = v
+                halo.scaleY = v
+            }
+            start()
+        }
+
+        val clock = TextView(context).apply {
+            text = "5s"
+            setTextColor(Color.parseColor("#0D9488"))
+            textSize = 40f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 14, 0, 4)
+        }
+        mindfulBreathClockView = clock
+        root.addView(clock)
+
+        val phase = TextView(context).apply {
+            text = "Breathe in slowly..."
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 14f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+        }
+        mindfulBreathPhaseView = phase
+        root.addView(phase)
+
+        root.addView(verticalSpacer(28))
+
+        val exitHomeBtn = Button(context).apply {
+            text = "CLOSE & RETURN HOME"
+            setTextColor(Color.WHITE)
+            background = roundedBox("#0D9488", "#0D9488", 24f)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 24, 24, 24)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                dismissBlockOverlay()
+                onExitHome()
+            }
+        }
+        root.addView(exitHomeBtn)
+        root.addView(verticalSpacer(12))
+
+        val continueBtn = Button(context).apply {
+            text = "BREATHE (5s)"
+            isEnabled = false
+            setTextColor(Color.parseColor("#5D76B0"))
+            background = roundedBox("#F1F5FF", "#C0AEFD", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 22, 24, 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                if (isEnabled) {
+                    dismissBlockOverlay()
+                    onContinue()
+                }
+            }
+        }
+        mindfulContinueButton = continueBtn
+        root.addView(continueBtn)
+
+        return root
+    }
+
+    private fun createScrollBingeNudgeLayout(
+        platformName: String,
+        watchedCount: Int,
+        limitCount: Int,
+        onStepAway: () -> Unit,
+        onKeepWatching: () -> Unit
+    ): View {
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.parseColor("#EDE6FF"), Color.parseColor("#DCEBFF"))
+            )
+            setPadding(56, 72, 56, 72)
+            isClickable = true
+            isFocusable = true
+        }
+
+        val badge = TextView(context).apply {
+            text = "DOOMSCROLL CHECK-IN"
+            setTextColor(Color.parseColor("#7C5CFA"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = roundedBox("#EDE6FF", "#C0AEFD", 50f)
+            setPadding(32, 12, 32, 12)
+        }
+        root.addView(badge)
+
+        val title = TextView(context).apply {
+            text = "$watchedCount $platformName Watched"
+            setTextColor(Color.parseColor("#1A3673"))
+            textSize = 24f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 22, 0, 10)
+        }
+        root.addView(title)
+
+        val desc = TextView(context).apply {
+            text = "You've scrolled $watchedCount short videos (auto-stop limit is $limitCount). Want to step away now and save your focus?"
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 13.5f
+            gravity = Gravity.CENTER
+            setPadding(28, 22, 28, 24)
+            background = roundedBox("#FFFFFF", "#C0AEFD", 32f)
+        }
+        root.addView(desc)
+        root.addView(verticalSpacer(24))
+
+        val stepAwayBtn = Button(context).apply {
+            text = "STEP AWAY & RETURN HOME"
+            setTextColor(Color.WHITE)
+            background = roundedBox("#0D9488", "#0D9488", 24f)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 24, 24, 24)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                dismissBlockOverlay()
+                onStepAway()
+            }
+        }
+        root.addView(stepAwayBtn)
+        root.addView(verticalSpacer(12))
+
+        val keepBtn = Button(context).apply {
+            text = "KEEP WATCHING (LIMIT AT $limitCount)"
+            setTextColor(Color.parseColor("#7C5CFA"))
+            background = roundedBox("#FFFFFF", "#C0AEFD", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 22, 24, 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                dismissBlockOverlay()
+                onKeepWatching()
+            }
+        }
+        root.addView(keepBtn)
+
+        return root
+    }
+
+    private fun createScrollLimitLockLayout(
+        appName: String,
+        packageName: String,
+        platformName: String,
+        watchedCount: Int,
+        limitCount: Int,
+        isDetoxMode: Boolean
+    ): View {
+        val prefs = AegisContainer.getInstance(context).preferences
+        val hasPin = prefs.hasGuardianPin.value
+        val remainingMs = if (isDetoxMode) prefs.getRemainingDetoxMillis() else prefs.getRemainingScrollLockMillis(packageName)
+
+        val scroll = ScrollView(context).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(
+                    Color.parseColor("#DCEBFF"),
+                    Color.parseColor("#EDE6FF"),
+                    Color.parseColor("#FFF1CE")
+                )
+            )
+            isFillViewport = true
+            isClickable = true
+            isFocusable = true
+        }
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(52, 72, 52, 72)
+        }
+
+        val badge = TextView(context).apply {
+            text = if (isDetoxMode) "INSTANT DETOX LOCK" else "SCROLL LIMIT REACHED"
+            setTextColor(Color.parseColor("#D9820B"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = roundedBox("#FFF1CE", "#F2C667", 50f)
+            setPadding(32, 12, 32, 12)
+        }
+        root.addView(badge)
+
+        val title = TextView(context).apply {
+            text = if (isDetoxMode) {
+                "$appName Paused for Detox"
+            } else {
+                "$appName Stopped at $watchedCount / $limitCount"
+            }
+            setTextColor(Color.parseColor("#1A3673"))
+            textSize = 23f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 22, 0, 8)
+        }
+        root.addView(title)
+
+        val timerView = TextView(context).apply {
+            text = "Unlocks in ${formatDuration(remainingMs.coerceAtLeast(1000L))}"
+            setTextColor(Color.parseColor("#7C5CFA"))
+            textSize = 18f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 4, 0, 16)
+        }
+        scrollLockTimerView = timerView
+        root.addView(timerView)
+
+        val desc = TextView(context).apply {
+            text = if (isDetoxMode) {
+                "Instant Detox is protecting your focus. Take a refreshing offline break until the timer finishes."
+            } else {
+                "You reached your $limitCount $platformName scroll limit. Sheildlenz stopped $appName automatically.\n\nCalm Break Idea: Drink a glass of water, stretch for 60s, or rest your eyes."
+            }
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(28, 22, 28, 24)
+            background = roundedBox("#FFFFFF", "#F2C667", 32f)
+        }
+        root.addView(desc)
+        root.addView(verticalSpacer(20))
+
+        if (hasPin) {
+            val pinField = EditText(context).apply {
+                hint = "Guardian PIN (Unlock Early)"
+                setHintTextColor(Color.parseColor("#5D76B0"))
+                setTextColor(Color.parseColor("#1A3673"))
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                imeOptions = EditorInfo.IME_ACTION_DONE
+                isSingleLine = true
+                typeface = Typeface.MONOSPACE
+                textSize = 14f
+                gravity = Gravity.CENTER
+                background = roundedBox("#E8F2FF", "#9AC2FE", 22f)
+                setPadding(24, 20, 24, 20)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            root.addView(pinField)
+            root.addView(verticalSpacer(12))
+
+            val unlockBtn = Button(context).apply {
+                text = "UNLOCK WITH GUARDIAN PIN"
+                setTextColor(Color.WHITE)
+                background = roundedBox("#2563EB", "#2563EB", 24f)
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(24, 22, 24, 22)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setOnClickListener {
+                    if (prefs.verifyGuardianPin(pinField.text.toString())) {
+                        if (isDetoxMode) {
+                            prefs.stopInstantDetox()
+                        } else {
+                            prefs.unlockScrollLockWithPin(packageName)
+                        }
+                        dismissBlockOverlay()
+                        Toast.makeText(context, "$appName unlocked.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        pinField.setText("")
+                        Toast.makeText(context, "Incorrect Guardian PIN.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            bindPinSubmitOnEnter(pinField, unlockBtn)
+            root.addView(unlockBtn)
+            root.addView(verticalSpacer(12))
+        }
+
+        val homeBtn = Button(context).apply {
+            text = "RETURN TO HOME SCREEN"
+            setTextColor(Color.parseColor("#2563EB"))
+            background = roundedBox("#E8F2FF", "#9AC2FE", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 22, 24, 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(homeIntent)
+                dismissBlockOverlay()
+            }
+        }
+        root.addView(homeBtn)
+
+        scroll.addView(root)
+        return scroll
+    }
+
     private enum class OverlayMode {
         NONE,
         LOCKDOWN,
@@ -2084,7 +2732,10 @@ class SystemOverlayController(private val context: Context) {
         USAGE_OR_BEDTIME,
         STUDY_SOFT_WARNING,
         STUDY_LOCK,
-        APP_LOCKER
+        APP_LOCKER,
+        MINDFUL_BREATHING,
+        SCROLL_BINGE_NUDGE,
+        SCROLL_LIMIT_LOCK
     }
 
     companion object {

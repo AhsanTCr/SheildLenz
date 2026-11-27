@@ -96,6 +96,7 @@ import com.example.ui.blocking.BlockOverlayScreen
 import com.example.ui.dashboard.DashboardScreen
 import com.example.ui.focus.FocusSafetyHubScreen
 import com.example.ui.history.SecurityHistoryScreen
+import com.example.ui.mindful.UsageAndScrollGuardScreen
 import com.example.ui.onboarding.OnboardingScreen
 import com.example.ui.parents.ParentsScreen
 import com.example.ui.protection.LiveProtectionScreen
@@ -375,7 +376,12 @@ fun AegisNavHost(
                             protectionRepo = container.protectionRepository,
                             onModelUpdated = { container.refreshModelTelemetry() },
                             onNavigateToStatus = { navigateToTab(AegisDestinations.STATUS) },
-                            onNavigateToParents = { navigateToTab(AegisDestinations.PARENTS) }
+                            onNavigateToParents = { navigateToTab(AegisDestinations.PARENTS) },
+                            onNavigateToUsageScrollGuard = {
+                                navController.navigate(AegisDestinations.USAGE_SCROLL_GUARD) {
+                                    launchSingleTop = true
+                                }
+                            }
                         )
                     }
 
@@ -405,6 +411,11 @@ fun AegisNavHost(
                             },
                             onNavigateToEdits = {
                                 navigateToTab(AegisDestinations.EDITS)
+                            },
+                            onNavigateToUsageScrollGuard = {
+                                navController.navigate(AegisDestinations.USAGE_SCROLL_GUARD) {
+                                    launchSingleTop = true
+                                }
                             }
                         )
                     }
@@ -421,6 +432,14 @@ fun AegisNavHost(
                         WellbeingHubScreen(
                             preferences = container.preferences,
                             blockedDnsLogRepo = container.blockedDnsLogRepository,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(AegisDestinations.USAGE_SCROLL_GUARD) {
+                        UsageAndScrollGuardScreen(
+                            preferences = container.preferences,
+                            protectionRepo = container.protectionRepository,
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }

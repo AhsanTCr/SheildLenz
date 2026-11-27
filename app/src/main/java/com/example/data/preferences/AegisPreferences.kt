@@ -5,8 +5,12 @@ import android.content.SharedPreferences
 import android.os.SystemClock
 import androidx.annotation.VisibleForTesting
 import com.example.core.audio.AegisSoundEffects
+import com.example.core.models.DailyScrollSnapshot
+import com.example.core.models.MindfulScrollEvent
 import com.example.core.models.SafeSearchPack
 import com.example.core.models.SensitivityLevel
+import com.example.core.models.ShortVideoPlatform
+import com.example.core.models.ShortVideoScrollResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +18,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -902,6 +907,129 @@ class AegisPreferences(context: Context) {
 
     @Volatile
     private var activeUnlockedAppPackage: String? = null
+
+    // Mindful Pause, Reels/Shorts Counter & Slider-Driven Scroll-Limit Auto-Lock
+    private val _scrollLockEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_SCROLL_LOCK_ENABLED, true)
+    )
+    val scrollLockEnabled: StateFlow<Boolean> = _scrollLockEnabled.asStateFlow()
+
+    private val _scrollLimitCount = MutableStateFlow(
+        prefs.getInt(KEY_SCROLL_LIMIT_COUNT, 20).coerceIn(5, 60)
+    )
+    val scrollLimitCount: StateFlow<Int> = _scrollLimitCount.asStateFlow()
+
+    private val _scrollLockCooldownMinutes = MutableStateFlow(
+        prefs.getInt(KEY_SCROLL_LOCK_COOLDOWN_MINUTES, 15).coerceIn(5, 60)
+    )
+    val scrollLockCooldownMinutes: StateFlow<Int> = _scrollLockCooldownMinutes.asStateFlow()
+
+    private val _scrollBingeNudgeCount = MutableStateFlow(
+        prefs.getInt(KEY_SCROLL_BINGE_NUDGE_COUNT, 10).coerceIn(0, 25)
+    )
+    val scrollBingeNudgeCount: StateFlow<Int> = _scrollBingeNudgeCount.asStateFlow()
+
+    private val _reelsGuardPlatforms = MutableStateFlow(
+        prefs.getStringSet(KEY_REELS_GUARD_PLATFORMS, ShortVideoPlatform.ALL_IDS)
+            ?.toSet()
+            ?: ShortVideoPlatform.ALL_IDS
+    )
+    val reelsGuardPlatforms: StateFlow<Set<String>> = _reelsGuardPlatforms.asStateFlow()
+
+    private val _mindfulPauseEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_MINDFUL_PAUSE_ENABLED, false)
+    )
+    val mindfulPauseEnabled: StateFlow<Boolean> = _mindfulPauseEnabled.asStateFlow()
+
+    private val _mindfulPausePackages = MutableStateFlow(
+        prefs.getStringSet(KEY_MINDFUL_PAUSE_PACKAGES, emptySet())?.toSet() ?: emptySet()
+    )
+    val mindfulPausePackages: StateFlow<Set<String>> = _mindfulPausePackages.asStateFlow()
+
+    private val _mindfulGraceMinutes = MutableStateFlow(
+        prefs.getInt(KEY_MINDFUL_GRACE_MINUTES, 10).coerceIn(0, 30)
+    )
+    val mindfulGraceMinutes: StateFlow<Int> = _mindfulGraceMinutes.asStateFlow()
+
+    private val _instantDetoxUntilMillis = MutableStateFlow(
+        prefs.getLong(KEY_INSTANT_DETOX_UNTIL_MILLIS, 0L)
+    )
+    val instantDetoxUntilMillis: StateFlow<Long> = _instantDetoxUntilMillis.asStateFlow()
+
+    private val _dailyReelsTotalCount = MutableStateFlow(
+        readDailyIntIfToday(KEY_DAILY_REELS_TOTAL, 0)
+    )
+    val dailyReelsTotalCount: StateFlow<Int> = _dailyReelsTotalCount.asStateFlow()
+
+    private val _dailyReelsByPlatform = MutableStateFlow(
+        readDailyIntMapIfToday(KEY_DAILY_REELS_BY_PLATFORM)
+    )
+    val dailyReelsByPlatform: StateFlow<Map<String, Int>> = _dailyReelsByPlatform.asStateFlow()
+
+    private val _dailyAppOpensCount = MutableStateFlow(
+        readDailyIntMapIfToday(KEY_DAILY_APP_OPENS_MAP)
+    )
+    val dailyAppOpensCount: StateFlow<Map<String, Int>> = _dailyAppOpensCount.asStateFlow()
+
+    private val _dailyMindfulExitsCount = MutableStateFlow(
+        readDailyIntIfToday(KEY_DAILY_MINDFUL_EXITS, 0)
+    )
+    val dailyMindfulExitsCount: StateFlow<Int> = _dailyMindfulExitsCount.asStateFlow()
+
+    private val _dailyScrollLocksTriggered = MutableStateFlow(
+        readDailyIntIfToday(KEY_DAILY_SCROLL_LOCKS, 0)
+    )
+    val dailyScrollLocksTriggered: StateFlow<Int> = _dailyScrollLocksTriggered.asStateFlow()
+
+    private val _hourlyScrollBuckets = MutableStateFlow(
+        readDailyHourlyBuckets(todayDateKey())
+    )
+    val hourlyScrollBuckets: StateFlow<List<Int>> = _hourlyScrollBuckets.asStateFlow()
+
+    private val _weeklyScrollHistory = MutableStateFlow(
+        DailyScrollSnapshot.listFromJsonString(prefs.getString(KEY_WEEKLY_SCROLL_HISTORY, ""))
+    )
+    val weeklyScrollHistory: StateFlow<List<DailyScrollSnapshot>> = _weeklyScrollHistory.asStateFlow()
+
+    private val _cleanStreakDays = MutableStateFlow(
+        prefs.getInt(KEY_CLEAN_STREAK_DAYS, 0).coerceAtLeast(0)
+    )
+    val cleanStreakDays: StateFlow<Int> = _cleanStreakDays.asStateFlow()
+
+    private val _recentMindfulScrollEvents = MutableStateFlow(
+        MindfulScrollEvent.listFromJsonString(prefs.getString(KEY_RECENT_MINDFUL_EVENTS, ""))
+    )
+    val recentMindfulScrollEvents: StateFlow<List<MindfulScrollEvent>> = _recentMindfulScrollEvents.asStateFlow()
+
+    private val _scrollLockedUntilByPackage = MutableStateFlow(
+        readLongMap(KEY_SCROLL_LOCKED_UNTIL_MAP)
+    )
+    val scrollLockedUntilByPackage: StateFlow<Map<String, Long>> = _scrollLockedUntilByPackage.asStateFlow()
+
+    private val mindfulGraceUntilRealtime = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val scrollSessionBaselineByPkg = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val bingeSessionLastNudgeByPkg = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    // PiqoraX Connector & Timed App Blocker (Minutes / Hours)
+    private val _piqoraxConnectorConnected = MutableStateFlow(
+        prefs.getBoolean(KEY_PIQORAX_CONNECTOR_CONNECTED, false)
+    )
+    val piqoraxConnectorConnected: StateFlow<Boolean> = _piqoraxConnectorConnected.asStateFlow()
+
+    private val _timeBlockerAllowanceMinutes = MutableStateFlow(
+        prefs.getInt(KEY_TIME_BLOCKER_ALLOWANCE_MINUTES, 5).coerceIn(1, 180)
+    )
+    val timeBlockerAllowanceMinutes: StateFlow<Int> = _timeBlockerAllowanceMinutes.asStateFlow()
+
+    private val _timeBlockerWindowMinutes = MutableStateFlow(
+        prefs.getInt(KEY_TIME_BLOCKER_WINDOW_MINUTES, 60).coerceIn(5, 1440)
+    )
+    val timeBlockerWindowMinutes: StateFlow<Int> = _timeBlockerWindowMinutes.asStateFlow()
+
+    private val _piqoraxLastPassSummary = MutableStateFlow(
+        prefs.getString(KEY_PIQORAX_LAST_PASS_SUMMARY, "").orEmpty()
+    )
+    val piqoraxLastPassSummary: StateFlow<String> = _piqoraxLastPassSummary.asStateFlow()
 
     init {
         AegisSoundEffects.setEnabled(_touchSoundsEnabled.value)
@@ -2506,6 +2634,489 @@ class AegisPreferences(context: Context) {
         }.getOrDefault(false)
     }
 
+    // ------------------------------------------------------------------------
+    // Mindful Pause, Usage Insights & Reels/Shorts Scroll-Limit Auto-Lock
+    // ------------------------------------------------------------------------
+
+    fun setScrollLockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SCROLL_LOCK_ENABLED, enabled).apply()
+        _scrollLockEnabled.value = enabled
+    }
+
+    fun setScrollLimitCount(count: Int) {
+        val clamped = count.coerceIn(5, 60)
+        prefs.edit().putInt(KEY_SCROLL_LIMIT_COUNT, clamped).apply()
+        _scrollLimitCount.value = clamped
+    }
+
+    fun setScrollLockCooldownMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(5, 60)
+        prefs.edit().putInt(KEY_SCROLL_LOCK_COOLDOWN_MINUTES, clamped).apply()
+        _scrollLockCooldownMinutes.value = clamped
+    }
+
+    fun setScrollBingeNudgeCount(count: Int) {
+        val clamped = if (count <= 0) 0 else count.coerceIn(5, 25)
+        prefs.edit().putInt(KEY_SCROLL_BINGE_NUDGE_COUNT, clamped).apply()
+        _scrollBingeNudgeCount.value = clamped
+    }
+
+    fun setReelsGuardPlatforms(platforms: Set<String>) {
+        val clean = platforms.filter { ShortVideoPlatform.fromId(it) != null }.toSet()
+        prefs.edit().putStringSet(KEY_REELS_GUARD_PLATFORMS, clean).apply()
+        _reelsGuardPlatforms.value = clean
+    }
+
+    fun toggleReelsGuardPlatform(platformId: String) {
+        val next = _reelsGuardPlatforms.value.toMutableSet()
+        if (platformId in next) {
+            next.remove(platformId)
+        } else {
+            next.add(platformId)
+        }
+        setReelsGuardPlatforms(next)
+    }
+
+    fun setMindfulPauseEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MINDFUL_PAUSE_ENABLED, enabled).apply()
+        _mindfulPauseEnabled.value = enabled
+    }
+
+    fun setMindfulPausePackages(packages: Set<String>) {
+        val clean = packages.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        prefs.edit().putStringSet(KEY_MINDFUL_PAUSE_PACKAGES, clean).apply()
+        _mindfulPausePackages.value = clean
+    }
+
+    fun toggleMindfulPausePackage(packageName: String) {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return
+        val next = _mindfulPausePackages.value.toMutableSet()
+        if (clean in next) next.remove(clean) else next.add(clean)
+        setMindfulPausePackages(next)
+    }
+
+    fun setMindfulGraceMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(0, 30)
+        prefs.edit().putInt(KEY_MINDFUL_GRACE_MINUTES, clamped).apply()
+        _mindfulGraceMinutes.value = clamped
+    }
+
+    fun startInstantDetox(durationMinutes: Int = 15, nowMillis: Long = System.currentTimeMillis()) {
+        val clamped = durationMinutes.coerceIn(5, 180)
+        val until = nowMillis + clamped * 60_000L
+        prefs.edit().putLong(KEY_INSTANT_DETOX_UNTIL_MILLIS, until).apply()
+        _instantDetoxUntilMillis.value = until
+        appendMindfulEvent(
+            MindfulScrollEvent(
+                timestampMillis = nowMillis,
+                type = MindfulScrollEvent.TYPE_DETOX_LOCK,
+                appLabel = "Instant Detox",
+                packageName = "",
+                detail = "Started ${clamped}m Instant Detox focus lock"
+            )
+        )
+    }
+
+    fun stopInstantDetox() {
+        prefs.edit().putLong(KEY_INSTANT_DETOX_UNTIL_MILLIS, 0L).apply()
+        _instantDetoxUntilMillis.value = 0L
+    }
+
+    fun isInstantDetoxActive(nowMillis: Long = System.currentTimeMillis()): Boolean {
+        val until = _instantDetoxUntilMillis.value
+        if (until <= 0L) return false
+        if (nowMillis >= until) {
+            stopInstantDetox()
+            return false
+        }
+        return true
+    }
+
+    fun getRemainingDetoxMillis(nowMillis: Long = System.currentTimeMillis()): Long =
+        (_instantDetoxUntilMillis.value - nowMillis).coerceAtLeast(0L)
+
+    fun isPackageBlockedByInstantDetox(packageName: String, nowMillis: Long = System.currentTimeMillis()): Boolean {
+        if (!isInstantDetoxActive(nowMillis)) return false
+        return packageName in _mindfulPausePackages.value || packageName in ShortVideoPlatform.ALL_PACKAGES
+    }
+
+    fun isAnyMindfulOrScrollGuardActive(): Boolean =
+        _mindfulPauseEnabled.value ||
+            (_scrollLockEnabled.value && _reelsGuardPlatforms.value.isNotEmpty()) ||
+            isInstantDetoxActive()
+
+    fun getTotalUsageSecondsToday(dateKey: String = todayDateKey()): Int {
+        val map = readDailyUsageMap(dateKey)
+        if (_dailyAppUsageSeconds.value != map) {
+            _dailyAppUsageSeconds.value = map
+        }
+        return map.values.sum()
+    }
+
+    fun shouldTriggerMindfulPauseForPackage(packageName: String): Boolean {
+        if (!_mindfulPauseEnabled.value) return false
+        if (packageName !in _mindfulPausePackages.value) return false
+        return !hasActiveMindfulGracePass(packageName)
+    }
+
+    fun hasActiveMindfulGracePass(
+        packageName: String,
+        nowRealtime: Long = SystemClock.elapsedRealtime()
+    ): Boolean {
+        val until = mindfulGraceUntilRealtime[packageName] ?: return false
+        if (nowRealtime >= until) {
+            mindfulGraceUntilRealtime.remove(packageName)
+            return false
+        }
+        return true
+    }
+
+    fun grantMindfulGracePass(
+        packageName: String,
+        nowRealtime: Long = SystemClock.elapsedRealtime()
+    ) {
+        val mins = _mindfulGraceMinutes.value
+        if (mins <= 0) {
+            // Short 12-second transition grace so same-open window updates don't double-prompt
+            mindfulGraceUntilRealtime[packageName] = nowRealtime + 12_000L
+        } else {
+            mindfulGraceUntilRealtime[packageName] = nowRealtime + mins * 60_000L
+        }
+    }
+
+    fun recordAppOpen(
+        packageName: String,
+        dateKey: String = todayDateKey()
+    ): Int {
+        if (packageName.isBlank()) return 0
+        ensureMindfulDailyRollover(dateKey)
+        val current = _dailyAppOpensCount.value.toMutableMap()
+        val updated = (current[packageName] ?: 0) + 1
+        current[packageName] = updated
+        writeIntMap(KEY_DAILY_APP_OPENS_MAP, current)
+        _dailyAppOpensCount.value = current
+        return updated
+    }
+
+    fun recordMindfulPauseShown(
+        packageName: String,
+        appLabel: String,
+        nowMillis: Long = System.currentTimeMillis()
+    ) {
+        appendMindfulEvent(
+            MindfulScrollEvent(
+                timestampMillis = nowMillis,
+                type = MindfulScrollEvent.TYPE_MINDFUL_PAUSE,
+                appLabel = appLabel,
+                packageName = packageName,
+                detail = "5s breathing pause shown"
+            )
+        )
+    }
+
+    fun recordMindfulExit(
+        packageName: String,
+        appLabel: String,
+        detail: String = "Chose Close & Return Home after breathing pause",
+        dateKey: String = todayDateKey(),
+        nowMillis: Long = System.currentTimeMillis()
+    ): Int {
+        ensureMindfulDailyRollover(dateKey)
+        val next = _dailyMindfulExitsCount.value + 1
+        prefs.edit()
+            .putString(KEY_MINDFUL_DAILY_DATE, dateKey)
+            .putInt(KEY_DAILY_MINDFUL_EXITS, next)
+            .apply()
+        _dailyMindfulExitsCount.value = next
+        mindfulGraceUntilRealtime.remove(packageName)
+        appendMindfulEvent(
+            MindfulScrollEvent(
+                timestampMillis = nowMillis,
+                type = MindfulScrollEvent.TYPE_MINDFUL_EXIT,
+                appLabel = appLabel,
+                packageName = packageName,
+                detail = detail
+            )
+        )
+        return next
+    }
+
+    fun recordShortVideoScrolled(
+        platform: ShortVideoPlatform,
+        packageName: String,
+        appLabel: String,
+        dateKey: String = todayDateKey(),
+        nowMillis: Long = System.currentTimeMillis(),
+        hourOfDay: Int = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    ): ShortVideoScrollResult {
+        ensureMindfulDailyRollover(dateKey)
+
+        val newTotal = _dailyReelsTotalCount.value + 1
+        val byPlat = _dailyReelsByPlatform.value.toMutableMap()
+        val platNext = (byPlat[platform.id] ?: 0) + 1
+        byPlat[platform.id] = platNext
+
+        val buckets = _hourlyScrollBuckets.value.toMutableList().let {
+            if (it.size == 24) it else MutableList(24) { 0 }
+        }
+        val safeHour = hourOfDay.coerceIn(0, 23)
+        buckets[safeHour] = buckets[safeHour] + 1
+
+        prefs.edit()
+            .putString(KEY_MINDFUL_DAILY_DATE, dateKey)
+            .putInt(KEY_DAILY_REELS_TOTAL, newTotal)
+            .putString(KEY_DAILY_REELS_BY_PLATFORM, JSONObject(byPlat.mapValues { it.value }).toString())
+            .putString(KEY_HOURLY_SCROLL_BUCKETS, JSONArray(buckets).toString())
+            .apply()
+
+        _dailyReelsTotalCount.value = newTotal
+        _dailyReelsByPlatform.value = byPlat
+        _hourlyScrollBuckets.value = buckets
+
+        val baseline = scrollSessionBaselineByPkg[packageName] ?: 0
+        val sessionSinceUnlock = (platNext - baseline).coerceAtLeast(1)
+        val limit = _scrollLimitCount.value
+        val shouldLock = _scrollLockEnabled.value &&
+            platform.id in _reelsGuardPlatforms.value &&
+            sessionSinceUnlock >= limit
+
+        val bingeEvery = _scrollBingeNudgeCount.value
+        val lastNudgeAt = bingeSessionLastNudgeByPkg[packageName] ?: 0
+        val shouldNudge = !shouldLock &&
+            bingeEvery > 0 &&
+            sessionSinceUnlock >= bingeEvery &&
+            (sessionSinceUnlock - lastNudgeAt) >= bingeEvery
+
+        if (shouldNudge) {
+            bingeSessionLastNudgeByPkg[packageName] = sessionSinceUnlock
+            appendMindfulEvent(
+                MindfulScrollEvent(
+                    timestampMillis = nowMillis,
+                    type = MindfulScrollEvent.TYPE_BINGE_NUDGE,
+                    appLabel = appLabel,
+                    packageName = packageName,
+                    detail = "${platform.shortLabel}: $sessionSinceUnlock scrolled in a row"
+                )
+            )
+        }
+
+        if (shouldLock) {
+            val cooldownMs = _scrollLockCooldownMinutes.value * 60_000L
+            val lockMap = _scrollLockedUntilByPackage.value.toMutableMap()
+            lockMap[packageName] = nowMillis + cooldownMs
+            writeLongMap(KEY_SCROLL_LOCKED_UNTIL_MAP, lockMap)
+            _scrollLockedUntilByPackage.value = lockMap
+
+            val nextLocks = _dailyScrollLocksTriggered.value + 1
+            prefs.edit().putInt(KEY_DAILY_SCROLL_LOCKS, nextLocks).apply()
+            _dailyScrollLocksTriggered.value = nextLocks
+
+            appendMindfulEvent(
+                MindfulScrollEvent(
+                    timestampMillis = nowMillis,
+                    type = MindfulScrollEvent.TYPE_SCROLL_LOCK,
+                    appLabel = appLabel,
+                    packageName = packageName,
+                    detail = "Auto-stopped after $limit ${platform.shortLabel} (${_scrollLockCooldownMinutes.value}m lock)"
+                )
+            )
+        }
+
+        return ShortVideoScrollResult(
+            totalReelsToday = newTotal,
+            sessionReelsSinceUnlock = sessionSinceUnlock,
+            scrollLimit = limit,
+            shouldTriggerScrollLock = shouldLock,
+            shouldTriggerBingeNudge = shouldNudge
+        )
+    }
+
+    fun getRemainingScrollLockMillis(
+        packageName: String,
+        nowMillis: Long = System.currentTimeMillis()
+    ): Long {
+        val until = _scrollLockedUntilByPackage.value[packageName] ?: return 0L
+        val remaining = until - nowMillis
+        if (remaining <= 0L) {
+            val next = _scrollLockedUntilByPackage.value.toMutableMap()
+            next.remove(packageName)
+            writeLongMap(KEY_SCROLL_LOCKED_UNTIL_MAP, next)
+            _scrollLockedUntilByPackage.value = next
+            val platCount = ShortVideoPlatform.findByPackage(packageName)
+                .sumOf { _dailyReelsByPlatform.value[it.id] ?: 0 }
+            scrollSessionBaselineByPkg[packageName] = platCount
+            return 0L
+        }
+        return remaining
+    }
+
+    fun unlockScrollLockWithPin(packageName: String) {
+        val next = _scrollLockedUntilByPackage.value.toMutableMap()
+        next.remove(packageName)
+        writeLongMap(KEY_SCROLL_LOCKED_UNTIL_MAP, next)
+        _scrollLockedUntilByPackage.value = next
+        val platCount = ShortVideoPlatform.findByPackage(packageName)
+            .sumOf { _dailyReelsByPlatform.value[it.id] ?: 0 }
+        scrollSessionBaselineByPkg[packageName] = platCount
+        bingeSessionLastNudgeByPkg[packageName] = 0
+    }
+
+    fun resetTodayReelCounters() {
+        val dateKey = todayDateKey()
+        val emptyBuckets = List(24) { 0 }
+        prefs.edit()
+            .putString(KEY_MINDFUL_DAILY_DATE, dateKey)
+            .putInt(KEY_DAILY_REELS_TOTAL, 0)
+            .putString(KEY_DAILY_REELS_BY_PLATFORM, "{}")
+            .putString(KEY_HOURLY_SCROLL_BUCKETS, JSONArray(emptyBuckets).toString())
+            .apply()
+        _dailyReelsTotalCount.value = 0
+        _dailyReelsByPlatform.value = emptyMap()
+        _hourlyScrollBuckets.value = emptyBuckets
+        scrollSessionBaselineByPkg.clear()
+        bingeSessionLastNudgeByPkg.clear()
+        writeLongMap(KEY_SCROLL_LOCKED_UNTIL_MAP, emptyMap())
+        _scrollLockedUntilByPackage.value = emptyMap()
+    }
+
+    // ------------------------------------------------------------------------
+    // PiqoraX Connector & App Blocker Schedule (Minutes / Hours)
+    // ------------------------------------------------------------------------
+
+    fun setPiqoraxConnectorConnected(connected: Boolean) {
+        prefs.edit().putBoolean(KEY_PIQORAX_CONNECTOR_CONNECTED, connected).apply()
+        _piqoraxConnectorConnected.value = connected
+    }
+
+    fun setTimeBlockerAllowanceMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(1, 180)
+        val currentWindow = _timeBlockerWindowMinutes.value
+        val adjustedWindow = currentWindow.coerceAtLeast(clamped)
+        prefs.edit()
+            .putInt(KEY_TIME_BLOCKER_ALLOWANCE_MINUTES, clamped)
+            .putInt(KEY_TIME_BLOCKER_WINDOW_MINUTES, adjustedWindow)
+            .apply()
+        _timeBlockerAllowanceMinutes.value = clamped
+        _timeBlockerWindowMinutes.value = adjustedWindow
+    }
+
+    fun setTimeBlockerWindowMinutes(minutes: Int) {
+        val minAllowed = _timeBlockerAllowanceMinutes.value.coerceAtLeast(5)
+        val clamped = minutes.coerceIn(minAllowed, 1440)
+        prefs.edit().putInt(KEY_TIME_BLOCKER_WINDOW_MINUTES, clamped).apply()
+        _timeBlockerWindowMinutes.value = clamped
+    }
+
+    fun recordPiqoraxPassGranted(targetPackage: String, durationMinutes: Int) {
+        val shortApp = targetPackage.substringAfterLast('.').ifBlank { targetPackage }
+        val summary = "${durationMinutes}m pass granted for $shortApp"
+        prefs.edit().putString(KEY_PIQORAX_LAST_PASS_SUMMARY, summary).apply()
+        _piqoraxLastPassSummary.value = summary
+    }
+
+    private fun appendMindfulEvent(event: MindfulScrollEvent) {
+        val next = (listOf(event) + _recentMindfulScrollEvents.value).take(30)
+        prefs.edit()
+            .putString(KEY_RECENT_MINDFUL_EVENTS, MindfulScrollEvent.listToJsonString(next))
+            .apply()
+        _recentMindfulScrollEvents.value = next
+    }
+
+    fun ensureMindfulDailyRollover(currentDateKey: String = todayDateKey()) {
+        val storedDate = prefs.getString(KEY_MINDFUL_DAILY_DATE, "").orEmpty()
+        if (storedDate == currentDateKey) return
+
+        if (storedDate.isNotBlank()) {
+            val prevUsage = readDailyUsageMap(storedDate).values.sum()
+            val prevReels = prefs.getInt(KEY_DAILY_REELS_TOTAL, 0).coerceAtLeast(0)
+            val prevExits = prefs.getInt(KEY_DAILY_MINDFUL_EXITS, 0).coerceAtLeast(0)
+            val prevLocks = prefs.getInt(KEY_DAILY_SCROLL_LOCKS, 0).coerceAtLeast(0)
+
+            if (prevUsage > 0 || prevReels > 0 || prevExits > 0 || prevLocks > 0) {
+                val snap = DailyScrollSnapshot(
+                    dateKey = storedDate,
+                    usageSeconds = prevUsage,
+                    reelsCount = prevReels,
+                    mindfulExits = prevExits,
+                    locksTriggered = prevLocks
+                )
+                val updatedHistory = (_weeklyScrollHistory.value.filterNot { it.dateKey == storedDate } + snap)
+                    .takeLast(7)
+                prefs.edit()
+                    .putString(KEY_WEEKLY_SCROLL_HISTORY, DailyScrollSnapshot.listToJsonString(updatedHistory))
+                    .apply()
+                _weeklyScrollHistory.value = updatedHistory
+
+                val nextStreak = if (prevReels <= _scrollLimitCount.value) {
+                    _cleanStreakDays.value + 1
+                } else {
+                    0
+                }
+                prefs.edit().putInt(KEY_CLEAN_STREAK_DAYS, nextStreak).apply()
+                _cleanStreakDays.value = nextStreak
+            }
+        }
+
+        val emptyBuckets = List(24) { 0 }
+        prefs.edit()
+            .putString(KEY_MINDFUL_DAILY_DATE, currentDateKey)
+            .putInt(KEY_DAILY_REELS_TOTAL, 0)
+            .putString(KEY_DAILY_REELS_BY_PLATFORM, "{}")
+            .putString(KEY_DAILY_APP_OPENS_MAP, "{}")
+            .putInt(KEY_DAILY_MINDFUL_EXITS, 0)
+            .putInt(KEY_DAILY_SCROLL_LOCKS, 0)
+            .putString(KEY_HOURLY_SCROLL_BUCKETS, JSONArray(emptyBuckets).toString())
+            .apply()
+
+        _dailyReelsTotalCount.value = 0
+        _dailyReelsByPlatform.value = emptyMap()
+        _dailyAppOpensCount.value = emptyMap()
+        _dailyMindfulExitsCount.value = 0
+        _dailyScrollLocksTriggered.value = 0
+        _hourlyScrollBuckets.value = emptyBuckets
+        scrollSessionBaselineByPkg.clear()
+        bingeSessionLastNudgeByPkg.clear()
+    }
+
+    private fun readDailyIntIfToday(key: String, defaultVal: Int): Int {
+        val storedDate = prefs.getString(KEY_MINDFUL_DAILY_DATE, "")
+        return if (storedDate == todayDateKey()) prefs.getInt(key, defaultVal).coerceAtLeast(0) else defaultVal
+    }
+
+    private fun readDailyIntMapIfToday(key: String): Map<String, Int> {
+        val storedDate = prefs.getString(KEY_MINDFUL_DAILY_DATE, "")
+        return if (storedDate == todayDateKey()) readIntMap(key) else emptyMap()
+    }
+
+    private fun readDailyHourlyBuckets(dateKey: String): List<Int> {
+        val storedDate = prefs.getString(KEY_MINDFUL_DAILY_DATE, "")
+        if (storedDate != dateKey) return List(24) { 0 }
+        val raw = prefs.getString(KEY_HOURLY_SCROLL_BUCKETS, null) ?: return List(24) { 0 }
+        return runCatching {
+            val arr = JSONArray(raw)
+            List(24) { idx -> if (idx < arr.length()) arr.optInt(idx, 0).coerceAtLeast(0) else 0 }
+        }.getOrDefault(List(24) { 0 })
+    }
+
+    private fun readLongMap(key: String): Map<String, Long> {
+        val raw = prefs.getString(key, null) ?: return emptyMap()
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                val iter = json.keys()
+                while (iter.hasNext()) {
+                    val k = iter.next()
+                    put(k, json.optLong(k, 0L))
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun writeLongMap(key: String, map: Map<String, Long>) {
+        prefs.edit().putString(key, JSONObject(map.mapValues { it.value }).toString()).apply()
+    }
+
     companion object {
         const val DEFAULT_LOCKDOWN_HOURS = 10
         const val MAX_LOCKDOWN_MINUTES = 24 * 60
@@ -2806,5 +3417,29 @@ class AegisPreferences(context: Context) {
         private const val KEY_APP_LOCKER_ENABLED = "key_app_locker_enabled"
         private const val KEY_LOCKED_APP_PACKAGES = "key_locked_app_packages"
         private const val KEY_APP_LOCKER_RELOCK_MINUTES = "key_app_locker_relock_minutes"
+        private const val KEY_SCROLL_LOCK_ENABLED = "key_scroll_lock_enabled"
+        private const val KEY_SCROLL_LIMIT_COUNT = "key_scroll_limit_count"
+        private const val KEY_SCROLL_LOCK_COOLDOWN_MINUTES = "key_scroll_lock_cooldown_minutes"
+        private const val KEY_SCROLL_BINGE_NUDGE_COUNT = "key_scroll_binge_nudge_count"
+        private const val KEY_REELS_GUARD_PLATFORMS = "key_reels_guard_platforms"
+        private const val KEY_MINDFUL_PAUSE_ENABLED = "key_mindful_pause_enabled"
+        private const val KEY_MINDFUL_PAUSE_PACKAGES = "key_mindful_pause_packages"
+        private const val KEY_MINDFUL_GRACE_MINUTES = "key_mindful_grace_minutes"
+        private const val KEY_INSTANT_DETOX_UNTIL_MILLIS = "key_instant_detox_until_millis"
+        private const val KEY_MINDFUL_DAILY_DATE = "key_mindful_daily_date"
+        private const val KEY_DAILY_REELS_TOTAL = "key_daily_reels_total"
+        private const val KEY_DAILY_REELS_BY_PLATFORM = "key_daily_reels_by_platform"
+        private const val KEY_DAILY_APP_OPENS_MAP = "key_daily_app_opens_map"
+        private const val KEY_DAILY_MINDFUL_EXITS = "key_daily_mindful_exits"
+        private const val KEY_DAILY_SCROLL_LOCKS = "key_daily_scroll_locks"
+        private const val KEY_HOURLY_SCROLL_BUCKETS = "key_hourly_scroll_buckets"
+        private const val KEY_WEEKLY_SCROLL_HISTORY = "key_weekly_scroll_history"
+        private const val KEY_CLEAN_STREAK_DAYS = "key_clean_streak_days"
+        private const val KEY_RECENT_MINDFUL_EVENTS = "key_recent_mindful_events"
+        private const val KEY_SCROLL_LOCKED_UNTIL_MAP = "key_scroll_locked_until_map"
+        private const val KEY_PIQORAX_CONNECTOR_CONNECTED = "key_piqorax_connector_connected"
+        private const val KEY_TIME_BLOCKER_ALLOWANCE_MINUTES = "key_time_blocker_allowance_minutes"
+        private const val KEY_TIME_BLOCKER_WINDOW_MINUTES = "key_time_blocker_window_minutes"
+        private const val KEY_PIQORAX_LAST_PASS_SUMMARY = "key_piqorax_last_pass_summary"
     }
 }

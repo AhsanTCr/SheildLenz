@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PowerSettingsNew
@@ -74,6 +75,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.core.audio.AegisSoundEffects
+import com.example.core.models.ShortVideoScrollDetector
 import com.example.core.permissions.PermissionHelper
 import com.example.data.preferences.AegisPreferences
 import com.example.data.repository.BlockedDnsLogRepository
@@ -122,6 +124,7 @@ fun LiveProtectionScreen(
     onNavigateToWellbeing: () -> Unit = {},
     onNavigateToParents: () -> Unit = {},
     onNavigateToEdits: () -> Unit = {},
+    onNavigateToUsageScrollGuard: () -> Unit = {},
     onNavigateBack: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -170,6 +173,12 @@ fun LiveProtectionScreen(
     val discreetBlockingScreenMode by preferences.discreetBlockingScreenMode.collectAsState()
     val appLanguageCode by preferences.appLanguageCode.collectAsState()
     val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
+    val dailyReelsTotalCount by preferences.dailyReelsTotalCount.collectAsState()
+    val scrollLimitCount by preferences.scrollLimitCount.collectAsState()
+    val scrollLockEnabled by preferences.scrollLockEnabled.collectAsState()
+    val mindfulPauseEnabled by preferences.mindfulPauseEnabled.collectAsState()
+    val mindfulPausePackages by preferences.mindfulPausePackages.collectAsState()
+    val dailyAppUsageSeconds by preferences.dailyAppUsageSeconds.collectAsState()
 
     val activeAppName by protectionRepo.activeAppLabel.collectAsState()
 
@@ -352,6 +361,36 @@ fun LiveProtectionScreen(
                             )
                         }
                     }
+                }
+
+                // 0B. Usage, Mindful Pause & Reels/Shorts Scroll Guard Gateway (directly on Status screen; acts as both monitor & editor)
+                item(key = "status_usage_scroll_guard") {
+                    val totalUsageToday = remember(dailyAppUsageSeconds) {
+                        ShortVideoScrollDetector.formatMinutesCompact(dailyAppUsageSeconds.values.sum())
+                    }
+                    val guardSubtitle = buildString {
+                        append("$dailyReelsTotalCount / $scrollLimitCount Reels • $totalUsageToday Today")
+                        append(if (scrollLockEnabled) " • Auto-Stop ON" else " • Counter ON")
+                        if (mindfulPauseEnabled) {
+                            append(" • ${mindfulPausePackages.size} Pause App(s)")
+                        }
+                    }
+                    LuxurySectionHeader(title = "Usage & Scroll Guard", accentColor = AegisEmeraldTeal)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    StatusDestinationGatewayCard(
+                        title = "Mindful Pause & Reels Guard",
+                        subtitle = guardSubtitle,
+                        icon = Icons.Default.HourglassBottom,
+                        gradientColors = listOf(AegisEmeraldTeal, AegisPurple),
+                        surfaceTint = listOf(Color(0xFFE8FAF5), Color(0xFFF1EDFF)),
+                        borderColor = AegisEmeraldBorder,
+                        accentColor = AegisEmeraldTeal,
+                        onClick = {
+                            AegisSoundEffects.playTap(context)
+                            onNavigateToUsageScrollGuard()
+                        },
+                        testTag = "status_open_usage_scroll_guard_card"
+                    )
                 }
 
                 // 1. Unified Compact Permissions & Shield Health
@@ -666,6 +705,7 @@ fun LiveProtectionScreen(
                             Triple("Bedtime Lock", if (bedtimeEnabled) "ON • ${AegisPreferences.formatClockTime(bedtimeStartMinutes)}–${AegisPreferences.formatClockTime(bedtimeEndMinutes)}" else "OFF", if (bedtimeEnabled) AegisChampagneGold else AegisTextMuted),
                             Triple("Quiet Hours", if (scheduleEnabled) "ON • ${AegisPreferences.formatClockTime(scheduleStartMinutes)}–${AegisPreferences.formatClockTime(scheduleEndMinutes)}" else "OFF", if (scheduleEnabled) AegisPurple else AegisTextMuted),
                             Triple("App Time Limits", if (appTimeBudgets.isNotEmpty()) "${appTimeBudgets.size} Apps Capped" else "None Set", if (appTimeBudgets.isNotEmpty()) AegisEmeraldTeal else AegisTextMuted),
+                            Triple("Reels/Shorts Scroll Guard", if (scrollLockEnabled) "$dailyReelsTotalCount/$scrollLimitCount • Auto-Stop" else "$dailyReelsTotalCount watched • Counter", if (scrollLockEnabled) AegisEmeraldTeal else AegisPrimaryCyan),
                             Triple("Anti-Tamper & Power", "${if (antiTamperEnabled) "Locked" else "Off"} • ${powerMode.displayName}", AegisTextPrimary),
                             Triple("Boot Auto-Start", if (autoStart) "ON" else "OFF", if (autoStart) AegisSuccessGreen else AegisTextMuted),
                             Triple("Notifications", if (notificationsEnabled) "ON" else "OFF (Silent)", if (notificationsEnabled) AegisPrimaryCyan else AegisTextMuted),

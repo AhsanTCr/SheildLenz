@@ -174,8 +174,29 @@ class TimeBlockerRepository(
      * 5-minute (300,000 ms) base allowance per 1-hour rolling window.
      */
     fun addTimeBlockedApp(packageName: String) {
+        addOrUpdateTimeBlockedApp(
+            packageName = packageName,
+            allowanceMinutes = (TimeBlockerEngine.BASE_ALLOWANCE_MS / 60_000L).toInt(),
+            windowMinutes = (TimeBlockerEngine.HOURLY_WINDOW_MS / 60_000L).toInt()
+        )
+    }
+
+    /**
+     * Adds or updates an app package with configurable allowance (minutes) and
+     * rolling reset window (minutes or hours converted to minutes).
+     */
+    fun addOrUpdateTimeBlockedApp(
+        packageName: String,
+        allowanceMinutes: Int,
+        windowMinutes: Int
+    ) {
         val cleanPkg = packageName.trim()
         if (cleanPkg.isBlank() || cleanPkg == appContext.packageName) return
+
+        val safeAllowanceMins = allowanceMinutes.coerceIn(1, 180)
+        val safeWindowMins = windowMinutes.coerceIn(safeAllowanceMins, 24 * 60)
+        val allowanceMs = safeAllowanceMins * 60_000L
+        val windowMs = safeWindowMins * 60_000L
 
         synchronized(stateLock) {
             ensureInitializedLocked()
@@ -185,7 +206,11 @@ class TimeBlockerRepository(
             val existing = recordsByPackage[cleanPkg]
             val entity = if (existing != null) {
                 val normalized = TimeBlockerEngine.normalizeWindow(existing, nowElapsed)
-                if (normalized.isRestricted) normalized else normalized.copy(isRestricted = true)
+                normalized.copy(
+                    isRestricted = true,
+                    allowanceMs = allowanceMs,
+                    windowMs = windowMs
+                )
             } else {
                 TimeBlockedAppEntity(
                     packageName = cleanPkg,
@@ -193,7 +218,9 @@ class TimeBlockerRepository(
                     windowStartElapsedMs = nowElapsed,
                     usedMsInWindow = 0L,
                     passExpiresAtElapsedMs = 0L,
-                    addedAtElapsedMs = nowElapsed
+                    addedAtElapsedMs = nowElapsed,
+                    allowanceMs = allowanceMs,
+                    windowMs = windowMs
                 )
             }
             recordsByPackage[cleanPkg] = entity
@@ -202,6 +229,62 @@ class TimeBlockerRepository(
             scheduleEntityPersist(entity, meta)
         }
     }
+
+    fun updateAllAppsSchedule(allowanceMinutes: Int, windowMinutes: Int) {
+        val safeAllowanceMins = allowanceMinutes.coerceIn(1, 180)
+        val safeWindowMins = windowMinutes.coerceIn(safeAllowanceMins, 24 * 60)
+        val allowanceMs = safeAllowanceMins * 60_000L
+        val windowMs = safeWindowMins * 60_000L
+
+        synchronized(stateLock) {
+            ensureInitializedLocked()
+            val nowElapsed = clock.elapsedRealtime().coerceAtLeast(1L)
+            checkAndHandleRebootLocked(nowElapsed)
+            val updatedList = mutableListOf<TimeBlockedAppEntity>()
+            recordsByPackage.entries.toList().forEach { (pkg, record) ->
+                if (record.isRestricted) {
+                    val updated = TimeBlockerEngine.normalizeWindow(record, nowElapsed).copy(
+                        allowanceMs = allowanceMs,
+                        windowMs = windowMs
+                    )
+                    recordsByPackage[pkg] = updated
+                    updatedList.add(updated)
+                }
+            }
+            meta = meta.copy(lastKnownElapsedMs = nowElapsed)
+            publishRestrictedAppsLocked()
+            val currentMeta = meta
+            scope.launch {
+                persistenceMutex.withLock {
+                    if (updatedList.isNotEmpty()) {
+                        dao.upsertApps(updatedList)
+                    }
+                    dao.upsertMeta(currentMeta)
+                }
+            }
+        }
+    }
+
+    fun resetAppWindowNow(packageName: String) {
+        val cleanPkg = packageName.trim()
+        if (cleanPkg.isBlank()) return
+        synchronized(stateLock) {
+            ensureInitializedLocked()
+            val nowElapsed = clock.elapsedRealtime().coerceAtLeast(1L)
+            val existing = recordsByPackage[cleanPkg] ?: return
+            val updated = existing.copy(
+                windowStartElapsedMs = nowElapsed,
+                usedMsInWindow = 0L,
+                passExpiresAtElapsedMs = 0L
+            )
+            recordsByPackage[cleanPkg] = updated
+            meta = meta.copy(lastKnownElapsedMs = nowElapsed)
+            publishRestrictedAppsLocked()
+            scheduleEntityPersist(updated, meta)
+        }
+    }
+
+    fun getCurrentElapsedRealtime(): Long = clock.elapsedRealtime().coerceAtLeast(1L)
 
     /**
      * Removes an app package from the time-blocker list.

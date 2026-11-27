@@ -166,7 +166,7 @@ class TimeBlockLockActivity : ComponentActivity() {
             ?: TimeBlockerEngine.HOURLY_WINDOW_MS
         blockedPackageState = pkg
         blockedAppLabelState = label.ifBlank { resolveAppLabel(pkg) }
-        initialResetMsState = resetMs.coerceIn(0L, TimeBlockerEngine.HOURLY_WINDOW_MS)
+        initialResetMsState = resetMs.coerceIn(0L, 24L * TimeBlockerEngine.HOURLY_WINDOW_MS)
     }
 
     private fun resolveAppLabel(pkg: String): String {
