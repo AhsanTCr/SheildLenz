@@ -59,6 +59,10 @@ class AegisContainer(context: Context) {
         )
     }
 
+    val timeBlockerRepository: com.example.timeblocker.TimeBlockerRepository by lazy {
+        com.example.timeblocker.TimeBlockerRepository.create(appContext)
+    }
+
     private val _pendingPairingCode = MutableStateFlow<String?>(null)
     val pendingPairingCode: StateFlow<String?> = _pendingPairingCode.asStateFlow()
 

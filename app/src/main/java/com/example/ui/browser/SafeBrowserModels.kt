@@ -1,10 +1,27 @@
 package com.example.ui.browser
 
+import android.content.Context
+import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.webkit.WebView
+import androidx.core.content.FileProvider
+import com.example.data.preferences.BrowserSearchEngine
 import com.example.monitoring.accessibility.AegisAccessibilityService
 import com.example.services.dns.DnsPacketHelper
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 data class BrowserTabState(
@@ -15,7 +32,10 @@ data class BrowserTabState(
     val isLoading: Boolean = false,
     val canGoBack: Boolean = false,
     val canGoForward: Boolean = false,
-    val desktopMode: Boolean = false
+    val desktopMode: Boolean = false,
+    val isIncognito: Boolean = false,
+    val isNewTabPage: Boolean = false,
+    val pageZoomPercent: Int = 100
 )
 
 data class SafeBookmark(
@@ -56,21 +76,375 @@ data class BrowserRuleDecision(
     val matchedReason: String? = null
 )
 
+enum class SitePermissionType(val label: String) {
+    CAMERA("Camera"),
+    MICROPHONE("Microphone"),
+    LOCATION("Location")
+}
+
+enum class SitePermissionState(val id: String, val label: String) {
+    ASK("ask", "Ask"),
+    ALLOW("allow", "Allow"),
+    BLOCK("block", "Block");
+
+    companion object {
+        fun fromId(id: String?): SitePermissionState =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: ASK
+    }
+}
+
+data class SitePermissionsEntry(
+    val origin: String,
+    val camera: SitePermissionState = SitePermissionState.ASK,
+    val microphone: SitePermissionState = SitePermissionState.ASK,
+    val location: SitePermissionState = SitePermissionState.ASK
+)
+
 const val DEFAULT_SAFE_HOME_URL = "https://www.google.com/?safe=active"
+const val NEW_TAB_INTERNAL_URL = "sheildlenz://newtab"
+
+object BrowserPermissionsStore {
+    fun extractOrigin(rawUrl: String): String {
+        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull() ?: return ""
+        val host = uri.host?.lowercase(Locale.US)?.takeIf { it.isNotBlank() } ?: return ""
+        val scheme = uri.scheme?.lowercase(Locale.US)?.takeIf { it == "http" || it == "https" } ?: "https"
+        return "$scheme://$host"
+    }
+
+    fun parseSitePermissions(rawJson: String): Map<String, SitePermissionsEntry> {
+        if (rawJson.isBlank()) return emptyMap()
+        return runCatching {
+            val root = JSONObject(rawJson)
+            buildMap {
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val origin = keys.next()
+                    val obj = root.optJSONObject(origin) ?: continue
+                    put(
+                        origin,
+                        SitePermissionsEntry(
+                            origin = origin,
+                            camera = SitePermissionState.fromId(obj.optString("cam")),
+                            microphone = SitePermissionState.fromId(obj.optString("mic")),
+                            location = SitePermissionState.fromId(obj.optString("loc"))
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun serializeSitePermissions(map: Map<String, SitePermissionsEntry>): String {
+        val root = JSONObject()
+        map.entries.take(120).forEach { (origin, entry) ->
+            root.put(
+                origin,
+                JSONObject().apply {
+                    put("cam", entry.camera.id)
+                    put("mic", entry.microphone.id)
+                    put("loc", entry.location.id)
+                }
+            )
+        }
+        return root.toString()
+    }
+
+    fun getEntry(rawJson: String, url: String): SitePermissionsEntry {
+        val origin = extractOrigin(url)
+        if (origin.isBlank()) return SitePermissionsEntry("")
+        return parseSitePermissions(rawJson)[origin] ?: SitePermissionsEntry(origin)
+    }
+
+    fun getPolicy(rawJson: String, url: String, type: SitePermissionType): SitePermissionState {
+        val entry = getEntry(rawJson, url)
+        return when (type) {
+            SitePermissionType.CAMERA -> entry.camera
+            SitePermissionType.MICROPHONE -> entry.microphone
+            SitePermissionType.LOCATION -> entry.location
+        }
+    }
+
+    fun updatePolicy(
+        rawJson: String,
+        url: String,
+        type: SitePermissionType,
+        state: SitePermissionState
+    ): String {
+        val origin = extractOrigin(url)
+        if (origin.isBlank()) return rawJson
+        val map = parseSitePermissions(rawJson).toMutableMap()
+        val existing = map[origin] ?: SitePermissionsEntry(origin)
+        val updated = when (type) {
+            SitePermissionType.CAMERA -> existing.copy(camera = state)
+            SitePermissionType.MICROPHONE -> existing.copy(microphone = state)
+            SitePermissionType.LOCATION -> existing.copy(location = state)
+        }
+        if (updated.camera == SitePermissionState.ASK &&
+            updated.microphone == SitePermissionState.ASK &&
+            updated.location == SitePermissionState.ASK
+        ) {
+            map.remove(origin)
+        } else {
+            map[origin] = updated
+        }
+        return serializeSitePermissions(map)
+    }
+}
+
+object BrowserPdfExportHelper {
+
+    fun pdfOutputDirectory(context: Context): File {
+        return File(context.filesDir, "browser_pdfs").apply {
+            if (!exists()) mkdirs()
+        }
+    }
+
+    fun saveWebPageAsPdf(
+        context: Context,
+        webView: WebView?,
+        pageTitle: String,
+        pageUrl: String
+    ): BrowserDownloadItem? {
+        return runCatching {
+            val dir = pdfOutputDirectory(context)
+            val cleanStem = pageTitle
+                .replace(Regex("[^A-Za-z0-9_-]+"), "_")
+                .trim('_')
+                .ifBlank { "WebPage" }
+                .take(32)
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val fileName = "${cleanStem}_$stamp.pdf"
+            val outFile = File(dir, fileName)
+
+            val renderedWithNativePdf = runCatching {
+                val doc = PdfDocument()
+                try {
+                    val wvWidth = webView?.width?.takeIf { it > 0 } ?: 595
+                    val wvHeight = webView?.height?.takeIf { it > 0 } ?: 842
+                    val pageWidth = 595
+                    val pageHeight = ((wvHeight.toFloat() / wvWidth.toFloat()) * pageWidth)
+                        .toInt()
+                        .coerceIn(842, 1684)
+
+                    val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
+                    val page = doc.startPage(pageInfo)
+                    val canvas: Canvas = page.canvas
+
+                    if (webView != null && webView.width > 0 && webView.height > 0) {
+                        val scale = pageWidth.toFloat() / webView.width.toFloat()
+                        canvas.save()
+                        canvas.scale(scale, scale)
+                        webView.draw(canvas)
+                        canvas.restore()
+                    } else {
+                        canvas.drawColor(Color.WHITE)
+                        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = Color.parseColor("#1A3673")
+                            textSize = 20f
+                            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+                        }
+                        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = Color.parseColor("#3E5894")
+                            textSize = 12f
+                        }
+                        canvas.drawText("Sheildlenz Safe Browser — Saved Webpage", 36f, 64f, titlePaint)
+                        canvas.drawText("Title: ${pageTitle.ifBlank { "Web Page" }}", 36f, 108f, bodyPaint)
+                        canvas.drawText("URL: ${pageUrl.take(90)}", 36f, 134f, bodyPaint)
+                        canvas.drawText("Saved: ${SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US).format(Date())}", 36f, 160f, bodyPaint)
+                    }
+
+                    doc.finishPage(page)
+                    FileOutputStream(outFile).use { fos ->
+                        doc.writeTo(fos)
+                    }
+                    outFile.exists() && outFile.length() > 0L
+                } finally {
+                    runCatching { doc.close() }
+                }
+            }.getOrDefault(false)
+
+            if (!renderedWithNativePdf) {
+                writeFallbackPdfDocument(
+                    outFile = outFile,
+                    pageTitle = pageTitle.ifBlank { "Web Page" },
+                    pageUrl = pageUrl
+                )
+            }
+
+            if (!outFile.exists() || outFile.length() == 0L) {
+                return@runCatching null
+            }
+
+            BrowserDownloadItem(
+                fileName = fileName,
+                url = outFile.absolutePath,
+                mimeType = "application/pdf",
+                statusLabel = "Saved PDF in Downloads"
+            )
+        }.getOrNull()
+    }
+
+    private fun escapePdfLiteral(value: String): String {
+        return buildString(value.length) {
+            value.forEach { ch ->
+                when (ch) {
+                    '\\', '(', ')' -> append('\\').append(ch)
+                    in ' '..'~' -> append(ch)
+                    else -> append(' ')
+                }
+            }
+        }
+    }
+
+    private fun writeFallbackPdfDocument(
+        outFile: File,
+        pageTitle: String,
+        pageUrl: String
+    ) {
+        val savedAt = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.US).format(Date())
+        val contentStream = buildString {
+            append("BT\n")
+            append("/F1 18 Tf 48 770 Td (")
+            append(escapePdfLiteral("Sheildlenz Safe Browser - Saved Webpage"))
+            append(") Tj\n")
+            append("/F1 12 Tf 0 -32 Td (Title: ")
+            append(escapePdfLiteral(pageTitle.take(80)))
+            append(") Tj\n")
+            append("0 -22 Td (URL: ")
+            append(escapePdfLiteral(pageUrl.take(90)))
+            append(") Tj\n")
+            append("0 -22 Td (Saved: ")
+            append(escapePdfLiteral(savedAt))
+            append(") Tj\n")
+            append("ET\n")
+        }
+
+        val objects = listOf(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+            "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+            "5 0 obj\n<< /Length ${contentStream.toByteArray(Charsets.US_ASCII).size} >>\nstream\n$contentStream\nendstream\nendobj\n"
+        )
+
+        val sb = StringBuilder("%PDF-1.4\n")
+        val offsets = mutableListOf<Int>()
+        objects.forEach { obj ->
+            offsets += sb.toString().toByteArray(Charsets.US_ASCII).size
+            sb.append(obj)
+        }
+        val xrefOffset = sb.toString().toByteArray(Charsets.US_ASCII).size
+        sb.append("xref\n0 ${objects.size + 1}\n")
+        sb.append("0000000000 65535 f \n")
+        offsets.forEach { offset ->
+            sb.append(String.format(Locale.US, "%010d 00000 n \n", offset))
+        }
+        sb.append("trailer\n<< /Size ${objects.size + 1} /Root 1 0 R >>\n")
+        sb.append("startxref\n$xrefOffset\n%%EOF\n")
+
+        FileOutputStream(outFile).use { fos ->
+            fos.write(sb.toString().toByteArray(Charsets.US_ASCII))
+        }
+    }
+
+    fun printWebPage(
+        context: Context,
+        webView: WebView?,
+        jobName: String
+    ): Boolean {
+        if (webView == null) return false
+        return runCatching {
+            val pm = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return false
+            val cleanJob = jobName.ifBlank { "Sheildlenz Webpage" }.take(40)
+            val adapter = webView.createPrintDocumentAdapter(cleanJob)
+            pm.print(cleanJob, adapter, PrintAttributes.Builder().build())
+            true
+        }.getOrDefault(false)
+    }
+
+    fun openSavedDownload(context: Context, item: BrowserDownloadItem): Boolean {
+        return runCatching {
+            val localFile = File(item.url)
+            if (localFile.exists()) {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    localFile
+                )
+                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, item.mimeType)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(viewIntent)
+                true
+            } else if (item.url.startsWith("http://", true) || item.url.startsWith("https://", true)) {
+                val extIntent = Intent(Intent.ACTION_VIEW, Uri.parse(item.url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(extIntent)
+                true
+            } else {
+                false
+            }
+        }.getOrDefault(false)
+    }
+}
 
 object SafeBrowserFilterHelper {
 
-    fun resolveSafeNavigationUrl(input: String): String {
+    private val AD_AND_TRACKER_HOSTS = setOf(
+        "doubleclick.net",
+        "googlesyndication.com",
+        "googleadservices.com",
+        "adservice.google.com",
+        "google-analytics.com",
+        "googletagmanager.com",
+        "taboola.com",
+        "outbrain.com",
+        "criteo.com",
+        "criteo.net",
+        "pubmatic.com",
+        "rubiconproject.com",
+        "openx.net",
+        "adnxs.com",
+        "scorecardresearch.com",
+        "quantserve.com",
+        "mixpanel.com",
+        "hotjar.com",
+        "appsflyer.com",
+        "branch.io",
+        "adjust.com",
+        "ads.yahoo.com",
+        "admob.com",
+        "amazon-adsystem.com",
+        "moatads.com"
+    )
+
+    fun isTrackerOrAdDomain(rawUrl: String): Boolean {
+        val host = runCatching { Uri.parse(rawUrl).host?.lowercase(Locale.US) }.getOrNull() ?: return false
+        return AD_AND_TRACKER_HOSTS.any { tracker ->
+            host == tracker || host.endsWith(".$tracker")
+        }
+    }
+
+    fun resolveSafeNavigationUrl(
+        input: String,
+        searchEngine: BrowserSearchEngine = BrowserSearchEngine.GOOGLE_SAFE
+    ): String {
         val trimmed = input.trim()
-        if (trimmed.isBlank()) return DEFAULT_SAFE_HOME_URL
+        if (trimmed.isBlank()) return searchEngine.homeUrl
+        if (trimmed.equals(NEW_TAB_INTERNAL_URL, ignoreCase = true) ||
+            trimmed.equals("about:newtab", ignoreCase = true)
+        ) {
+            return NEW_TAB_INTERNAL_URL
+        }
         if (trimmed.startsWith("http://", true) || trimmed.startsWith("https://", true)) {
             return enforceSafeSearchQuery(trimmed)
         }
         if (trimmed.contains('.') && !trimmed.contains(' ')) {
             return enforceSafeSearchQuery("https://$trimmed")
         }
-        val encoded = Uri.encode(trimmed)
-        return "https://www.google.com/search?q=$encoded&safe=active"
+        return searchEngine.buildSearchUrl(trimmed)
     }
 
     fun enforceSafeSearchQuery(rawUrl: String): String {
@@ -89,6 +463,9 @@ object SafeBrowserFilterHelper {
             if (host.contains("duckduckgo.") && !rawUrl.contains("kp=")) {
                 return uri.buildUpon().appendQueryParameter("kp", "1").build().toString()
             }
+            if (host.contains("search.brave.com") && !rawUrl.contains("safesearch=")) {
+                return uri.buildUpon().appendQueryParameter("safesearch", "strict").build().toString()
+            }
         } catch (_: Exception) {
         }
         return rawUrl
@@ -103,6 +480,11 @@ object SafeBrowserFilterHelper {
         smartSafeActive: Boolean,
         safeSearchPacks: Set<String>
     ): String? {
+        if (rawUrl.equals(NEW_TAB_INTERNAL_URL, ignoreCase = true) ||
+            rawUrl.startsWith("about:", ignoreCase = true)
+        ) {
+            return null
+        }
         val uri = Uri.parse(rawUrl)
         val host = uri.host?.lowercase() ?: rawUrl
         val decodedQuery = runCatching { Uri.decode(uri.query.orEmpty()) }.getOrDefault(uri.query.orEmpty())
@@ -132,7 +514,7 @@ object SafeBrowserFilterHelper {
     }
 
     /**
-     * Autonomous Dual-Mode Decision:
+     * Autonomous Dual-Mode Decision (applies equally in Regular and Incognito tabs):
      * - When Sheildlenz Shield is OFF: prohibited content quietly closes only the active tab.
      * - When Sheildlenz Shield is ON: full Sheildlenz rule engine (warnings, overlays, timers) applies.
      */
@@ -193,7 +575,8 @@ object SafeBrowserFilterHelper {
             lower.startsWith("about:") ||
             lower.startsWith("data:") ||
             lower.startsWith("blob:") ||
-            lower.startsWith("javascript:")
+            lower.startsWith("javascript:") ||
+            lower.startsWith("sheildlenz://")
         ) {
             return false
         }
@@ -226,7 +609,6 @@ object SafeBrowserFilterHelper {
             if (results.isNotEmpty()) return results.take(120)
         }
 
-        // Netscape HTML Bookmarks format exported natively by Chrome
         val linkRegex = Regex(
             """<a\s+[^>]*href\s*=\s*["'](https?://[^"']+)["'][^>]*>(.*?)</a>""",
             setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)

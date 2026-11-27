@@ -95,6 +95,7 @@ class ProtectionRepository(private val context: Context) {
                 )
             )
         }
+        com.example.widget.SheildlenzAppWidgetProvider.requestWidgetRefresh(context)
         return true
     }
 
@@ -109,6 +110,7 @@ class ProtectionRepository(private val context: Context) {
                 )
             )
         }
+        com.example.widget.SheildlenzAppWidgetProvider.requestWidgetRefresh(context)
     }
 
     fun updateMediaProjectionState(isActive: Boolean) {

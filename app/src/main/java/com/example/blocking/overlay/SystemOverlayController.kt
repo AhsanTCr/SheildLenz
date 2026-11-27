@@ -65,6 +65,7 @@ class SystemOverlayController(private val context: Context) {
     private var softWarningAppLabel: String = ""
     private var softWarningPackageName: String = ""
     private var softWarningOnExpired: (() -> Unit)? = null
+    private var appLockerPackageName: String = ""
 
     private val tickerRunnable = object : Runnable {
         override fun run() {
@@ -350,6 +351,51 @@ class SystemOverlayController(private val context: Context) {
         }
     }
 
+    fun isShowingAppLockerFor(packageName: String): Boolean =
+        isOverlayVisible && activeOverlayMode == OverlayMode.APP_LOCKER && appLockerPackageName == packageName
+
+    fun showAppLockerPinOverlay(
+        appName: String,
+        packageName: String
+    ) {
+        if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) {
+            dismissBlockOverlay()
+            return
+        }
+        if (!PermissionHelper.hasOverlayPermission(context)) {
+            Log.w(TAG, "Cannot show App Locker overlay: SYSTEM_ALERT_WINDOW permission missing.")
+            return
+        }
+
+        mainHandler.post {
+            val prefs = AegisContainer.getInstance(context).preferences
+            if (!prefs.masterPowerEnabled.value) {
+                removeCurrentViewImmediate()
+                activeOverlayMode = OverlayMode.NONE
+                return@post
+            }
+            if (prefs.isLockdownActive()) {
+                showLockdownOverlay(prefs.lockdownIncidentInfo.value)
+                return@post
+            }
+            if (isOverlayVisible && activeOverlayMode == OverlayMode.APP_LOCKER && appLockerPackageName == packageName) {
+                return@post
+            }
+            removeCurrentViewImmediate()
+            activeOverlayMode = OverlayMode.APP_LOCKER
+            appLockerPackageName = packageName
+            try {
+                val view = createAppLockerLayout(appName, packageName)
+                windowManager?.addView(view, buildFullscreenLayoutParams())
+                overlayView = view
+                isOverlayVisible = true
+                Log.i(TAG, "App Locker overlay presented for $packageName.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to present App Locker overlay", e)
+            }
+        }
+    }
+
     fun showBlockOverlay(
         category: ThreatCategory,
         appName: String,
@@ -406,6 +452,7 @@ class SystemOverlayController(private val context: Context) {
                 softWarningPackageName = ""
                 softWarningAppLabel = ""
                 softWarningOnExpired = null
+                appLockerPackageName = ""
             }
         }
     }
@@ -1674,6 +1721,152 @@ class SystemOverlayController(private val context: Context) {
         return root
     }
 
+    private fun createAppLockerLayout(
+        appName: String,
+        packageName: String
+    ): View {
+        val prefs = AegisContainer.getInstance(context).preferences
+        val discreet = prefs.discreetBlockingScreenMode.value
+        val showAppBadge = prefs.blockShowAppBadge.value
+        val relockMins = prefs.appLockerRelockMinutes.value
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                if (discreet) {
+                    intArrayOf(Color.parseColor("#F3F5F8"), Color.parseColor("#EAEFF5"))
+                } else {
+                    intArrayOf(Color.parseColor("#D2E5FF"), Color.parseColor("#E6E4FF"), Color.parseColor("#EDE6FF"))
+                }
+            )
+            setPadding(56, 72, 56, 72)
+            isClickable = true
+            isFocusable = true
+        }
+
+        if (showAppBadge) {
+            val badge = TextView(context).apply {
+                text = if (discreet) "PROTECTED APPLICATION" else "GUARDIAN APP LOCKER"
+                setTextColor(Color.parseColor(if (discreet) "#334155" else "#7C5CFA"))
+                textSize = 11f
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                gravity = Gravity.CENTER
+                background = if (discreet) roundedBox("#E2E8F0", "#CBD5E1", 50f) else roundedBox("#EDE6FF", "#C0AEFD", 50f)
+                setPadding(32, 12, 32, 12)
+            }
+            root.addView(badge)
+        }
+
+        val title = TextView(context).apply {
+            text = "App Locked by Guardian"
+            setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#1A3673"))
+            textSize = 23f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, if (showAppBadge) 24 else 8, 0, 10)
+        }
+        root.addView(title)
+
+        val relockText = if (relockMins <= 0) {
+            "Re-locks automatically when you leave this app."
+        } else {
+            "Stays unlocked for $relockMins minute(s) after PIN entry."
+        }
+
+        val desc = TextView(context).apply {
+            text = "Enter Guardian PIN to unlock $appName.\n$relockText"
+            setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(28, 22, 28, 24)
+            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 32f) else roundedBox("#E8F2FF", "#9AC2FE", 32f)
+        }
+        root.addView(desc)
+
+        root.addView(verticalSpacer(20))
+
+        val pinField = EditText(context).apply {
+            hint = if (discreet) "Enter Access Code" else "Enter Guardian PIN"
+            setHintTextColor(Color.parseColor(if (discreet) "#94A3B8" else "#5D76B0"))
+            setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#1A3673"))
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            isSingleLine = true
+            typeface = Typeface.MONOSPACE
+            textSize = 14f
+            gravity = Gravity.CENTER
+            background = if (discreet) roundedBox("#FFFFFF", "#CBD5E1", 22f) else roundedBox("#EDE6FF", "#C0AEFD", 22f)
+            setPadding(24, 20, 24, 20)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        root.addView(pinField)
+        root.addView(verticalSpacer(14))
+
+        val unlockBtn = Button(context).apply {
+            text = "UNLOCK $appName".uppercase(Locale.US)
+            setTextColor(Color.WHITE)
+            background = roundedBox(if (discreet) "#334155" else "#7C5CFA", if (discreet) "#334155" else "#7C5CFA", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 22, 24, 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                if (prefs.verifyGuardianPin(pinField.text.toString())) {
+                    prefs.grantTempAppUnlock(packageName)
+                    dismissBlockOverlay()
+                    runCatching {
+                        context.packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                        }?.let { context.startActivity(it) }
+                    }
+                    Toast.makeText(context, "$appName unlocked", Toast.LENGTH_SHORT).show()
+                } else {
+                    pinField.setText("")
+                    Toast.makeText(context, if (discreet) "Incorrect access code." else "Incorrect Guardian PIN.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        bindPinSubmitOnEnter(pinField, unlockBtn)
+        root.addView(unlockBtn)
+        root.addView(verticalSpacer(12))
+
+        val homeBtn = Button(context).apply {
+            text = "RETURN TO HOME SCREEN"
+            setTextColor(Color.parseColor(if (discreet) "#334155" else "#2563EB"))
+            background = if (discreet) roundedBox("#FFFFFF", "#CBD5E1", 24f) else roundedBox("#E8F2FF", "#9AC2FE", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 22, 24, 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(homeIntent)
+                dismissBlockOverlay()
+            }
+        }
+        root.addView(homeBtn)
+
+        if (!discreet && showAppBadge) {
+            root.addView(verticalSpacer(24))
+            root.addView(createOverlayBrandingView(allowOpenLink = false))
+        }
+        return root
+    }
+
     private fun createOverlayBrandingView(allowOpenLink: Boolean): View {
         return TextView(context).apply {
             text = "Built By AhsanTCr  •  ahsantcr.lovable.app"
@@ -1890,7 +2083,8 @@ class SystemOverlayController(private val context: Context) {
         WARNING,
         USAGE_OR_BEDTIME,
         STUDY_SOFT_WARNING,
-        STUDY_LOCK
+        STUDY_LOCK,
+        APP_LOCKER
     }
 
     companion object {

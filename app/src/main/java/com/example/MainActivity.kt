@@ -191,6 +191,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         container.preferences.consumeAuthorizedExternalFlow()
         container.protectionRepository.refreshPermissionHealth()
+        com.example.widget.SheildlenzAppWidgetProvider.requestWidgetRefresh(this)
         if (!container.preferences.masterPowerEnabled.value) {
             com.example.services.protection.MasterPowerController.engageZeroBatteryShutdown(this, container)
             UpdateChecker.retryPendingInstallIfAuthorized(this)

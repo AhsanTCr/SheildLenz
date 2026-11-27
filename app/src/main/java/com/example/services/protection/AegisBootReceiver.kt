@@ -20,7 +20,9 @@ class AegisBootReceiver : BroadcastReceiver() {
             action == "android.intent.action.QUICKBOOT_POWERON" ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED
         ) {
-            val prefs = AegisContainer.getInstance(context).preferences
+            val container = AegisContainer.getInstance(context)
+            container.timeBlockerRepository.handleDeviceReboot()
+            val prefs = container.preferences
             if (!prefs.masterPowerEnabled.value) return
             ProfileAutoScheduler.evaluateAndApply(prefs)
             if (prefs.safeDnsEnabled.value && android.net.VpnService.prepare(context) == null) {

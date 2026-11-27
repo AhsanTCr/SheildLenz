@@ -32,6 +32,7 @@ class AegisAccessibilityService : AccessibilityService() {
     private var lastTamperInterceptTimeMs: Long = 0L
     private var lastLockdownInterceptTimeMs: Long = 0L
     private var lastRecentsInterceptTimeMs: Long = 0L
+    private var lastAppLockerInterceptTimeMs: Long = 0L
     private var lastBrowserScanTimeMs: Long = 0L
     private var lastBrowserBlockTimeMs: Long = 0L
     private var lastUsageTrackedPkg: String? = null
@@ -42,7 +43,8 @@ class AegisAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        if (!container.preferences.masterPowerEnabled.value) {
+        val hasTimeBlocked = runCatching { container.timeBlockerRepository.hasAnyRestrictedApps() }.getOrDefault(false)
+        if (!container.preferences.masterPowerEnabled.value && !hasTimeBlocked) {
             Log.i(TAG, "Master Power is OFF — disconnecting AegisAccessibilityService immediately.")
             disableSelf()
             return
@@ -67,8 +69,32 @@ class AegisAccessibilityService : AccessibilityService() {
             ?: safeGetRootPackageName()
             ?: return
         val prefs = container.preferences
-        if (!prefs.masterPowerEnabled.value) {
+        val timeBlockerRepo = container.timeBlockerRepository
+        val hasTimeBlocked = runCatching { timeBlockerRepo.hasAnyRestrictedApps() }.getOrDefault(false)
+        if (!prefs.masterPowerEnabled.value && !hasTimeBlocked) {
             disableSelf()
+            return
+        }
+
+        // Silent isolated Time-Based App Blocker monitor (independent of manual/parental toggles)
+        if (hasTimeBlocked) {
+            if (resolvedPkg == packageName ||
+                isTransientOverlayPackage(resolvedPkg) ||
+                isExemptSystemOrLauncherPackage(resolvedPkg)
+            ) {
+                timeBlockerRepo.onForegroundLeft()
+            } else {
+                val decision = timeBlockerRepo.onForegroundPackageObserved(resolvedPkg) { exhausted ->
+                    timeBlockerRepo.launchLockScreen(this, exhausted)
+                }
+                if (decision.shouldBlock) {
+                    timeBlockerRepo.launchLockScreen(this, decision)
+                    return
+                }
+            }
+        }
+
+        if (!prefs.masterPowerEnabled.value) {
             return
         }
         com.example.services.protection.ProfileAutoScheduler.evaluateAndApply(prefs)
@@ -129,6 +155,9 @@ class AegisAccessibilityService : AccessibilityService() {
 
         // 4. Track active monitored foreground application accurately across apps (including Chrome & returning to Sheildlenz)
         updateTrackedForegroundPackage(eventType, resolvedPkg)
+        if (!isTransientOverlayPackage(resolvedPkg) && resolvedPkg != packageName) {
+            prefs.onForegroundPackageChanged(resolvedPkg)
+        }
 
         // 4b. Bedtime Lock & Daily Per-App Time Budget Enforcement (zero special usage permissions)
         if (!prefs.maintenanceMode.value &&
@@ -222,6 +251,22 @@ class AegisAccessibilityService : AccessibilityService() {
                     }
                 }
             }
+        }
+
+        // 4d. Individual App Locker (Guardian PIN Gated)
+        if (!prefs.maintenanceMode.value &&
+            !isExemptSystemOrLauncherPackage(resolvedPkg) &&
+            prefs.isPackageLockedByAppLocker(resolvedPkg)
+        ) {
+            if (!overlayController.isShowingAppLockerFor(resolvedPkg) &&
+                (eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || now - lastAppLockerInterceptTimeMs > 700L)
+            ) {
+                lastAppLockerInterceptTimeMs = now
+                val appLabel = getAppLabel(resolvedPkg)
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                overlayController.showAppLockerPinOverlay(appLabel, resolvedPkg)
+            }
+            return
         }
 
         // 5. Real-time Chrome & Third-Party Browser URL / Search Safety Guard
@@ -609,6 +654,7 @@ class AegisAccessibilityService : AccessibilityService() {
         if (instance == this) {
             instance = null
         }
+        runCatching { container.timeBlockerRepository.onForegroundLeft() }
         container.protectionRepository.updateActivePackage(null, "Standby")
         container.protectionRepository.updateAccessibilityState(false)
         serviceScope.cancel()

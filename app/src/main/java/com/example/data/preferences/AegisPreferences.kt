@@ -125,6 +125,54 @@ enum class QuickTileMode(
     }
 }
 
+enum class BrowserSearchEngine(
+    val id: String,
+    val displayName: String,
+    val homeUrl: String,
+    val searchUrlTemplate: String
+) {
+    GOOGLE_SAFE(
+        id = "google",
+        displayName = "Google Safe",
+        homeUrl = "https://www.google.com/?safe=active",
+        searchUrlTemplate = "https://www.google.com/search?q=%s&safe=active"
+    ),
+    DUCKDUCKGO(
+        id = "ddg",
+        displayName = "DuckDuckGo Safe",
+        homeUrl = "https://duckduckgo.com/?kp=1",
+        searchUrlTemplate = "https://duckduckgo.com/?q=%s&kp=1"
+    ),
+    BING_STRICT(
+        id = "bing",
+        displayName = "Bing Strict",
+        homeUrl = "https://www.bing.com/?adlt=strict",
+        searchUrlTemplate = "https://www.bing.com/search?q=%s&adlt=strict"
+    ),
+    BRAVE_SEARCH(
+        id = "brave",
+        displayName = "Brave Safe",
+        homeUrl = "https://search.brave.com/",
+        searchUrlTemplate = "https://search.brave.com/search?q=%s&safesearch=strict"
+    ),
+    STARTPAGE(
+        id = "startpage",
+        displayName = "Startpage",
+        homeUrl = "https://www.startpage.com/",
+        searchUrlTemplate = "https://www.startpage.com/do/search?q=%s&prf=safe"
+    );
+
+    fun buildSearchUrl(query: String): String {
+        val encoded = android.net.Uri.encode(query.trim())
+        return searchUrlTemplate.replace("%s", encoded)
+    }
+
+    companion object {
+        fun fromId(id: String?): BrowserSearchEngine =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: GOOGLE_SAFE
+    }
+}
+
 enum class SafeDnsProvider(
     val id: String,
     val displayName: String,
@@ -798,6 +846,63 @@ class AegisPreferences(context: Context) {
     )
     val chromeComponentCacheTimestampMillis: StateFlow<Long> = _chromeComponentCacheTimestampMillis.asStateFlow()
 
+    // Full Chrome-Alternative Browser Settings & Per-Site Permissions
+    private val _browserSearchEngine = MutableStateFlow(
+        BrowserSearchEngine.fromId(prefs.getString(KEY_BROWSER_SEARCH_ENGINE, BrowserSearchEngine.GOOGLE_SAFE.id))
+    )
+    val browserSearchEngine: StateFlow<BrowserSearchEngine> = _browserSearchEngine.asStateFlow()
+
+    private val _browserAdBlockEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_BROWSER_AD_BLOCK, true)
+    )
+    val browserAdBlockEnabled: StateFlow<Boolean> = _browserAdBlockEnabled.asStateFlow()
+
+    private val _browserPopupsBlocked = MutableStateFlow(
+        prefs.getBoolean(KEY_BROWSER_POPUPS_BLOCKED, true)
+    )
+    val browserPopupsBlocked: StateFlow<Boolean> = _browserPopupsBlocked.asStateFlow()
+
+    private val _browserJavaScriptEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_BROWSER_JS_ENABLED, true)
+    )
+    val browserJavaScriptEnabled: StateFlow<Boolean> = _browserJavaScriptEnabled.asStateFlow()
+
+    private val _browserHomeUrl = MutableStateFlow(
+        prefs.getString(KEY_BROWSER_HOME_URL, "") ?: ""
+    )
+    val browserHomeUrl: StateFlow<String> = _browserHomeUrl.asStateFlow()
+
+    private val _browserSitePermissionsJson = MutableStateFlow(
+        prefs.getString(KEY_BROWSER_SITE_PERMS_JSON, "") ?: ""
+    )
+    val browserSitePermissionsJson: StateFlow<String> = _browserSitePermissionsJson.asStateFlow()
+
+    private val _browserPinPromptShown = MutableStateFlow(
+        prefs.getBoolean(KEY_BROWSER_PIN_PROMPT_SHOWN, false)
+    )
+    val browserPinPromptShown: StateFlow<Boolean> = _browserPinPromptShown.asStateFlow()
+
+    // Individual App Locker Gated by Guardian PIN
+    private val _appLockerEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_APP_LOCKER_ENABLED, false)
+    )
+    val appLockerEnabled: StateFlow<Boolean> = _appLockerEnabled.asStateFlow()
+
+    private val _lockedAppPackages = MutableStateFlow(
+        prefs.getStringSet(KEY_LOCKED_APP_PACKAGES, emptySet())?.toSet() ?: emptySet()
+    )
+    val lockedAppPackages: StateFlow<Set<String>> = _lockedAppPackages.asStateFlow()
+
+    private val _appLockerRelockMinutes = MutableStateFlow(
+        prefs.getInt(KEY_APP_LOCKER_RELOCK_MINUTES, 0).coerceIn(0, 60)
+    )
+    val appLockerRelockMinutes: StateFlow<Int> = _appLockerRelockMinutes.asStateFlow()
+
+    private val unlockedAppGraceUntilRealtime = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    @Volatile
+    private var activeUnlockedAppPackage: String? = null
+
     init {
         AegisSoundEffects.setEnabled(_touchSoundsEnabled.value)
         AegisSoundEffects.setAutoSelectorEnabled(_autoSoundSelectorEnabled.value)
@@ -1341,6 +1446,9 @@ class AegisPreferences(context: Context) {
             return
         }
         _isGuardianSessionUnlocked.value = false
+        if (forceLock) {
+            clearTempAppUnlocks()
+        }
         if (explicitSettingsTripPending && !forceLock) {
             explicitSettingsTripPending = false
         } else {
@@ -2016,6 +2124,134 @@ class AegisPreferences(context: Context) {
         _chromeComponentCacheTimestampMillis.value = safe
     }
 
+    fun setBrowserSearchEngine(engine: BrowserSearchEngine) {
+        prefs.edit().putString(KEY_BROWSER_SEARCH_ENGINE, engine.id).apply()
+        _browserSearchEngine.value = engine
+    }
+
+    fun setBrowserAdBlockEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BROWSER_AD_BLOCK, enabled).apply()
+        _browserAdBlockEnabled.value = enabled
+    }
+
+    fun setBrowserPopupsBlocked(blocked: Boolean) {
+        prefs.edit().putBoolean(KEY_BROWSER_POPUPS_BLOCKED, blocked).apply()
+        _browserPopupsBlocked.value = blocked
+    }
+
+    fun setBrowserJavaScriptEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_BROWSER_JS_ENABLED, enabled).apply()
+        _browserJavaScriptEnabled.value = enabled
+    }
+
+    fun setBrowserHomeUrl(url: String) {
+        val clean = url.trim().take(320)
+        prefs.edit().putString(KEY_BROWSER_HOME_URL, clean).apply()
+        _browserHomeUrl.value = clean
+    }
+
+    fun setBrowserSitePermissionsJson(json: String) {
+        prefs.edit().putString(KEY_BROWSER_SITE_PERMS_JSON, json).apply()
+        _browserSitePermissionsJson.value = json
+    }
+
+    fun setBrowserPinPromptShown(shown: Boolean) {
+        prefs.edit().putBoolean(KEY_BROWSER_PIN_PROMPT_SHOWN, shown).apply()
+        _browserPinPromptShown.value = shown
+    }
+
+    // --- 12. Individual App Locker (Guardian PIN Gated) ---
+
+    fun setAppLockerEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_APP_LOCKER_ENABLED, enabled).apply()
+        _appLockerEnabled.value = enabled
+        if (!enabled) {
+            clearTempAppUnlocks()
+        }
+    }
+
+    fun setLockedAppPackages(packages: Set<String>) {
+        val cleaned = packages.map { it.trim() }.filter { it.isNotBlank() }.take(80).toSet()
+        prefs.edit().putStringSet(KEY_LOCKED_APP_PACKAGES, cleaned).apply()
+        _lockedAppPackages.value = cleaned
+    }
+
+    fun toggleLockedAppPackage(packageName: String) {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return
+        val next = _lockedAppPackages.value.toMutableSet()
+        if (!next.add(clean)) {
+            next.remove(clean)
+            unlockedAppGraceUntilRealtime.remove(clean)
+            if (activeUnlockedAppPackage == clean) activeUnlockedAppPackage = null
+        }
+        setLockedAppPackages(next)
+    }
+
+    fun setAppLockerRelockMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(0, 60)
+        prefs.edit().putInt(KEY_APP_LOCKER_RELOCK_MINUTES, clamped).apply()
+        _appLockerRelockMinutes.value = clamped
+    }
+
+    fun grantTempAppUnlock(
+        packageName: String,
+        durationMinutes: Int = _appLockerRelockMinutes.value,
+        nowRealtimeMs: Long = SystemClock.elapsedRealtime()
+    ) {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return
+        if (durationMinutes <= 0) {
+            activeUnlockedAppPackage = clean
+            unlockedAppGraceUntilRealtime.remove(clean)
+        } else {
+            activeUnlockedAppPackage = clean
+            unlockedAppGraceUntilRealtime[clean] = nowRealtimeMs + durationMinutes * 60_000L
+        }
+    }
+
+    fun onForegroundPackageChanged(packageName: String) {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return
+        val active = activeUnlockedAppPackage ?: return
+        if (_appLockerRelockMinutes.value <= 0 && clean != active) {
+            activeUnlockedAppPackage = null
+        }
+    }
+
+    fun isAppTemporarilyUnlocked(
+        packageName: String,
+        nowRealtimeMs: Long = SystemClock.elapsedRealtime()
+    ): Boolean {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return false
+        if (_appLockerRelockMinutes.value <= 0) {
+            return activeUnlockedAppPackage == clean
+        }
+        val until = unlockedAppGraceUntilRealtime[clean] ?: return false
+        if (nowRealtimeMs < until) {
+            return true
+        }
+        unlockedAppGraceUntilRealtime.remove(clean)
+        return false
+    }
+
+    fun isPackageLockedByAppLocker(
+        packageName: String,
+        nowRealtimeMs: Long = SystemClock.elapsedRealtime()
+    ): Boolean {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return false
+        if (!_appLockerEnabled.value || !_hasGuardianPin.value) return false
+        if (!_lockedAppPackages.value.contains(clean)) return false
+        return !isAppTemporarilyUnlocked(clean, nowRealtimeMs)
+    }
+
+    fun clearTempAppUnlocks() {
+        activeUnlockedAppPackage = null
+        unlockedAppGraceUntilRealtime.clear()
+    }
+
     fun exportPolicyJson(): String {
         val json = JSONObject().apply {
             put("schemaVersion", 1)
@@ -2066,6 +2302,15 @@ class AegisPreferences(context: Context) {
             put("fullBrowserEngineInstalled", _fullBrowserEngineInstalled.value)
             put("chromeComponentsAutoCached", _chromeComponentsAutoCached.value)
             put("chromeCachedComponentCount", _chromeCachedComponentCount.value)
+            put("browserSearchEngine", _browserSearchEngine.value.id)
+            put("browserAdBlockEnabled", _browserAdBlockEnabled.value)
+            put("browserPopupsBlocked", _browserPopupsBlocked.value)
+            put("browserJavaScriptEnabled", _browserJavaScriptEnabled.value)
+            put("browserHomeUrl", _browserHomeUrl.value)
+            put("browserSitePermissionsJson", _browserSitePermissionsJson.value)
+            put("appLockerEnabled", _appLockerEnabled.value)
+            put("appLockerRelockMinutes", _appLockerRelockMinutes.value)
+            put("lockedAppPackages", JSONArray(_lockedAppPackages.value.toList()))
             put("whitelistedPackages", JSONArray(_whitelistedPackages.value.toList()))
             put("customBlockedDomains", JSONArray(_customBlockedDomains.value.toList()))
             put("customBlockedKeywords", JSONArray(_customBlockedKeywords.value.toList()))
@@ -2224,6 +2469,38 @@ class AegisPreferences(context: Context) {
             }
             if (payload.has("chromeCachedComponentCount")) {
                 setChromeCachedComponentCount(payload.optInt("chromeCachedComponentCount", 0))
+            }
+            if (payload.has("browserSearchEngine")) {
+                setBrowserSearchEngine(BrowserSearchEngine.fromId(payload.optString("browserSearchEngine", "")))
+            }
+            if (payload.has("browserAdBlockEnabled")) {
+                setBrowserAdBlockEnabled(payload.optBoolean("browserAdBlockEnabled", true))
+            }
+            if (payload.has("browserPopupsBlocked")) {
+                setBrowserPopupsBlocked(payload.optBoolean("browserPopupsBlocked", true))
+            }
+            if (payload.has("browserJavaScriptEnabled")) {
+                setBrowserJavaScriptEnabled(payload.optBoolean("browserJavaScriptEnabled", true))
+            }
+            if (payload.has("browserHomeUrl")) {
+                setBrowserHomeUrl(payload.optString("browserHomeUrl", ""))
+            }
+            if (payload.has("browserSitePermissionsJson")) {
+                setBrowserSitePermissionsJson(payload.optString("browserSitePermissionsJson", ""))
+            }
+            if (payload.has("appLockerEnabled")) {
+                setAppLockerEnabled(payload.optBoolean("appLockerEnabled", false))
+            }
+            if (payload.has("appLockerRelockMinutes")) {
+                setAppLockerRelockMinutes(payload.optInt("appLockerRelockMinutes", 0))
+            }
+            val lockedAppsArr = payload.optJSONArray("lockedAppPackages")
+            if (lockedAppsArr != null) {
+                val set = mutableSetOf<String>()
+                for (i in 0 until lockedAppsArr.length()) {
+                    lockedAppsArr.optString(i)?.takeIf { it.isNotBlank() }?.let { set.add(it) }
+                }
+                setLockedAppPackages(set)
             }
             true
         }.getOrDefault(false)
@@ -2519,5 +2796,15 @@ class AegisPreferences(context: Context) {
         private const val KEY_CHROME_COMPONENTS_AUTO_CACHED = "key_chrome_components_auto_cached"
         private const val KEY_CHROME_CACHED_COMPONENT_COUNT = "key_chrome_cached_component_count"
         private const val KEY_CHROME_COMPONENT_CACHE_TS = "key_chrome_component_cache_ts"
+        private const val KEY_BROWSER_SEARCH_ENGINE = "key_browser_search_engine"
+        private const val KEY_BROWSER_AD_BLOCK = "key_browser_ad_block"
+        private const val KEY_BROWSER_POPUPS_BLOCKED = "key_browser_popups_blocked"
+        private const val KEY_BROWSER_JS_ENABLED = "key_browser_js_enabled"
+        private const val KEY_BROWSER_HOME_URL = "key_browser_home_url"
+        private const val KEY_BROWSER_SITE_PERMS_JSON = "key_browser_site_perms_json"
+        private const val KEY_BROWSER_PIN_PROMPT_SHOWN = "key_browser_pin_prompt_shown"
+        private const val KEY_APP_LOCKER_ENABLED = "key_app_locker_enabled"
+        private const val KEY_LOCKED_APP_PACKAGES = "key_locked_app_packages"
+        private const val KEY_APP_LOCKER_RELOCK_MINUTES = "key_app_locker_relock_minutes"
     }
 }

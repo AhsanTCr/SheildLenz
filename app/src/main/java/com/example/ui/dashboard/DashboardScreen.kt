@@ -66,6 +66,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -126,6 +127,7 @@ import com.example.detection.classifier.ModelImportResult
 import com.example.detection.classifier.ModelManager
 import com.example.services.dns.AegisSafeDnsVpnService
 import com.example.services.protection.MasterPowerController
+import com.example.timeblocker.ui.TimeBlockLockActivity
 import com.example.ui.components.AegisShieldGraphic
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
@@ -208,6 +210,13 @@ fun DashboardScreen(
     val skipDuplicateFrames by preferences.skipDuplicateFrames.collectAsState()
     val isMasterPowerOn by preferences.masterPowerEnabled.collectAsState()
     val fullBrowserInstalled by preferences.fullBrowserEngineInstalled.collectAsState()
+
+    val isPiqoraxInstalled = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(TimeBlockLockActivity.PIQORAX_PACKAGE_NAME, 0)
+            true
+        }.getOrDefault(false)
+    }
 
     val isStudyActive = remember(studyModeEnabled, studySessionEndMillis) {
         studyModeEnabled && preferences.getRemainingStudyMillis() > 0L
@@ -1414,6 +1423,87 @@ fun DashboardScreen(
                                     maxLines = 1,
                                     softWrap = false
                                 )
+                            }
+                        }
+                    }
+                }
+
+                if (isPiqoraxInstalled) {
+                    item(key = "home_piqorax_companion") {
+                        CyberCard(
+                            borderColor = AegisGoldBorder,
+                            tone = CyberCardTone.HERO,
+                            modifier = Modifier
+                                .widthIn(max = 540.dp)
+                                .testTag("home_piqorax_companion_card")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 10.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(42.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(AegisChampagneSoft),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.VerifiedUser,
+                                            contentDescription = "Piqorax Study Companion",
+                                            tint = AegisChampagneGold,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Piqorax Study Companion",
+                                            color = AegisTextPrimary,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = ClassicalDisplayFont,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "Connected via offline signature pass bridge",
+                                            color = AegisTextSecondary,
+                                            fontSize = 11.sp,
+                                            fontFamily = ClassicalBodyFont,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        AegisSoundEffects.playTap(context)
+                                        TimeBlockLockActivity.launchPiqoraxCompanion(context, context.packageName)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AegisChampagneGold,
+                                        contentColor = AegisOnPrimaryWhite
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    modifier = Modifier
+                                        .height(44.dp)
+                                        .testTag("home_open_piqorax_button")
+                                ) {
+                                    Text(
+                                        text = "OPEN",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
                     }

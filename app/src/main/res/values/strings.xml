@@ -11,4 +11,12 @@
     <string name="section_bedtime_budgets">Bedtime &amp; App Budgets</string>
     <string name="section_app_language">App Language</string>
     <string name="about_gpl_title">Open-Source License (GPL v3)</string>
+    <string name="browser_app_name">Safe Browser</string>
+    <string name="widget_sheildlenz_description">Sheildlenz Shield status and 1-tap Safe Browser launcher</string>
+    <string name="widget_open_browser">Open Browser</string>
+    <string name="widget_shield_label">Open Shield</string>
+    <string name="service_protection_description">On-device TFLite screen protection monitor checking visual frames strictly locally on device.</string>
+    <string name="service_lockdown_description">Maintains active Guardian safety lockdown countdown across device restarts.</string>
+    <string name="service_safedns_description">Local zero-battery DNS filter blocking adult and unsafe domains without remote logging.</string>
+    <string name="service_download_description">Downloads and verifies official app updates requested by the user.</string>
 </resources>

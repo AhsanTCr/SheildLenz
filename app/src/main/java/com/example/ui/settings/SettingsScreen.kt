@@ -84,6 +84,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -173,6 +174,7 @@ import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisDangerRed
 import com.example.ui.theme.AegisElectricBlue
 import com.example.ui.theme.AegisEmeraldBorder
+import com.example.ui.theme.AegisEmeraldSoft
 import com.example.ui.theme.AegisEmeraldTeal
 import com.example.ui.theme.AegisGoldBorder
 import com.example.ui.theme.AegisGoldBright
@@ -807,6 +809,11 @@ private fun UnlockedEditsContent(
                     WhitelistedAppsSection(
                         preferences = preferences,
                         compactPillMode = true
+                    )
+                }
+                item {
+                    AppLockerSection(
+                        preferences = preferences
                     )
                 }
 
@@ -4175,6 +4182,285 @@ private fun QuickTileModeCard(
         }
     }
 }
+
+@Composable
+private fun AppLockerSection(
+    preferences: AegisPreferences
+) {
+    val context = LocalContext.current
+    val enabled by preferences.appLockerEnabled.collectAsState()
+    val lockedPackages by preferences.lockedAppPackages.collectAsState()
+    val relockMinutes by preferences.appLockerRelockMinutes.collectAsState()
+    val hasGuardianPin by preferences.hasGuardianPin.collectAsState()
+
+    var showAppPicker by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var installedApps by remember { mutableStateOf<List<InstalledAppEntry>>(emptyList()) }
+    var isLoadingApps by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showAppPicker) {
+        if (showAppPicker && installedApps.isEmpty()) {
+            isLoadingApps = true
+            installedApps = loadInstalledLaunchableApps(context)
+            isLoadingApps = false
+        }
+    }
+
+    CyberCard(
+        borderColor = AegisEmeraldBorder,
+        tone = CyberCardTone.EMERALD,
+        modifier = Modifier.testTag("edits_app_locker_card")
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f).padding(end = 8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(11.dp))
+                            .background(AegisEmeraldTeal.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = AegisEmeraldTeal,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Individual App Locker",
+                            color = AegisTextPrimary,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = ClassicalDisplayFont,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = when {
+                                !hasGuardianPin -> "Set a Guardian PIN below to gate locked apps"
+                                enabled -> "Armed • ${lockedPackages.size} app(s) PIN-locked"
+                                else -> "Off • Tap to gate selected apps with PIN"
+                            },
+                            color = if (enabled && hasGuardianPin) AegisEmeraldTeal else AegisTextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = ClassicalBodyFont,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { next ->
+                        AegisSoundEffects.playTap(context)
+                        if (next && !hasGuardianPin) {
+                            Toast.makeText(context, "Set a Guardian PIN first to lock apps", Toast.LENGTH_SHORT).show()
+                        }
+                        preferences.setAppLockerEnabled(next)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = AegisOnPrimaryWhite,
+                        checkedTrackColor = AegisEmeraldTeal
+                    ),
+                    modifier = Modifier.testTag("edits_app_locker_toggle")
+                )
+            }
+
+            // Relock Window Selector
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    text = "Re-lock Window After PIN Unlock",
+                    color = AegisTextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalBodyFont
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(0 to "Every Exit", 5 to "5m", 15 to "15m", 30 to "30m").forEach { (mins, label) ->
+                        val selected = relockMinutes == mins
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (selected) AegisEmeraldTeal else Color.White,
+                            border = BorderStroke(1.dp, if (selected) AegisEmeraldTeal else AegisCardBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 40.dp)
+                                .clickable {
+                                    AegisSoundEffects.playTap(context)
+                                    preferences.setAppLockerRelockMinutes(mins)
+                                }
+                                .testTag("app_locker_relock_${mins}m")
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)) {
+                                Text(
+                                    text = label,
+                                    color = if (selected) AegisOnPrimaryWhite else AegisTextPrimary,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    AegisSoundEffects.playTap(context)
+                    searchQuery = ""
+                    showAppPicker = true
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AegisEmeraldTeal,
+                    contentColor = AegisOnPrimaryWhite
+                ),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("app_locker_select_apps_button")
+            ) {
+                Icon(Icons.Default.Apps, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Select Locked Apps (${lockedPackages.size})",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+
+    if (showAppPicker) {
+        val filtered = remember(installedApps, searchQuery, lockedPackages) {
+            val q = searchQuery.trim().lowercase()
+            val list = if (q.isEmpty()) installedApps else installedApps.filter {
+                it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
+            }
+            list.sortedByDescending { lockedPackages.contains(it.packageName) }
+        }
+        AlertDialog(
+            onDismissRequest = { showAppPicker = false },
+            containerColor = AegisLavenderSoft,
+            modifier = Modifier.testTag("app_locker_picker_dialog"),
+            title = {
+                Text(
+                    text = "Lock Apps with Guardian PIN",
+                    fontFamily = ClassicalDisplayFont,
+                    fontWeight = FontWeight.Bold,
+                    color = AegisTextPrimary
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search apps...", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    if (isLoadingApps) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = AegisEmeraldTeal, modifier = Modifier.size(28.dp))
+                        }
+                    } else {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(filtered, key = { it.packageName }) { app ->
+                                val isLocked = lockedPackages.contains(app.packageName)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isLocked) AegisEmeraldSoft else Color.White)
+                                        .border(
+                                            1.dp,
+                                            if (isLocked) AegisEmeraldBorder else AegisCardBorder,
+                                            RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable { preferences.toggleLockedAppPackage(app.packageName) }
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        if (app.icon != null) {
+                                            androidx.compose.foundation.Image(
+                                                bitmap = app.icon,
+                                                contentDescription = app.label,
+                                                modifier = Modifier.size(28.dp).clip(RoundedCornerShape(7.dp))
+                                            )
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = app.label,
+                                                color = AegisTextPrimary,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = app.packageName,
+                                                color = AegisTextMuted,
+                                                fontSize = 10.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    Checkbox(
+                                        checked = isLocked,
+                                        onCheckedChange = { preferences.toggleLockedAppPackage(app.packageName) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showAppPicker = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = AegisEmeraldTeal, contentColor = AegisOnPrimaryWhite),
+                    modifier = Modifier.testTag("app_locker_picker_done_button")
+                ) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+}
+
 
 
 

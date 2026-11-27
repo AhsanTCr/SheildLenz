@@ -355,8 +355,14 @@ fun AegisNavHost(
                                 }
                             },
                             onNavigateToSafeBrowser = {
-                                navController.navigate(AegisDestinations.SAFE_BROWSER) {
-                                    launchSingleTop = true
+                                if (container.preferences.fullBrowserEngineInstalled.value) {
+                                    context.startActivity(
+                                        com.example.ui.browser.HomeShortcutHelper.buildStandaloneBrowserIntent(context)
+                                    )
+                                } else {
+                                    navController.navigate(AegisDestinations.SAFE_BROWSER) {
+                                        launchSingleTop = true
+                                    }
                                 }
                             }
                         )
@@ -422,7 +428,15 @@ fun AegisNavHost(
                     composable(AegisDestinations.FOCUS_HUB) {
                         FocusSafetyHubScreen(
                             preferences = container.preferences,
-                            onNavigateToSafeBrowser = { navController.navigate(AegisDestinations.SAFE_BROWSER) },
+                            onNavigateToSafeBrowser = {
+                                if (container.preferences.fullBrowserEngineInstalled.value) {
+                                    context.startActivity(
+                                        com.example.ui.browser.HomeShortcutHelper.buildStandaloneBrowserIntent(context)
+                                    )
+                                } else {
+                                    navController.navigate(AegisDestinations.SAFE_BROWSER)
+                                }
+                            },
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }

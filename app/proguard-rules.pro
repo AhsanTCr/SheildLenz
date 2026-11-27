@@ -1,21 +1,45 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Keep line numbers for crash diagnostics
+-keepattributes SourceFile,LineNumberTable
+-keepattributes Signature,InnerClasses,EnclosingMethod,*Annotation*
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# AccessibilityService & foreground monitoring
+-keep class com.example.monitoring.accessibility.AegisAccessibilityService { *; }
+-keep class com.example.monitoring.accessibility.AegisAccessibilityService$Companion { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Isolated Time-Based Blocker & Companion Connector
+-keep class com.example.timeblocker.** { *; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Activities, Services, BroadcastReceivers, DeviceAdminReceiver, AppWidgetProvider
+-keep class com.example.MainActivity { *; }
+-keep class com.example.ui.browser.BrowserActivity { *; }
+-keep class * extends android.content.BroadcastReceiver { *; }
+-keep class * extends android.app.admin.DeviceAdminReceiver { *; }
+-keep class * extends android.app.Service { *; }
+-keep class * extends android.appwidget.AppWidgetProvider { *; }
+
+# Room Database, Entities, DAOs, and generated _Impl classes
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Entity class * { *; }
+-keep @androidx.room.Dao interface * { *; }
+-keep class com.example.data.local.** { *; }
+
+# Core models and preferences
+-keep class com.example.core.models.** { *; }
+-keep class com.example.data.preferences.** { *; }
+
+# Preserve enum values/valueOf for reflection/serialization
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+# Keep WebView JavascriptInterfaces if any
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# TensorFlow Lite & OkHttp / Retrofit optional platform classes
+-dontwarn org.tensorflow.lite.**
+-dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRERequirement
+-dontwarn okhttp3.internal.platform.**
+-dontwarn okio.**

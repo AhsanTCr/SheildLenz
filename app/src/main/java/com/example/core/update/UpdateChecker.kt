@@ -41,6 +41,7 @@ import kotlinx.coroutines.withContext
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -190,6 +191,28 @@ object UpdateChecker {
             .retryOnConnectionFailure(true)
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val downloadClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .connectTimeout(25, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .pingInterval(20, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val http1DownloadClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .protocols(listOf(Protocol.HTTP_1_1))
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .retryOnConnectionFailure(true)
+            .connectTimeout(25, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
             .build()
     }
 
@@ -625,7 +648,8 @@ object UpdateChecker {
                     apkUrl = apkUrl,
                     versionTag = versionTag,
                     expectedTotalBytes = expectedTotalBytes,
-                    expectedSha256 = expectedSha256
+                    expectedSha256 = expectedSha256,
+                    silentPreload = silentPreload
                 ) { state ->
                     if (silentPreload && state is ApkDownloadState.Failed) {
                         _apkDownloadState.value = ApkDownloadState.Idle
@@ -1040,6 +1064,7 @@ object UpdateChecker {
         versionTag: String = "latest",
         expectedTotalBytes: Long = 0L,
         expectedSha256: String? = null,
+        silentPreload: Boolean = false,
         onStateChanged: (ApkDownloadState) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
         val cleanVer = cleanVersionTag(versionTag).ifBlank { "latest" }
@@ -1077,6 +1102,7 @@ object UpdateChecker {
             }
 
             var cleanVerificationRetriesRemaining = 1
+            var activeClient = downloadClient
             while (true) {
                 var existingBytes = if (partFile.exists()) partFile.length() else 0L
                 val startedWithPartial = existingBytes > 0L
@@ -1090,8 +1116,9 @@ object UpdateChecker {
                 // Only stream over HTTP if not already completely present in `.part`
                 if (expectedTotalBytes <= 0L || existingBytes < expectedTotalBytes) {
                     var attemptResume = existingBytes > 0L
-                    var transientIoRetriesRemaining = 2
+                    var transientIoRetriesRemaining = 5
                     var rangeResetAttemptsRemaining = 3
+                    var retryAttemptCount = 0
                     var shouldContinueTransferLoop: Boolean
 
                     do {
@@ -1100,12 +1127,13 @@ object UpdateChecker {
                         val reqBuilder = Request.Builder()
                             .url(apkUrl)
                             .header("User-Agent", "Sheildlenz-Android-App")
+                            .header("Accept-Encoding", "identity")
                         if (attemptResume && existingBytes > 0L) {
                             reqBuilder.header("Range", "bytes=$existingBytes-")
                         }
 
                         try {
-                            client.newCall(reqBuilder.build()).execute().use { response ->
+                            activeClient.newCall(reqBuilder.build()).execute().use { response ->
                                 if (response.code == 416) {
                                     // Server indicates offset >= total; verify exact length or wipe & restart fresh
                                     if (expectedTotalBytes > 0L && existingBytes == expectedTotalBytes) {
@@ -1118,6 +1146,21 @@ object UpdateChecker {
                                         rangeResetAttemptsRemaining--
                                         shouldContinueTransferLoop = true
                                     }
+                                    return@use
+                                }
+
+                                // Transient CDN 5xx or stale Range 403/410 -> cleanly retry / reset Range once
+                                if ((response.code in 500..599 || ((response.code == 403 || response.code == 410) && attemptResume)) &&
+                                    transientIoRetriesRemaining > 0
+                                ) {
+                                    if (response.code == 403 || response.code == 410) {
+                                        partFile.delete()
+                                        attemptResume = false
+                                    }
+                                    transientIoRetriesRemaining--
+                                    retryAttemptCount++
+                                    shouldContinueTransferLoop = true
+                                    delay((retryAttemptCount * 1_000L).coerceAtMost(4_000L))
                                     return@use
                                 }
 
@@ -1177,6 +1220,7 @@ object UpdateChecker {
 
                                 val buffer = ByteArray(16 * 1024)
                                 var windowBytes = 0L
+                                var unflushedBytes = 0L
                                 var windowStart = SystemClock.elapsedRealtime()
                                 var lastEmit = 0L
 
@@ -1189,6 +1233,12 @@ object UpdateChecker {
                                             output.write(buffer, 0, read)
                                             downloadedBytes += read
                                             windowBytes += read
+                                            unflushedBytes += read
+
+                                            if (unflushedBytes >= 256L * 1024L) {
+                                                output.flush()
+                                                unflushedBytes = 0L
+                                            }
 
                                             val limit = activeBandwidthLimitBps.get()
                                             if (limit != TURBO_UNLIMITED_BPS) {
@@ -1196,9 +1246,9 @@ object UpdateChecker {
                                                     bytesInWindow = windowBytes,
                                                     elapsedMs = SystemClock.elapsedRealtime() - windowStart,
                                                     limitBps = limit
-                                                )
+                                                ).coerceAtMost(150L)
                                                 while (sleepRemaining > 0L && activeBandwidthLimitBps.get() != TURBO_UNLIMITED_BPS) {
-                                                    val slice = minOf(sleepRemaining, 50L)
+                                                    val slice = minOf(sleepRemaining, 30L)
                                                     delay(slice)
                                                     sleepRemaining -= slice
                                                 }
@@ -1227,11 +1277,30 @@ object UpdateChecker {
                         } catch (ce: CancellationException) {
                             throw ce
                         } catch (ioe: java.io.IOException) {
-                            if (transientIoRetriesRemaining > 0 && isNetworkAvailable(context)) {
+                            val errName = ioe.javaClass.simpleName
+                            val errMsg = ioe.message.orEmpty()
+                            if (activeClient !== http1DownloadClient &&
+                                (errName.contains("StreamReset", ignoreCase = true) ||
+                                    errName.contains("Protocol", ignoreCase = true) ||
+                                    errMsg.contains("stream", ignoreCase = true) ||
+                                    errMsg.contains("PROTOCOL_ERROR", ignoreCase = true) ||
+                                    errMsg.contains("HTTP_1_1_REQUIRED", ignoreCase = true))
+                            ) {
+                                activeClient = http1DownloadClient
+                            }
+
+                            var networkUp = isNetworkAvailable(context)
+                            if (!networkUp && transientIoRetriesRemaining > 0) {
+                                delay(1_200L)
+                                currentCoroutineContext().ensureActive()
+                                networkUp = isNetworkAvailable(context)
+                            }
+                            if (transientIoRetriesRemaining > 0 && networkUp) {
                                 transientIoRetriesRemaining--
+                                retryAttemptCount++
                                 attemptResume = partFile.exists() && partFile.length() > 0L
                                 shouldContinueTransferLoop = true
-                                delay(750L)
+                                delay((retryAttemptCount * 1_000L).coerceAtMost(5_000L))
                             } else {
                                 throw ioe
                             }
@@ -1284,7 +1353,12 @@ object UpdateChecker {
             // Preserve `.part` file across pause/cancellation so HTTP Range resumes cleanly!
             throw ce
         } catch (t: Throwable) {
-            Log.e(TAG, "Failed to download APK (`.part` kept for resume)", t)
+            if (silentPreload) {
+                Log.w(TAG, "Silent APK preload paused (`.part` kept for resume): ${t.message}")
+                AegisUpdateResumeJobService.schedule(context)
+            } else {
+                Log.e(TAG, "Failed to download APK (`.part` kept for resume)", t)
+            }
             val msg = formatFriendlyUpdateError(
                 context = context,
                 err = t,
