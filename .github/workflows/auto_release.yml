@@ -98,8 +98,17 @@ jobs:
             echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | tr -d '[:space:]' | base64 -d > app/release.jks
             SIGNING_KEYSTORE_PATH="${{ github.workspace }}/app/release.jks"
             SIGNING_STORE_PASS="${{ secrets.RELEASE_KEYSTORE_PASSWORD }}"
-            SIGNING_KEY_ALIAS="${{ secrets.RELEASE_KEY_ALIAS }}"
             SIGNING_KEY_PASS="${{ secrets.RELEASE_KEY_PASSWORD }}"
+
+            DETECTED_ALIAS=$(keytool -list -keystore app/release.jks -storepass "$SIGNING_STORE_PASS" 2>/dev/null | grep -oP 'Alias name:\s*\K.+' | head -n 1 | tr -d '\r' || true)
+            if [ -n "${{ secrets.RELEASE_KEY_ALIAS }}" ]; then
+              SIGNING_KEY_ALIAS="${{ secrets.RELEASE_KEY_ALIAS }}"
+            elif [ -n "$DETECTED_ALIAS" ]; then
+              SIGNING_KEY_ALIAS="$DETECTED_ALIAS"
+              echo "Auto-detected key alias from custom keystore: $SIGNING_KEY_ALIAS"
+            else
+              SIGNING_KEY_ALIAS="upload"
+            fi
           else
             if [ -f "my-upload-key.jks" ]; then
               KEY_SHA=$(keytool -list -v -keystore "my-upload-key.jks" -storepass android -alias upload 2>/dev/null | grep -oP 'SHA256:\s*\K[0-9A-Fa-f:]+' | tr '[:lower:]' '[:upper:]' || true)
@@ -147,6 +156,7 @@ jobs:
           echo "KEYSTORE_PATH=$SIGNING_KEYSTORE_PATH" >> "$GITHUB_ENV"
           echo "RELEASE_KEYSTORE_PATH=$SIGNING_KEYSTORE_PATH" >> "$GITHUB_ENV"
           echo "SIGNING_KEY_ALIAS=$SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "RELEASE_KEY_ALIAS=$SIGNING_KEY_ALIAS" >> "$GITHUB_ENV"
 
       - name: Build Signed Release APK
         run: |
