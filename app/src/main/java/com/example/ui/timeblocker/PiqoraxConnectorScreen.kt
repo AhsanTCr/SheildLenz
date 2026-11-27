@@ -430,7 +430,7 @@ fun PiqoraxConnectorScreen(
                 item(key = "time_blocker_schedule_card") {
                     CyberCard(
                         borderColor = AegisLavenderBorder,
-                        tone = CyberCardTone.VIOLET,
+                        tone = CyberCardTone.LAVENDER,
                         modifier = Modifier.testTag("time_blocker_schedule_card")
                     ) {
                         Row(
@@ -747,7 +747,7 @@ fun PiqoraxConnectorScreen(
                     item(key = "empty_timed_apps") {
                         CyberCard(
                             borderColor = AegisCardBorder,
-                            tone = CyberCardTone.AZURE,
+                            tone = CyberCardTone.SKY,
                             modifier = Modifier.testTag("time_blocker_empty_apps_card")
                         ) {
                             Text(
