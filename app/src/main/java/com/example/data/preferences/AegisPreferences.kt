@@ -6,6 +6,8 @@ import android.os.SystemClock
 import androidx.annotation.VisibleForTesting
 import com.example.core.audio.AegisSoundEffects
 import com.example.core.models.DailyScrollSnapshot
+import com.example.core.models.GameGuardDecision
+import com.example.core.models.GameLockReason
 import com.example.core.models.MindfulScrollEvent
 import com.example.core.models.SafeSearchPack
 import com.example.core.models.SensitivityLevel
@@ -1035,6 +1037,91 @@ class AegisPreferences(context: Context) {
         prefs.getBoolean(KEY_PIQORAX_COIN_DEVICE_LOCK, false)
     )
     val piqoraxCoinDeviceLockActive: StateFlow<Boolean> = _piqoraxCoinDeviceLockActive.asStateFlow()
+
+    // Gaming Addiction Control (inside Usage & Scroll Guard Studio)
+    private val _gameGuardEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_GAME_GUARD_ENABLED, false)
+    )
+    val gameGuardEnabled: StateFlow<Boolean> = _gameGuardEnabled.asStateFlow()
+
+    private val _gameAutoDetectEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_GAME_AUTO_DETECT_ENABLED, true)
+    )
+    val gameAutoDetectEnabled: StateFlow<Boolean> = _gameAutoDetectEnabled.asStateFlow()
+
+    private val _trackedGamePackages = MutableStateFlow(
+        prefs.getStringSet(KEY_TRACKED_GAME_PACKAGES, emptySet())?.toSet().orEmpty()
+    )
+    val trackedGamePackages: StateFlow<Set<String>> = _trackedGamePackages.asStateFlow()
+
+    private val _excludedGamePackages = MutableStateFlow(
+        prefs.getStringSet(KEY_EXCLUDED_GAME_PACKAGES, emptySet())?.toSet().orEmpty()
+    )
+    val excludedGamePackages: StateFlow<Set<String>> = _excludedGamePackages.asStateFlow()
+
+    private val _gameSessionLimitMinutes = MutableStateFlow(
+        prefs.getInt(KEY_GAME_SESSION_LIMIT_MINUTES, 30).coerceIn(10, 90)
+    )
+    val gameSessionLimitMinutes: StateFlow<Int> = _gameSessionLimitMinutes.asStateFlow()
+
+    private val _gameCooldownMinutes = MutableStateFlow(
+        prefs.getInt(KEY_GAME_COOLDOWN_MINUTES, 15).coerceIn(5, 60)
+    )
+    val gameCooldownMinutes: StateFlow<Int> = _gameCooldownMinutes.asStateFlow()
+
+    private val _gameDailyCapMinutes = MutableStateFlow(
+        prefs.getInt(KEY_GAME_DAILY_CAP_MINUTES, 90).let { if (it <= 0) 0 else it.coerceIn(15, 240) }
+    )
+    val gameDailyCapMinutes: StateFlow<Int> = _gameDailyCapMinutes.asStateFlow()
+
+    private val _gameCurfewEnabled = MutableStateFlow(
+        prefs.getBoolean(KEY_GAME_CURFEW_ENABLED, false)
+    )
+    val gameCurfewEnabled: StateFlow<Boolean> = _gameCurfewEnabled.asStateFlow()
+
+    private val _gameCurfewStartMinutes = MutableStateFlow(
+        prefs.getInt(KEY_GAME_CURFEW_START_MINUTES, 22 * 60).coerceIn(0, 1439)
+    )
+    val gameCurfewStartMinutes: StateFlow<Int> = _gameCurfewStartMinutes.asStateFlow()
+
+    private val _gameCurfewEndMinutes = MutableStateFlow(
+        prefs.getInt(KEY_GAME_CURFEW_END_MINUTES, 7 * 60).coerceIn(0, 1439)
+    )
+    val gameCurfewEndMinutes: StateFlow<Int> = _gameCurfewEndMinutes.asStateFlow()
+
+    private val _gameCooldownUntilMillis = MutableStateFlow(
+        prefs.getLong(KEY_GAME_COOLDOWN_UNTIL_MILLIS, 0L)
+    )
+    val gameCooldownUntilMillis: StateFlow<Long> = _gameCooldownUntilMillis.asStateFlow()
+
+    private val _gameCurfewOverrideUntilMillis = MutableStateFlow(
+        prefs.getLong(KEY_GAME_CURFEW_OVERRIDE_UNTIL_MILLIS, 0L)
+    )
+    val gameCurfewOverrideUntilMillis: StateFlow<Long> = _gameCurfewOverrideUntilMillis.asStateFlow()
+
+    private val _dailyGameUsageByPackage = MutableStateFlow(
+        readDailyIntMapIfToday(KEY_DAILY_GAME_USAGE_MAP)
+    )
+    val dailyGameUsageByPackage: StateFlow<Map<String, Int>> = _dailyGameUsageByPackage.asStateFlow()
+
+    private val _dailyGameTotalSeconds = MutableStateFlow(
+        _dailyGameUsageByPackage.value.values.sum()
+    )
+    val dailyGameTotalSeconds: StateFlow<Int> = _dailyGameTotalSeconds.asStateFlow()
+
+    private val _dailyGameExtensionMinutes = MutableStateFlow(
+        readDailyIntIfToday(KEY_DAILY_GAME_EXT_MINUTES, 0)
+    )
+    val dailyGameExtensionMinutes: StateFlow<Int> = _dailyGameExtensionMinutes.asStateFlow()
+
+    private val _activeGameSessionSeconds = MutableStateFlow(0)
+    val activeGameSessionSeconds: StateFlow<Int> = _activeGameSessionSeconds.asStateFlow()
+
+    @Volatile
+    private var lastGameTickUptimeMs: Long = 0L
+
+    @Volatile
+    private var gameSoftWarnedThisSession: Boolean = false
 
     init {
         AegisSoundEffects.setEnabled(_touchSoundsEnabled.value)
@@ -3080,6 +3167,8 @@ class AegisPreferences(context: Context) {
             .putInt(KEY_DAILY_MINDFUL_EXITS, 0)
             .putInt(KEY_DAILY_SCROLL_LOCKS, 0)
             .putString(KEY_HOURLY_SCROLL_BUCKETS, JSONArray(emptyBuckets).toString())
+            .putString(KEY_DAILY_GAME_USAGE_MAP, "{}")
+            .putInt(KEY_DAILY_GAME_EXT_MINUTES, 0)
             .apply()
 
         _dailyReelsTotalCount.value = 0
@@ -3088,8 +3177,393 @@ class AegisPreferences(context: Context) {
         _dailyMindfulExitsCount.value = 0
         _dailyScrollLocksTriggered.value = 0
         _hourlyScrollBuckets.value = emptyBuckets
+        _dailyGameUsageByPackage.value = emptyMap()
+        _dailyGameTotalSeconds.value = 0
+        _dailyGameExtensionMinutes.value = 0
+        _activeGameSessionSeconds.value = 0
+        lastGameTickUptimeMs = 0L
+        gameSoftWarnedThisSession = false
         scrollSessionBaselineByPkg.clear()
         bingeSessionLastNudgeByPkg.clear()
+    }
+
+    // ------------------------------------------------------------------------
+    // Gaming Addiction Control (Session Cap, Cooldown, Daily Cap & Curfew)
+    // ------------------------------------------------------------------------
+
+    fun setGameGuardEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_GAME_GUARD_ENABLED, enabled).apply()
+        _gameGuardEnabled.value = enabled
+        if (!enabled) {
+            _activeGameSessionSeconds.value = 0
+            gameSoftWarnedThisSession = false
+        }
+    }
+
+    fun setGameAutoDetectEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_GAME_AUTO_DETECT_ENABLED, enabled).apply()
+        _gameAutoDetectEnabled.value = enabled
+    }
+
+    fun setGameSessionLimitMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(10, 90)
+        prefs.edit().putInt(KEY_GAME_SESSION_LIMIT_MINUTES, clamped).apply()
+        _gameSessionLimitMinutes.value = clamped
+    }
+
+    fun setGameCooldownMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(5, 60)
+        prefs.edit().putInt(KEY_GAME_COOLDOWN_MINUTES, clamped).apply()
+        _gameCooldownMinutes.value = clamped
+    }
+
+    fun setGameDailyCapMinutes(minutes: Int) {
+        val normalized = if (minutes <= 0) 0 else minutes.coerceIn(15, 240)
+        prefs.edit().putInt(KEY_GAME_DAILY_CAP_MINUTES, normalized).apply()
+        _gameDailyCapMinutes.value = normalized
+    }
+
+    fun setGameCurfew(enabled: Boolean, startMinutes: Int = _gameCurfewStartMinutes.value, endMinutes: Int = _gameCurfewEndMinutes.value) {
+        val start = startMinutes.coerceIn(0, 1439)
+        val end = endMinutes.coerceIn(0, 1439)
+        prefs.edit()
+            .putBoolean(KEY_GAME_CURFEW_ENABLED, enabled)
+            .putInt(KEY_GAME_CURFEW_START_MINUTES, start)
+            .putInt(KEY_GAME_CURFEW_END_MINUTES, end)
+            .apply()
+        _gameCurfewEnabled.value = enabled
+        _gameCurfewStartMinutes.value = start
+        _gameCurfewEndMinutes.value = end
+    }
+
+    fun syncAutoDetectedGames(detectedPackages: Set<String>) {
+        if (detectedPackages.isEmpty()) return
+        val excluded = _excludedGamePackages.value
+        val merged = (_trackedGamePackages.value + detectedPackages.filterNot { it in excluded }).toSet()
+        if (merged != _trackedGamePackages.value) {
+            prefs.edit().putStringSet(KEY_TRACKED_GAME_PACKAGES, merged).apply()
+            _trackedGamePackages.value = merged
+        }
+    }
+
+    fun toggleTrackedGamePackage(packageName: String) {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return
+        val currentTracked = _trackedGamePackages.value.toMutableSet()
+        val currentExcluded = _excludedGamePackages.value.toMutableSet()
+        if (clean in currentTracked) {
+            currentTracked.remove(clean)
+            currentExcluded.add(clean)
+        } else {
+            currentTracked.add(clean)
+            currentExcluded.remove(clean)
+        }
+        prefs.edit()
+            .putStringSet(KEY_TRACKED_GAME_PACKAGES, currentTracked)
+            .putStringSet(KEY_EXCLUDED_GAME_PACKAGES, currentExcluded)
+            .apply()
+        _trackedGamePackages.value = currentTracked
+        _excludedGamePackages.value = currentExcluded
+    }
+
+    fun isPackageTrackedGame(packageName: String, isDetectedGame: Boolean = false): Boolean {
+        val clean = packageName.trim()
+        if (clean.isBlank()) return false
+        if (clean in _trackedGamePackages.value) return true
+        if (_gameAutoDetectEnabled.value && isDetectedGame && clean !in _excludedGamePackages.value) {
+            return true
+        }
+        return false
+    }
+
+    fun isWithinGameCurfewWindow(
+        currentMinuteOfDay: Int = currentClockMinuteOfDay(),
+        nowMillis: Long = System.currentTimeMillis()
+    ): Boolean {
+        if (!_gameGuardEnabled.value || !_gameCurfewEnabled.value) return false
+        if (_gameCurfewOverrideUntilMillis.value > nowMillis) return false
+        return isMinuteWithinWindow(
+            minuteOfDay = currentMinuteOfDay,
+            startMinute = _gameCurfewStartMinutes.value,
+            endMinute = _gameCurfewEndMinutes.value
+        )
+    }
+
+    fun getRemainingGameCooldownMillis(nowMillis: Long = System.currentTimeMillis()): Long {
+        val until = _gameCooldownUntilMillis.value
+        if (until <= 0L) return 0L
+        val remaining = until - nowMillis
+        if (remaining <= 0L) {
+            prefs.edit().putLong(KEY_GAME_COOLDOWN_UNTIL_MILLIS, 0L).apply()
+            _gameCooldownUntilMillis.value = 0L
+            _activeGameSessionSeconds.value = 0
+            gameSoftWarnedThisSession = false
+            return 0L
+        }
+        return remaining
+    }
+
+    fun onNonGameForegroundResumed(nowUptimeMs: Long = SystemClock.uptimeMillis()) {
+        if (_activeGameSessionSeconds.value <= 0 || lastGameTickUptimeMs <= 0L) return
+        val restThresholdMs = _gameCooldownMinutes.value * 60_000L
+        if (nowUptimeMs - lastGameTickUptimeMs >= restThresholdMs) {
+            _activeGameSessionSeconds.value = 0
+            gameSoftWarnedThisSession = false
+        }
+    }
+
+    fun evaluateGamePackageAccess(
+        packageName: String,
+        isDetectedGame: Boolean = false,
+        nowMillis: Long = System.currentTimeMillis(),
+        nowUptimeMs: Long = SystemClock.uptimeMillis(),
+        minuteOfDay: Int = currentClockMinuteOfDay(),
+        dateKey: String = todayDateKey()
+    ): GameGuardDecision {
+        ensureMindfulDailyRollover(dateKey)
+        val tracked = isPackageTrackedGame(packageName, isDetectedGame)
+        if (!tracked || !_gameGuardEnabled.value) {
+            return GameGuardDecision(isTrackedGame = tracked, shouldBlock = false)
+        }
+        if (isDetectedGame && packageName !in _trackedGamePackages.value) {
+            syncAutoDetectedGames(setOf(packageName))
+        }
+
+        val dailyUsed = _dailyGameTotalSeconds.value
+        val baseCapMins = _gameDailyCapMinutes.value
+        val effectiveCapSec = if (baseCapMins > 0) (baseCapMins + _dailyGameExtensionMinutes.value) * 60 else 0
+        val sessionCapSec = _gameSessionLimitMinutes.value * 60
+
+        // 1. Late-night gaming curfew check
+        if (isWithinGameCurfewWindow(minuteOfDay, nowMillis)) {
+            return GameGuardDecision(
+                isTrackedGame = true,
+                shouldBlock = true,
+                lockReason = GameLockReason.CURFEW,
+                remainingUnlockMs = computeMillisUntilCurfewEnds(minuteOfDay),
+                remainingSessionSeconds = 0,
+                dailyGameSecondsUsed = dailyUsed,
+                dailyCapSeconds = effectiveCapSec
+            )
+        }
+
+        // 2. Daily total gaming cap check
+        if (effectiveCapSec > 0 && dailyUsed >= effectiveCapSec) {
+            return GameGuardDecision(
+                isTrackedGame = true,
+                shouldBlock = true,
+                lockReason = GameLockReason.DAILY_CAP,
+                remainingUnlockMs = computeMillisUntilMidnight(nowMillis),
+                remainingSessionSeconds = 0,
+                dailyGameSecondsUsed = dailyUsed,
+                dailyCapSeconds = effectiveCapSec
+            )
+        }
+
+        // 3. Active session break cooldown check
+        val remCooldownMs = getRemainingGameCooldownMillis(nowMillis)
+        if (remCooldownMs > 0L) {
+            return GameGuardDecision(
+                isTrackedGame = true,
+                shouldBlock = true,
+                lockReason = GameLockReason.SESSION_COOLDOWN,
+                remainingUnlockMs = remCooldownMs,
+                remainingSessionSeconds = 0,
+                dailyGameSecondsUsed = dailyUsed,
+                dailyCapSeconds = effectiveCapSec
+            )
+        }
+
+        // If user stayed away from games for at least cooldownMinutes, refresh session timer cleanly
+        if (lastGameTickUptimeMs > 0L && (nowUptimeMs - lastGameTickUptimeMs) >= _gameCooldownMinutes.value * 60_000L) {
+            _activeGameSessionSeconds.value = 0
+            gameSoftWarnedThisSession = false
+        }
+
+        val remSession = (sessionCapSec - _activeGameSessionSeconds.value).coerceAtLeast(0)
+        return GameGuardDecision(
+            isTrackedGame = true,
+            shouldBlock = false,
+            lockReason = GameLockReason.NONE,
+            remainingSessionSeconds = remSession,
+            dailyGameSecondsUsed = dailyUsed,
+            dailyCapSeconds = effectiveCapSec
+        )
+    }
+
+    fun recordGameUsageTick(
+        packageName: String,
+        appLabel: String,
+        deltaSeconds: Int,
+        isDetectedGame: Boolean = false,
+        nowMillis: Long = System.currentTimeMillis(),
+        nowUptimeMs: Long = SystemClock.uptimeMillis(),
+        minuteOfDay: Int = currentClockMinuteOfDay(),
+        dateKey: String = todayDateKey()
+    ): GameGuardDecision {
+        if (deltaSeconds <= 0) {
+            return evaluateGamePackageAccess(packageName, isDetectedGame, nowMillis, nowUptimeMs, minuteOfDay, dateKey)
+        }
+        ensureMindfulDailyRollover(dateKey)
+        if (!isPackageTrackedGame(packageName, isDetectedGame)) {
+            return GameGuardDecision(isTrackedGame = false, shouldBlock = false)
+        }
+
+        val nextByPkg = _dailyGameUsageByPackage.value.toMutableMap()
+        nextByPkg[packageName] = (nextByPkg[packageName] ?: 0) + deltaSeconds
+        val nextTotal = nextByPkg.values.sum()
+        writeIntMap(KEY_DAILY_GAME_USAGE_MAP, nextByPkg)
+        _dailyGameUsageByPackage.value = nextByPkg
+        _dailyGameTotalSeconds.value = nextTotal
+
+        if (!_gameGuardEnabled.value) {
+            return GameGuardDecision(
+                isTrackedGame = true,
+                shouldBlock = false,
+                dailyGameSecondsUsed = nextTotal
+            )
+        }
+
+        // Refresh session counter if previous game tick was older than cooldown window
+        if (lastGameTickUptimeMs > 0L && (nowUptimeMs - lastGameTickUptimeMs) >= _gameCooldownMinutes.value * 60_000L) {
+            _activeGameSessionSeconds.value = 0
+            gameSoftWarnedThisSession = false
+        }
+        lastGameTickUptimeMs = nowUptimeMs
+
+        val nextSessionSec = _activeGameSessionSeconds.value + deltaSeconds
+        _activeGameSessionSeconds.value = nextSessionSec
+
+        val baseCapMins = _gameDailyCapMinutes.value
+        val effectiveCapSec = if (baseCapMins > 0) (baseCapMins + _dailyGameExtensionMinutes.value) * 60 else 0
+        val sessionCapSec = _gameSessionLimitMinutes.value * 60
+
+        if (isWithinGameCurfewWindow(minuteOfDay, nowMillis)) {
+            appendMindfulEvent(
+                MindfulScrollEvent(
+                    timestampMillis = nowMillis,
+                    type = MindfulScrollEvent.TYPE_GAME_CURFEW,
+                    appLabel = appLabel,
+                    packageName = packageName,
+                    detail = "Gaming paused for late-night curfew"
+                )
+            )
+            return GameGuardDecision(
+                isTrackedGame = true,
+                shouldBlock = true,
+                lockReason = GameLockReason.CURFEW,
+                remainingUnlockMs = computeMillisUntilCurfewEnds(minuteOfDay),
+                dailyGameSecondsUsed = nextTotal,
+                dailyCapSeconds = effectiveCapSec
+            )
+        }
+
+        if (effectiveCapSec > 0 && nextTotal >= effectiveCapSec) {
+            appendMindfulEvent(
+                MindfulScrollEvent(
+                    timestampMillis = nowMillis,
+                    type = MindfulScrollEvent.TYPE_GAME_DAILY_CAP,
+                    appLabel = appLabel,
+                    packageName = packageName,
+                    detail = "Reached daily gaming cap (${effectiveCapSec / 60}m)"
+                )
+            )
+            return GameGuardDecision(
+                isTrackedGame = true,
+                shouldBlock = true,
+                lockReason = GameLockReason.DAILY_CAP,
+                remainingUnlockMs = computeMillisUntilMidnight(nowMillis),
+                dailyGameSecondsUsed = nextTotal,
+                dailyCapSeconds = effectiveCapSec
+            )
+        }
+
+        if (nextSessionSec >= sessionCapSec) {
+            val cooldownMs = _gameCooldownMinutes.value * 60_000L
+            val until = nowMillis + cooldownMs
+            prefs.edit().putLong(KEY_GAME_COOLDOWN_UNTIL_MILLIS, until).apply()
+            _gameCooldownUntilMillis.value = until
+            _activeGameSessionSeconds.value = 0
+            gameSoftWarnedThisSession = false
+            appendMindfulEvent(
+                MindfulScrollEvent(
+                    timestampMillis = nowMillis,
+                    type = MindfulScrollEvent.TYPE_GAME_SESSION_LOCK,
+                    appLabel = appLabel,
+                    packageName = packageName,
+                    detail = "Session break after ${_gameSessionLimitMinutes.value}m play (${_gameCooldownMinutes.value}m rest)"
+                )
+            )
+            return GameGuardDecision(
+                isTrackedGame = true,
+                shouldBlock = true,
+                lockReason = GameLockReason.SESSION_COOLDOWN,
+                remainingUnlockMs = cooldownMs,
+                dailyGameSecondsUsed = nextTotal,
+                dailyCapSeconds = effectiveCapSec
+            )
+        }
+
+        val remSessionSec = (sessionCapSec - nextSessionSec).coerceAtLeast(0)
+        val shouldWarn = !gameSoftWarnedThisSession && remSessionSec in 1..60
+        if (shouldWarn) {
+            gameSoftWarnedThisSession = true
+        }
+        return GameGuardDecision(
+            isTrackedGame = true,
+            shouldBlock = false,
+            lockReason = GameLockReason.NONE,
+            shouldShowSoftWarning = shouldWarn,
+            remainingSessionSeconds = remSessionSec,
+            dailyGameSecondsUsed = nextTotal,
+            dailyCapSeconds = effectiveCapSec
+        )
+    }
+
+    fun unlockGameLockWithPin(
+        nowMillis: Long = System.currentTimeMillis(),
+        nowUptimeMs: Long = SystemClock.uptimeMillis()
+    ) {
+        ensureMindfulDailyRollover()
+        val editor = prefs.edit()
+        editor.putLong(KEY_GAME_COOLDOWN_UNTIL_MILLIS, 0L)
+        _gameCooldownUntilMillis.value = 0L
+        _activeGameSessionSeconds.value = 0
+        lastGameTickUptimeMs = nowUptimeMs
+        gameSoftWarnedThisSession = false
+
+        val baseCap = _gameDailyCapMinutes.value
+        val curExt = _dailyGameExtensionMinutes.value
+        if (baseCap > 0 && _dailyGameTotalSeconds.value >= (baseCap + curExt) * 60) {
+            val nextExt = curExt + 30
+            editor.putInt(KEY_DAILY_GAME_EXT_MINUTES, nextExt)
+            _dailyGameExtensionMinutes.value = nextExt
+        }
+
+        if (isWithinGameCurfewWindow(nowMillis = nowMillis)) {
+            val overrideUntil = nowMillis + 30 * 60_000L
+            editor.putLong(KEY_GAME_CURFEW_OVERRIDE_UNTIL_MILLIS, overrideUntil)
+            _gameCurfewOverrideUntilMillis.value = overrideUntil
+        }
+        editor.apply()
+    }
+
+    private fun computeMillisUntilCurfewEnds(minuteOfDay: Int): Long {
+        val end = _gameCurfewEndMinutes.value
+        val diffMins = if (minuteOfDay < end) end - minuteOfDay else (1440 - minuteOfDay) + end
+        return diffMins.coerceAtLeast(1) * 60_000L
+    }
+
+    private fun computeMillisUntilMidnight(nowMillis: Long): Long {
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = nowMillis
+            add(Calendar.DAY_OF_YEAR, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return (cal.timeInMillis - nowMillis).coerceAtLeast(60_000L)
     }
 
     private fun readDailyIntIfToday(key: String, defaultVal: Int): Int {
@@ -3455,5 +3929,19 @@ class AegisPreferences(context: Context) {
         private const val KEY_TIME_BLOCKER_WINDOW_MINUTES = "key_time_blocker_window_minutes"
         private const val KEY_PIQORAX_LAST_PASS_SUMMARY = "key_piqorax_last_pass_summary"
         private const val KEY_PIQORAX_COIN_DEVICE_LOCK = "key_piqorax_coin_device_lock"
+        private const val KEY_GAME_GUARD_ENABLED = "key_game_guard_enabled"
+        private const val KEY_GAME_AUTO_DETECT_ENABLED = "key_game_auto_detect_enabled"
+        private const val KEY_TRACKED_GAME_PACKAGES = "key_tracked_game_packages"
+        private const val KEY_EXCLUDED_GAME_PACKAGES = "key_excluded_game_packages"
+        private const val KEY_GAME_SESSION_LIMIT_MINUTES = "key_game_session_limit_minutes"
+        private const val KEY_GAME_COOLDOWN_MINUTES = "key_game_cooldown_minutes"
+        private const val KEY_GAME_DAILY_CAP_MINUTES = "key_game_daily_cap_minutes"
+        private const val KEY_GAME_CURFEW_ENABLED = "key_game_curfew_enabled"
+        private const val KEY_GAME_CURFEW_START_MINUTES = "key_game_curfew_start_minutes"
+        private const val KEY_GAME_CURFEW_END_MINUTES = "key_game_curfew_end_minutes"
+        private const val KEY_GAME_COOLDOWN_UNTIL_MILLIS = "key_game_cooldown_until_millis"
+        private const val KEY_GAME_CURFEW_OVERRIDE_UNTIL_MILLIS = "key_game_curfew_override_until_millis"
+        private const val KEY_DAILY_GAME_USAGE_MAP = "key_daily_game_usage_map"
+        private const val KEY_DAILY_GAME_EXT_MINUTES = "key_daily_game_ext_minutes"
     }
 }

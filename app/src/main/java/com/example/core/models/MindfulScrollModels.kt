@@ -139,6 +139,9 @@ data class MindfulScrollEvent(
         const val TYPE_BINGE_NUDGE = "BINGE_NUDGE"
         const val TYPE_SCROLL_LOCK = "SCROLL_LOCK"
         const val TYPE_DETOX_LOCK = "DETOX_LOCK"
+        const val TYPE_GAME_SESSION_LOCK = "GAME_SESSION_LOCK"
+        const val TYPE_GAME_DAILY_CAP = "GAME_DAILY_CAP"
+        const val TYPE_GAME_CURFEW = "GAME_CURFEW"
 
         fun fromJson(obj: JSONObject): MindfulScrollEvent? {
             val ts = obj.optLong("timestampMillis", 0L)

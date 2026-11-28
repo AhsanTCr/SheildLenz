@@ -27,6 +27,7 @@ import android.widget.Toast
 import androidx.core.content.res.ResourcesCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.core.models.GameLockReason
 import com.example.core.models.ThreatCategory
 import com.example.core.permissions.PermissionHelper
 import com.example.data.preferences.AegisPreferences
@@ -80,6 +81,16 @@ class SystemOverlayController(private val context: Context) {
     private var scrollLockPackageName: String = ""
     private var scrollLockTimerView: TextView? = null
     private var scrollLockIsDetox: Boolean = false
+
+    private var gameWrapupClockView: TextView? = null
+    private var gameWrapupRemainingSec: Int = 60
+    private var gameWrapupPackageName: String = ""
+    private var gameWrapupAppLabel: String = ""
+    private var gameWrapupOnExit: (() -> Unit)? = null
+
+    private var gameLockPackageName: String = ""
+    private var gameLockReason: GameLockReason = GameLockReason.NONE
+    private var gameLockTimerView: TextView? = null
 
     private val tickerRunnable = object : Runnable {
         override fun run() {
@@ -149,6 +160,33 @@ class SystemOverlayController(private val context: Context) {
         }
     }
 
+    private val gameWrapupTickerRunnable = object : Runnable {
+        override fun run() {
+            if (!isOverlayVisible || activeOverlayMode != OverlayMode.GAME_WRAPUP_WARNING) return
+            gameWrapupRemainingSec -= 1
+            if (gameWrapupRemainingSec <= 0) {
+                dismissBlockOverlay()
+                return
+            }
+            gameWrapupClockView?.text = "${gameWrapupRemainingSec}s"
+            mainHandler.postDelayed(this, 1000L)
+        }
+    }
+
+    private val gameLockTickerRunnable = object : Runnable {
+        override fun run() {
+            if (!isOverlayVisible || activeOverlayMode != OverlayMode.GAME_ADDICTION_LOCK) return
+            val prefs = AegisContainer.getInstance(context).preferences
+            val decision = prefs.evaluateGamePackageAccess(gameLockPackageName, isDetectedGame = true)
+            if (!decision.shouldBlock || decision.remainingUnlockMs <= 0L) {
+                dismissBlockOverlay()
+                return
+            }
+            gameLockTimerView?.text = "Unlocks in ${formatDuration(decision.remainingUnlockMs)}"
+            mainHandler.postDelayed(this, 1000L)
+        }
+    }
+
     @Volatile
     var isOverlayVisible: Boolean = false
         private set
@@ -157,7 +195,9 @@ class SystemOverlayController(private val context: Context) {
         isOverlayVisible && (
             activeOverlayMode == OverlayMode.MINDFUL_BREATHING ||
                 activeOverlayMode == OverlayMode.SCROLL_BINGE_NUDGE ||
-                activeOverlayMode == OverlayMode.SCROLL_LIMIT_LOCK
+                activeOverlayMode == OverlayMode.SCROLL_LIMIT_LOCK ||
+                activeOverlayMode == OverlayMode.GAME_WRAPUP_WARNING ||
+                activeOverlayMode == OverlayMode.GAME_ADDICTION_LOCK
             )
 
     fun showLockdownOverlay(incidentInfo: LockdownIncidentInfo) {
@@ -658,12 +698,122 @@ class SystemOverlayController(private val context: Context) {
         }
     }
 
+    fun showGameSoftWarningOverlay(
+        appName: String,
+        packageName: String,
+        remainingSeconds: Int,
+        onExitGameNow: () -> Unit
+    ) {
+        if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) {
+            dismissBlockOverlay()
+            return
+        }
+        if (!PermissionHelper.hasOverlayPermission(context)) return
+
+        mainHandler.post {
+            val prefs = AegisContainer.getInstance(context).preferences
+            if (!prefs.masterPowerEnabled.value) {
+                removeCurrentViewImmediate()
+                activeOverlayMode = OverlayMode.NONE
+                return@post
+            }
+            if (prefs.isLockdownActive()) {
+                showLockdownOverlay(prefs.lockdownIncidentInfo.value)
+                return@post
+            }
+            if (isOverlayVisible &&
+                (activeOverlayMode == OverlayMode.GAME_ADDICTION_LOCK ||
+                    (activeOverlayMode == OverlayMode.GAME_WRAPUP_WARNING && gameWrapupPackageName == packageName))
+            ) {
+                return@post
+            }
+            removeCurrentViewImmediate()
+            activeOverlayMode = OverlayMode.GAME_WRAPUP_WARNING
+            gameWrapupPackageName = packageName
+            gameWrapupAppLabel = appName
+            gameWrapupRemainingSec = remainingSeconds.coerceIn(10, 60)
+            gameWrapupOnExit = onExitGameNow
+            try {
+                val view = createGameSoftWarningLayout(
+                    appName = appName,
+                    remainingSeconds = gameWrapupRemainingSec,
+                    onExitGameNow = onExitGameNow
+                )
+                windowManager?.addView(view, buildFullscreenLayoutParams())
+                overlayView = view
+                isOverlayVisible = true
+                mainHandler.removeCallbacks(gameWrapupTickerRunnable)
+                mainHandler.postDelayed(gameWrapupTickerRunnable, 1000L)
+                Log.i(TAG, "Gaming wrap-up warning overlay presented for $packageName (${gameWrapupRemainingSec}s left).")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to present Gaming Wrap-up Overlay", e)
+            }
+        }
+    }
+
+    fun showGamingLockOverlay(
+        appName: String,
+        packageName: String,
+        reason: GameLockReason,
+        remainingMs: Long
+    ) {
+        if (!AegisContainer.getInstance(context).preferences.masterPowerEnabled.value) {
+            dismissBlockOverlay()
+            return
+        }
+        if (!PermissionHelper.hasOverlayPermission(context)) {
+            Log.w(TAG, "Cannot show gaming lock overlay: SYSTEM_ALERT_WINDOW permission missing.")
+            return
+        }
+
+        mainHandler.post {
+            val prefs = AegisContainer.getInstance(context).preferences
+            if (!prefs.masterPowerEnabled.value) {
+                removeCurrentViewImmediate()
+                activeOverlayMode = OverlayMode.NONE
+                return@post
+            }
+            if (prefs.isLockdownActive()) {
+                showLockdownOverlay(prefs.lockdownIncidentInfo.value)
+                return@post
+            }
+            if (isOverlayVisible &&
+                activeOverlayMode == OverlayMode.GAME_ADDICTION_LOCK &&
+                gameLockPackageName == packageName &&
+                gameLockReason == reason
+            ) {
+                return@post
+            }
+            removeCurrentViewImmediate()
+            activeOverlayMode = OverlayMode.GAME_ADDICTION_LOCK
+            gameLockPackageName = packageName
+            gameLockReason = reason
+            try {
+                val view = createGameLockLayout(
+                    appName = appName,
+                    reason = reason,
+                    remainingMs = remainingMs
+                )
+                windowManager?.addView(view, buildFullscreenLayoutParams())
+                overlayView = view
+                isOverlayVisible = true
+                mainHandler.removeCallbacks(gameLockTickerRunnable)
+                mainHandler.postDelayed(gameLockTickerRunnable, 1000L)
+                Log.i(TAG, "Gaming lock overlay presented for $packageName (reason=$reason).")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to present Gaming Lock Overlay", e)
+            }
+        }
+    }
+
     fun dismissBlockOverlay() {
         mainHandler.post {
             mainHandler.removeCallbacks(tickerRunnable)
             mainHandler.removeCallbacks(softWarningTickerRunnable)
             mainHandler.removeCallbacks(mindfulBreathTickerRunnable)
             mainHandler.removeCallbacks(scrollLockTickerRunnable)
+            mainHandler.removeCallbacks(gameWrapupTickerRunnable)
+            mainHandler.removeCallbacks(gameLockTickerRunnable)
             removeCurrentViewImmediate()
             activeOverlayMode = OverlayMode.NONE
         }
@@ -673,6 +823,8 @@ class SystemOverlayController(private val context: Context) {
         mainHandler.removeCallbacks(softWarningTickerRunnable)
         mainHandler.removeCallbacks(mindfulBreathTickerRunnable)
         mainHandler.removeCallbacks(scrollLockTickerRunnable)
+        mainHandler.removeCallbacks(gameWrapupTickerRunnable)
+        mainHandler.removeCallbacks(gameLockTickerRunnable)
         mindfulHaloAnimator?.cancel()
         mindfulHaloAnimator = null
         if (overlayView != null) {
@@ -703,6 +855,14 @@ class SystemOverlayController(private val context: Context) {
                 scrollLockPackageName = ""
                 scrollLockTimerView = null
                 scrollLockIsDetox = false
+                gameWrapupClockView = null
+                gameWrapupRemainingSec = 60
+                gameWrapupPackageName = ""
+                gameWrapupAppLabel = ""
+                gameWrapupOnExit = null
+                gameLockPackageName = ""
+                gameLockReason = GameLockReason.NONE
+                gameLockTimerView = null
             }
         }
     }
@@ -2724,6 +2884,272 @@ class SystemOverlayController(private val context: Context) {
         return scroll
     }
 
+    private fun createGameSoftWarningLayout(
+        appName: String,
+        remainingSeconds: Int,
+        onExitGameNow: () -> Unit
+    ): View {
+        val prefs = AegisContainer.getInstance(context).preferences
+        val cooldownMins = prefs.gameCooldownMinutes.value
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.parseColor("#E3ECFF"), Color.parseColor("#EDE6FF"))
+            )
+            setPadding(56, 72, 56, 72)
+            isClickable = true
+            isFocusable = true
+        }
+
+        val badge = TextView(context).apply {
+            text = "SESSION WRAP-UP NOTICE"
+            setTextColor(Color.parseColor("#2563EB"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = roundedBox("#DCEBFF", "#9AC2FE", 50f)
+            setPadding(32, 12, 32, 12)
+        }
+        root.addView(badge)
+
+        val title = TextView(context).apply {
+            text = "1 Minute Left in $appName"
+            setTextColor(Color.parseColor("#1A3673"))
+            textSize = 23f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 22, 0, 8)
+        }
+        root.addView(title)
+
+        val clock = TextView(context).apply {
+            text = "${remainingSeconds}s"
+            setTextColor(Color.parseColor("#7C5CFA"))
+            textSize = 36f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 8, 0, 10)
+        }
+        gameWrapupClockView = clock
+        root.addView(clock)
+
+        val desc = TextView(context).apply {
+            text = "Save your match or progress. A mandatory ${cooldownMins}-minute break starts when this session timer ends."
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 13.5f
+            gravity = Gravity.CENTER
+            setPadding(28, 22, 28, 24)
+            background = roundedBox("#FFFFFF", "#C0AEFD", 32f)
+        }
+        root.addView(desc)
+        root.addView(verticalSpacer(24))
+
+        val finishBtn = Button(context).apply {
+            text = "FINISH ROUND (UNDER 1 MIN)"
+            setTextColor(Color.WHITE)
+            background = roundedBox("#2563EB", "#2563EB", 24f)
+            textSize = 12.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 24, 24, 24)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                dismissBlockOverlay()
+            }
+        }
+        root.addView(finishBtn)
+        root.addView(verticalSpacer(12))
+
+        val exitNowBtn = Button(context).apply {
+            text = "EXIT GAME NOW"
+            setTextColor(Color.parseColor("#1A3673"))
+            background = roundedBox("#FFFFFF", "#9AC2FE", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 22, 24, 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                dismissBlockOverlay()
+                onExitGameNow()
+            }
+        }
+        root.addView(exitNowBtn)
+
+        return root
+    }
+
+    private fun createGameLockLayout(
+        appName: String,
+        reason: GameLockReason,
+        remainingMs: Long
+    ): View {
+        val prefs = AegisContainer.getInstance(context).preferences
+        val hasPin = prefs.hasGuardianPin.value
+        val curfewWindow = "${AegisPreferences.formatClockTime(prefs.gameCurfewStartMinutes.value)} – ${AegisPreferences.formatClockTime(prefs.gameCurfewEndMinutes.value)}"
+
+        val (badgeText, titleText, descText) = when (reason) {
+            GameLockReason.CURFEW -> Triple(
+                "GAMING CURFEW ACTIVE",
+                "$appName Paused Until Morning",
+                "Late-night gaming curfew ($curfewWindow) is active. Rest your eyes and continue tomorrow."
+            )
+            GameLockReason.DAILY_CAP -> Triple(
+                "DAILY GAME CAP REACHED",
+                "Daily Gaming Limit Complete",
+                "You've reached your ${prefs.gameDailyCapMinutes.value + prefs.dailyGameExtensionMinutes.value}-minute daily cap for games today."
+            )
+            else -> Triple(
+                "SESSION BREAK COOLDOWN",
+                "Step Away From $appName",
+                "Your ${prefs.gameSessionLimitMinutes.value}-minute play session ended. Take a mandatory ${prefs.gameCooldownMinutes.value}-minute break before starting again."
+            )
+        }
+
+        val scroll = ScrollView(context).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(
+                    Color.parseColor("#DCEBFF"),
+                    Color.parseColor("#EDE6FF"),
+                    Color.parseColor("#FFF1CE")
+                )
+            )
+            isFillViewport = true
+            isClickable = true
+            isFocusable = true
+        }
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(52, 72, 52, 72)
+        }
+
+        val badge = TextView(context).apply {
+            text = badgeText
+            setTextColor(Color.parseColor("#D9820B"))
+            textSize = 11f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = roundedBox("#FFF1CE", "#F2C667", 50f)
+            setPadding(32, 12, 32, 12)
+        }
+        root.addView(badge)
+
+        val title = TextView(context).apply {
+            text = titleText
+            setTextColor(Color.parseColor("#1A3673"))
+            textSize = 23f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 22, 0, 8)
+        }
+        root.addView(title)
+
+        val timerView = TextView(context).apply {
+            text = "Unlocks in ${formatDuration(remainingMs.coerceAtLeast(1000L))}"
+            setTextColor(Color.parseColor("#7C5CFA"))
+            textSize = 18f
+            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 4, 0, 16)
+        }
+        gameLockTimerView = timerView
+        root.addView(timerView)
+
+        val desc = TextView(context).apply {
+            text = descText
+            setTextColor(Color.parseColor("#3E5894"))
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(28, 22, 28, 24)
+            background = roundedBox("#FFFFFF", "#F2C667", 32f)
+        }
+        root.addView(desc)
+        root.addView(verticalSpacer(20))
+
+        if (hasPin) {
+            val pinField = EditText(context).apply {
+                hint = "Guardian PIN (Unlock Early)"
+                setHintTextColor(Color.parseColor("#5D76B0"))
+                setTextColor(Color.parseColor("#1A3673"))
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                imeOptions = EditorInfo.IME_ACTION_DONE
+                isSingleLine = true
+                typeface = Typeface.MONOSPACE
+                textSize = 14f
+                gravity = Gravity.CENTER
+                background = roundedBox("#E8F2FF", "#9AC2FE", 22f)
+                setPadding(24, 20, 24, 20)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            root.addView(pinField)
+            root.addView(verticalSpacer(12))
+
+            val unlockBtn = Button(context).apply {
+                text = "UNLOCK WITH GUARDIAN PIN"
+                setTextColor(Color.WHITE)
+                background = roundedBox("#2563EB", "#2563EB", 24f)
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(24, 22, 24, 22)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setOnClickListener {
+                    if (prefs.verifyGuardianPin(pinField.text.toString())) {
+                        prefs.unlockGameLockWithPin()
+                        dismissBlockOverlay()
+                        Toast.makeText(context, "$appName unlocked.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        pinField.setText("")
+                        Toast.makeText(context, "Incorrect Guardian PIN.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            bindPinSubmitOnEnter(pinField, unlockBtn)
+            root.addView(unlockBtn)
+            root.addView(verticalSpacer(12))
+        }
+
+        val homeBtn = Button(context).apply {
+            text = "RETURN TO HOME SCREEN"
+            setTextColor(Color.parseColor("#2563EB"))
+            background = roundedBox("#E8F2FF", "#9AC2FE", 24f)
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(24, 22, 24, 22)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(homeIntent)
+                dismissBlockOverlay()
+            }
+        }
+        root.addView(homeBtn)
+
+        scroll.addView(root)
+        return scroll
+    }
+
     private enum class OverlayMode {
         NONE,
         LOCKDOWN,
@@ -2735,7 +3161,9 @@ class SystemOverlayController(private val context: Context) {
         APP_LOCKER,
         MINDFUL_BREATHING,
         SCROLL_BINGE_NUDGE,
-        SCROLL_LIMIT_LOCK
+        SCROLL_LIMIT_LOCK,
+        GAME_WRAPUP_WARNING,
+        GAME_ADDICTION_LOCK
     }
 
     companion object {

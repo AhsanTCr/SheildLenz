@@ -1,15 +1,19 @@
 package com.example
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.core.app.ApplicationProvider
 import com.example.core.models.DailyScrollSnapshot
+import com.example.core.models.GameAppDetector
+import com.example.core.models.GameLockReason
 import com.example.core.models.MindfulScrollEvent
 import com.example.core.models.ShortVideoPlatform
 import com.example.core.models.ShortVideoScrollDetector
@@ -373,5 +377,141 @@ class MindfulScrollGuardTest {
             viewIds = listOf("com.zhiliaoapp.musically.lite:id/pager")
         )
         assertEquals("@creator_lite|Street food tour", sig)
+    }
+
+    @Test
+    fun `gaming addiction control detects games, warns before session limit, enforces cooldown, daily cap, curfew, and PIN unlock`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = AegisPreferences(context)
+        prefs.resetTodayReelCounters()
+
+        // 1. GameAppDetector checks
+        assertTrue(GameAppDetector.isKnownGamePackageHeuristic("com.supercell.brawlstars"))
+        assertTrue(GameAppDetector.isKnownGamePackageHeuristic("com.dts.freefireth"))
+        assertFalse(GameAppDetector.isKnownGamePackageHeuristic("com.google.android.apps.docs"))
+
+        val categoryGameInfo = ApplicationInfo().apply {
+            packageName = "org.custom.indie"
+            category = ApplicationInfo.CATEGORY_GAME
+        }
+        assertTrue(GameAppDetector.isApplicationInfoGame(categoryGameInfo))
+
+        // 2. Setter clamping
+        prefs.setGameSessionLimitMinutes(5)
+        assertEquals(10, prefs.gameSessionLimitMinutes.value)
+        prefs.setGameCooldownMinutes(2)
+        assertEquals(5, prefs.gameCooldownMinutes.value)
+        prefs.setGameDailyCapMinutes(15)
+        assertEquals(15, prefs.gameDailyCapMinutes.value)
+        prefs.setGameGuardEnabled(true)
+        prefs.setGameCurfew(enabled = true, startMinutes = 22 * 60, endMinutes = 7 * 60)
+
+        val gamePkg = "com.supercell.clashroyale"
+        prefs.syncAutoDetectedGames(setOf(gamePkg))
+        assertTrue(prefs.isPackageTrackedGame(gamePkg))
+
+        val dayKey = "2026-11-28"
+        val nowMs = 1_795_800_000_000L
+        prefs.ensureMindfulDailyRollover(dayKey)
+
+        // 3. Curfew lock during 23:30 (1410m)
+        val curfewDecision = prefs.evaluateGamePackageAccess(
+            packageName = gamePkg,
+            isDetectedGame = true,
+            nowMillis = nowMs,
+            nowUptimeMs = 10_000L,
+            minuteOfDay = 23 * 60 + 30,
+            dateKey = dayKey
+        )
+        assertTrue(curfewDecision.shouldBlock)
+        assertEquals(GameLockReason.CURFEW, curfewDecision.lockReason)
+
+        // 4. Daytime play: 9m10s tick -> hits 10m session 1-minute wrap-up soft warning (50s left)
+        val warnTick = prefs.recordGameUsageTick(
+            packageName = gamePkg,
+            appLabel = "Clash Royale",
+            deltaSeconds = 9 * 60 + 10,
+            isDetectedGame = true,
+            nowMillis = nowMs,
+            nowUptimeMs = 20_000L,
+            minuteOfDay = 14 * 60,
+            dateKey = dayKey
+        )
+        assertFalse(warnTick.shouldBlock)
+        assertTrue(warnTick.shouldShowSoftWarning)
+        assertEquals(50, warnTick.remainingSessionSeconds)
+
+        // 5. Remaining 50s -> triggers 5m SESSION_COOLDOWN lock
+        val lockTick = prefs.recordGameUsageTick(
+            packageName = gamePkg,
+            appLabel = "Clash Royale",
+            deltaSeconds = 50,
+            isDetectedGame = true,
+            nowMillis = nowMs + 50_000L,
+            nowUptimeMs = 70_000L,
+            minuteOfDay = 14 * 60 + 1,
+            dateKey = dayKey
+        )
+        assertTrue(lockTick.shouldBlock)
+        assertEquals(GameLockReason.SESSION_COOLDOWN, lockTick.lockReason)
+        assertTrue(prefs.getRemainingGameCooldownMillis(nowMs + 51_000L) in (4 * 60_000L)..(5 * 60_000L))
+        assertNotNull(prefs.recentMindfulScrollEvents.value.firstOrNull { it.type == MindfulScrollEvent.TYPE_GAME_SESSION_LOCK })
+
+        // 6. Guardian PIN unlock clears cooldown immediately
+        prefs.unlockGameLockWithPin(nowMillis = nowMs + 52_000L, nowUptimeMs = 72_000L)
+        assertEquals(0L, prefs.getRemainingGameCooldownMillis(nowMs + 52_000L))
+
+        // 7. Reaches 15m daily cap (already played 10m, add 5m) -> DAILY_CAP lock
+        val dailyCapTick = prefs.recordGameUsageTick(
+            packageName = gamePkg,
+            appLabel = "Clash Royale",
+            deltaSeconds = 5 * 60,
+            isDetectedGame = true,
+            nowMillis = nowMs + 400_000L,
+            nowUptimeMs = 420_000L,
+            minuteOfDay = 14 * 60 + 10,
+            dateKey = dayKey
+        )
+        assertTrue(dailyCapTick.shouldBlock)
+        assertEquals(GameLockReason.DAILY_CAP, dailyCapTick.lockReason)
+
+        // Unlocking daily cap with PIN extends cap by 30m
+        prefs.unlockGameLockWithPin(nowMillis = nowMs + 401_000L, nowUptimeMs = 421_000L)
+        val afterPinDecision = prefs.evaluateGamePackageAccess(
+            packageName = gamePkg,
+            isDetectedGame = true,
+            nowMillis = nowMs + 402_000L,
+            nowUptimeMs = 422_000L,
+            minuteOfDay = 14 * 60 + 10,
+            dateKey = dayKey
+        )
+        assertFalse(afterPinDecision.shouldBlock)
+    }
+
+    @Test
+    fun `usage and scroll guard studio displays gaming addiction control card and opens tracked games picker`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = AegisContainer(context)
+        container.preferences.stopInstantDetox()
+        container.preferences.resetTodayReelCounters()
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                UsageAndScrollGuardScreen(
+                    preferences = container.preferences,
+                    protectionRepo = container.protectionRepository,
+                    onNavigateBack = {}
+                )
+            }
+        }
+        composeRule.waitForIdle()
+
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("gaming_addiction_control_card"))
+        composeRule.onNodeWithTag("gaming_addiction_control_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("gaming_guard_master_switch").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("game_curfew_switch").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("configure_tracked_games_button").performScrollTo().assertIsDisplayed().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("tracked_games_picker_dialog").assertIsDisplayed()
     }
 }

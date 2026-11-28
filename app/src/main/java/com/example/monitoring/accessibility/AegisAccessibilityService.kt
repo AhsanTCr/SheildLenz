@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.core.models.GameAppDetector
 import com.example.core.models.SafeSearchPack
 import com.example.core.models.SecurityIncident
 import com.example.core.models.ShortVideoPlatform
@@ -22,8 +23,11 @@ import com.example.security.deviceowner.AegisDeviceAdminReceiver
 import com.example.services.protection.AegisLockdownService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class AegisAccessibilityService : AccessibilityService() {
@@ -44,9 +48,16 @@ class AegisAccessibilityService : AccessibilityService() {
     private var lastScrollCountTimeMs: Long = 0L
     private var lastReelsScanTimeMs: Long = 0L
     private var lastDetoxOrScrollLockTimeMs: Long = 0L
+    private var lastGameLockInterceptTimeMs: Long = 0L
     private val studyLockedPackagesThisSession = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     @Volatile
     private var activeSoftWarningPkg: String? = null
+    @Volatile
+    private var activeForegroundPkg: String? = null
+    @Volatile
+    private var activeTickingGamePkg: String? = null
+    private var gameTickerJob: Job? = null
+    private val powerManager by lazy { getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -59,6 +70,12 @@ class AegisAccessibilityService : AccessibilityService() {
         instance = this
         Log.i(TAG, "AegisAccessibilityService connected with Chrome Web Guard, anti-tamper & app eviction.")
         container.protectionRepository.updateAccessibilityState(true)
+        serviceScope.launch(Dispatchers.IO) {
+            runCatching {
+                val detected = GameAppDetector.discoverInstalledGamePackages(this@AegisAccessibilityService)
+                container.preferences.syncAutoDetectedGames(detected)
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -356,6 +373,33 @@ class AegisAccessibilityService : AccessibilityService() {
             }
         }
 
+        // 4e2. Gaming Addiction Control (Shield-independent)
+        if (!prefs.maintenanceMode.value &&
+            !isExemptSystemOrLauncherPackage(resolvedPkg) &&
+            !prefs.isPackageWhitelisted(resolvedPkg)
+        ) {
+            val isDetectedGame = GameAppDetector.isAndroidGamePackage(this, resolvedPkg)
+            val gameDecision = prefs.evaluateGamePackageAccess(resolvedPkg, isDetectedGame = isDetectedGame)
+            if (gameDecision.shouldBlock) {
+                stopGamePlaytimeTicker()
+                if (now - lastGameLockInterceptTimeMs > 800L) {
+                    lastGameLockInterceptTimeMs = now
+                    val appLabel = getAppLabel(resolvedPkg)
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    if (prefs.evictAppOnThreat.value) {
+                        killBackgroundApp(this, resolvedPkg)
+                    }
+                    overlayController.showGamingLockOverlay(
+                        appName = appLabel,
+                        packageName = resolvedPkg,
+                        reason = gameDecision.lockReason,
+                        remainingMs = gameDecision.remainingUnlockMs
+                    )
+                }
+                return
+            }
+        }
+
         // 4f. 5-Second Mindful Breathing Pause (Shield-independent)
         if (!prefs.maintenanceMode.value &&
             !isExemptSystemOrLauncherPackage(resolvedPkg) &&
@@ -449,6 +493,22 @@ class AegisAccessibilityService : AccessibilityService() {
             lastUsageTickUptimeMs = nowUptime
         }
         lastUsageTrackedPkg = verifiedPkg
+        activeForegroundPkg = verifiedPkg
+
+        if (verifiedPkg != packageName && !isTransientOverlayPackage(verifiedPkg)) {
+            val isDetectedGame = GameAppDetector.isAndroidGamePackage(this, verifiedPkg)
+            if (!isExemptSystemOrLauncherPackage(verifiedPkg) &&
+                !container.preferences.isPackageWhitelisted(verifiedPkg) &&
+                container.preferences.isPackageTrackedGame(verifiedPkg, isDetectedGame)
+            ) {
+                ensureGamePlaytimeTicker(verifiedPkg, isDetectedGame)
+            } else {
+                stopGamePlaytimeTicker()
+                container.preferences.onNonGameForegroundResumed()
+            }
+        } else {
+            stopGamePlaytimeTicker()
+        }
 
         if (verifiedPkg != currentTracked) {
             lastUsageTickUptimeMs = nowUptime
@@ -457,6 +517,70 @@ class AegisAccessibilityService : AccessibilityService() {
         } else if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             container.protectionRepository.notifyScreenContextChanged()
         }
+    }
+
+    private fun ensureGamePlaytimeTicker(targetPkg: String, isDetectedGame: Boolean) {
+        if (gameTickerJob?.isActive == true && activeTickingGamePkg == targetPkg) return
+        stopGamePlaytimeTicker()
+        activeTickingGamePkg = targetPkg
+        gameTickerJob = serviceScope.launch {
+            while (isActive && activeForegroundPkg == targetPkg) {
+                delay(1_000L)
+                if (activeForegroundPkg != targetPkg) break
+                val rootPkg = safeGetRootPackageName()
+                if (!rootPkg.isNullOrBlank() && rootPkg != targetPkg && !isTransientOverlayPackage(rootPkg)) {
+                    activeForegroundPkg = rootPkg
+                    break
+                }
+                val prefs = container.preferences
+                if (!prefs.masterPowerEnabled.value ||
+                    prefs.maintenanceMode.value ||
+                    prefs.isLockdownActive() ||
+                    powerManager?.isInteractive == false
+                ) {
+                    continue
+                }
+                val appLabel = getAppLabel(targetPkg)
+                val decision = prefs.recordGameUsageTick(
+                    packageName = targetPkg,
+                    appLabel = appLabel,
+                    deltaSeconds = 1,
+                    isDetectedGame = isDetectedGame
+                )
+                if (decision.shouldBlock) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    if (prefs.evictAppOnThreat.value) {
+                        killBackgroundApp(this@AegisAccessibilityService, targetPkg)
+                    }
+                    overlayController.showGamingLockOverlay(
+                        appName = appLabel,
+                        packageName = targetPkg,
+                        reason = decision.lockReason,
+                        remainingMs = decision.remainingUnlockMs
+                    )
+                    break
+                } else if (decision.shouldShowSoftWarning) {
+                    overlayController.showGameSoftWarningOverlay(
+                        appName = appLabel,
+                        packageName = targetPkg,
+                        remainingSeconds = decision.remainingSessionSeconds.coerceIn(10, 60),
+                        onExitGameNow = {
+                            performGlobalAction(GLOBAL_ACTION_HOME)
+                            killBackgroundApp(this@AegisAccessibilityService, targetPkg)
+                        }
+                    )
+                }
+            }
+            if (activeTickingGamePkg == targetPkg) {
+                activeTickingGamePkg = null
+            }
+        }
+    }
+
+    private fun stopGamePlaytimeTicker() {
+        gameTickerJob?.cancel()
+        gameTickerJob = null
+        activeTickingGamePkg = null
     }
 
     private fun inspectShortVideoScroll(
@@ -940,6 +1064,7 @@ class AegisAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopGamePlaytimeTicker()
         if (instance == this) {
             instance = null
         }

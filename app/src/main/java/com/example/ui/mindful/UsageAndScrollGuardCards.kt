@@ -128,6 +128,7 @@ internal fun HeroUsageAndReelsCard(
     scrollLimit: Int,
     dailyReelsByPlatform: Map<String, Int>,
     totalUsageSecondsToday: Int,
+    dailyGameSecondsToday: Int = 0,
     cleanStreakDays: Int,
     mindfulExitsToday: Int,
     isShieldActive: Boolean,
@@ -296,6 +297,11 @@ internal fun HeroUsageAndReelsCard(
                     label = "Screen Time Today",
                     value = ShortVideoScrollDetector.formatMinutesCompact(totalUsageSecondsToday),
                     accent = AegisPrimaryCyan
+                )
+                HeroMiniStatRow(
+                    label = "Gaming Today",
+                    value = ShortVideoScrollDetector.formatMinutesCompact(dailyGameSecondsToday),
+                    accent = AegisElectricBlue
                 )
                 HeroMiniStatRow(
                     label = "Mindful Exits",

@@ -32,10 +32,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SelfImprovement
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,6 +68,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.core.audio.AegisSoundEffects
+import com.example.core.models.GameAppDetector
 import com.example.core.models.MindfulScrollEvent
 import com.example.core.models.ShortVideoScrollDetector
 import com.example.core.permissions.PermissionHelper
@@ -82,8 +85,10 @@ import com.example.ui.settings.InstalledAppEntry
 import com.example.ui.settings.loadInstalledLaunchableApps
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
+import com.example.ui.theme.AegisElectricBlue
 import com.example.ui.theme.AegisEmeraldTeal
 import com.example.ui.theme.AegisGoldBorder
+import com.example.ui.theme.AegisIndigo
 import com.example.ui.theme.AegisLavenderBorder
 import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
@@ -94,7 +99,9 @@ import com.example.ui.theme.AegisTextSecondary
 import com.example.ui.theme.AegisWarningAmber
 import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -150,11 +157,29 @@ fun UsageAndScrollGuardScreen(
     val lockedAppPackages by preferences.lockedAppPackages.collectAsState()
     val appLockerEnabled by preferences.appLockerEnabled.collectAsState()
 
+    val gameGuardEnabled by preferences.gameGuardEnabled.collectAsState()
+    val gameAutoDetectEnabled by preferences.gameAutoDetectEnabled.collectAsState()
+    val trackedGamePackages by preferences.trackedGamePackages.collectAsState()
+    val gameSessionLimitMinutes by preferences.gameSessionLimitMinutes.collectAsState()
+    val gameCooldownMinutes by preferences.gameCooldownMinutes.collectAsState()
+    val gameDailyCapMinutes by preferences.gameDailyCapMinutes.collectAsState()
+    val gameCurfewEnabled by preferences.gameCurfewEnabled.collectAsState()
+    val gameCurfewStartMinutes by preferences.gameCurfewStartMinutes.collectAsState()
+    val gameCurfewEndMinutes by preferences.gameCurfewEndMinutes.collectAsState()
+    val gameCooldownUntilMillis by preferences.gameCooldownUntilMillis.collectAsState()
+    val gameCurfewOverrideUntilMillis by preferences.gameCurfewOverrideUntilMillis.collectAsState()
+    val dailyGameUsageByPackage by preferences.dailyGameUsageByPackage.collectAsState()
+    val dailyGameTotalSeconds by preferences.dailyGameTotalSeconds.collectAsState()
+    val dailyGameExtensionMinutes by preferences.dailyGameExtensionMinutes.collectAsState()
+    val activeGameSessionSeconds by preferences.activeGameSessionSeconds.collectAsState()
+
     val masterKeyGate = rememberMasterKeyGate(preferences)
 
     var hasAccessibility by remember { mutableStateOf(telemetry.isAccessibilityActive) }
     var installedApps by remember { mutableStateOf<List<InstalledAppEntry>>(emptyList()) }
+    var detectedGamePackages by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showAppPickerDialog by remember { mutableStateOf(false) }
+    var showGamePickerDialog by remember { mutableStateOf(false) }
     var showPreviewBreathing by remember { mutableStateOf(false) }
     var selectedAppForControl by remember { mutableStateOf<AppUsageRowUi?>(null) }
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -163,11 +188,19 @@ fun UsageAndScrollGuardScreen(
         preferences.ensureMindfulDailyRollover()
         hasAccessibility = PermissionHelper.isAccessibilityServiceEnabled(context, AegisAccessibilityService::class.java)
         installedApps = loadInstalledLaunchableApps(context)
+        val detected = withContext(Dispatchers.IO) {
+            GameAppDetector.discoverInstalledGamePackages(context)
+        }
+        detectedGamePackages = detected
+        if (gameAutoDetectEnabled) {
+            preferences.syncAutoDetectedGames(detected)
+        }
     }
 
-    LaunchedEffect(instantDetoxUntilMillis, scrollLockedUntilByPackage) {
+    LaunchedEffect(instantDetoxUntilMillis, scrollLockedUntilByPackage, gameCooldownUntilMillis) {
         while (instantDetoxUntilMillis > System.currentTimeMillis() ||
-            scrollLockedUntilByPackage.values.any { it > System.currentTimeMillis() }
+            scrollLockedUntilByPackage.values.any { it > System.currentTimeMillis() } ||
+            gameCooldownUntilMillis > System.currentTimeMillis()
         ) {
             nowMillis = System.currentTimeMillis()
             delay(1000L)
@@ -260,6 +293,7 @@ fun UsageAndScrollGuardScreen(
                         scrollLimit = scrollLimitCount,
                         dailyReelsByPlatform = dailyReelsByPlatform,
                         totalUsageSecondsToday = totalUsageSecondsToday,
+                        dailyGameSecondsToday = dailyGameTotalSeconds,
                         cleanStreakDays = cleanStreakDays,
                         mindfulExitsToday = dailyMindfulExitsCount,
                         isShieldActive = telemetry.isProtectionEnabled,
@@ -346,6 +380,120 @@ fun UsageAndScrollGuardScreen(
                                 preferences.unlockScrollLockWithPin(pkg)
                                 Toast.makeText(context, "App unlocked for fresh session", Toast.LENGTH_SHORT).show()
                             }
+                        }
+                    )
+                }
+
+                item(key = "header_gaming_control") {
+                    LuxurySectionHeader(title = "Gaming Addiction Control", accentColor = AegisElectricBlue)
+                }
+
+                item(key = "gaming_addiction_control") {
+                    val cooldownRemaining = (gameCooldownUntilMillis - nowMillis).coerceAtLeast(0L)
+                    val isWithinCurfewNow = remember(
+                        gameGuardEnabled,
+                        gameCurfewEnabled,
+                        gameCurfewStartMinutes,
+                        gameCurfewEndMinutes,
+                        gameCurfewOverrideUntilMillis,
+                        nowMillis
+                    ) {
+                        preferences.isWithinGameCurfewWindow(nowMillis = nowMillis)
+                    }
+                    GamingAddictionControlCard(
+                        gameGuardEnabled = gameGuardEnabled,
+                        gameAutoDetectEnabled = gameAutoDetectEnabled,
+                        trackedGamePackages = trackedGamePackages,
+                        sessionLimitMinutes = gameSessionLimitMinutes,
+                        cooldownMinutes = gameCooldownMinutes,
+                        dailyCapMinutes = gameDailyCapMinutes,
+                        dailyExtensionMinutes = dailyGameExtensionMinutes,
+                        curfewEnabled = gameCurfewEnabled,
+                        curfewStartMinutes = gameCurfewStartMinutes,
+                        curfewEndMinutes = gameCurfewEndMinutes,
+                        isWithinCurfewNow = isWithinCurfewNow,
+                        cooldownRemainingMillis = cooldownRemaining,
+                        dailyGameTotalSeconds = dailyGameTotalSeconds,
+                        activeSessionSeconds = activeGameSessionSeconds,
+                        dailyGameUsageByPackage = dailyGameUsageByPackage,
+                        installedApps = installedApps,
+                        onToggleGameGuard = { next ->
+                            if (!next) {
+                                masterKeyGate.request("pause Gaming Addiction Control") {
+                                    preferences.setGameGuardEnabled(false)
+                                }
+                            } else {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setGameGuardEnabled(true)
+                            }
+                        },
+                        onToggleAutoDetect = { next ->
+                            if (!next) {
+                                masterKeyGate.request("disable game auto-detection") {
+                                    preferences.setGameAutoDetectEnabled(false)
+                                }
+                            } else {
+                                AegisSoundEffects.playModeOn(context)
+                                preferences.setGameAutoDetectEnabled(true)
+                                if (detectedGamePackages.isNotEmpty()) {
+                                    preferences.syncAutoDetectedGames(detectedGamePackages)
+                                }
+                            }
+                        },
+                        onChangeSessionLimit = { newMins ->
+                            if (newMins > gameSessionLimitMinutes) {
+                                masterKeyGate.request("extend game session limit to ${newMins}m") {
+                                    preferences.setGameSessionLimitMinutes(newMins)
+                                }
+                            } else {
+                                AegisSoundEffects.playTap(context)
+                                preferences.setGameSessionLimitMinutes(newMins)
+                            }
+                        },
+                        onChangeCooldownMinutes = { newCooldown ->
+                            if (newCooldown < gameCooldownMinutes) {
+                                masterKeyGate.request("shorten gaming break cooldown to ${newCooldown}m") {
+                                    preferences.setGameCooldownMinutes(newCooldown)
+                                }
+                            } else {
+                                AegisSoundEffects.playTap(context)
+                                preferences.setGameCooldownMinutes(newCooldown)
+                            }
+                        },
+                        onChangeDailyCapMinutes = { newCap ->
+                            val isLoosening = (newCap == 0 && gameDailyCapMinutes > 0) ||
+                                (gameDailyCapMinutes > 0 && newCap > gameDailyCapMinutes)
+                            if (isLoosening) {
+                                masterKeyGate.request("relax daily gaming cap") {
+                                    preferences.setGameDailyCapMinutes(newCap)
+                                }
+                            } else {
+                                AegisSoundEffects.playTap(context)
+                                preferences.setGameDailyCapMinutes(newCap)
+                            }
+                        },
+                        onUpdateCurfew = { enabled, startMin, endMin ->
+                            val isDisabling = !enabled && gameCurfewEnabled
+                            val isShorteningNight = enabled && gameCurfewEnabled &&
+                                (startMin > gameCurfewStartMinutes || endMin < gameCurfewEndMinutes)
+                            if (isDisabling || isShorteningNight) {
+                                masterKeyGate.request("relax late-night gaming curfew") {
+                                    preferences.setGameCurfew(enabled, startMin, endMin)
+                                }
+                            } else {
+                                AegisSoundEffects.playTap(context)
+                                preferences.setGameCurfew(enabled, startMin, endMin)
+                            }
+                        },
+                        onUnlockGameLockEarly = {
+                            masterKeyGate.request("unlock gaming break or curfew early") {
+                                preferences.unlockGameLockWithPin()
+                                Toast.makeText(context, "Gaming access unlocked", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onOpenGamePicker = {
+                            AegisSoundEffects.playTap(context)
+                            showGamePickerDialog = true
                         }
                     )
                 }
@@ -621,6 +769,26 @@ fun UsageAndScrollGuardScreen(
         InAppBreathingPreviewDialog(onDismiss = { showPreviewBreathing = false })
     }
 
+    if (showGamePickerDialog) {
+        TrackedGamesPickerDialog(
+            installedApps = installedApps,
+            detectedGamePackages = detectedGamePackages,
+            selectedGamePackages = trackedGamePackages,
+            onTogglePackage = { pkg ->
+                val isRemoving = pkg in trackedGamePackages
+                if (isRemoving) {
+                    masterKeyGate.request("untrack game from addiction control") {
+                        preferences.toggleTrackedGamePackage(pkg)
+                    }
+                } else {
+                    AegisSoundEffects.playTap(context)
+                    preferences.toggleTrackedGamePackage(pkg)
+                }
+            },
+            onDismiss = { showGamePickerDialog = false }
+        )
+    }
+
     val controlRow = selectedAppForControl
     if (controlRow != null) {
         PerAppControlDialog(
@@ -730,6 +898,9 @@ private fun RecentMindfulEventsCard(events: List<MindfulScrollEvent>) {
                         MindfulScrollEvent.TYPE_SCROLL_LOCK -> Icons.Default.HourglassBottom to AegisWarningAmber
                         MindfulScrollEvent.TYPE_DETOX_LOCK -> Icons.Default.Timer to AegisChampagneGold
                         MindfulScrollEvent.TYPE_BINGE_NUDGE -> Icons.Default.Lock to AegisPurple
+                        MindfulScrollEvent.TYPE_GAME_SESSION_LOCK -> Icons.Default.SportsEsports to AegisElectricBlue
+                        MindfulScrollEvent.TYPE_GAME_DAILY_CAP -> Icons.Default.Timer to AegisWarningAmber
+                        MindfulScrollEvent.TYPE_GAME_CURFEW -> Icons.Default.Bedtime to AegisIndigo
                         else -> Icons.Default.SelfImprovement to AegisPrimaryCyan
                     }
                     Row(

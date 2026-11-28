@@ -179,6 +179,8 @@ fun LiveProtectionScreen(
     val mindfulPauseEnabled by preferences.mindfulPauseEnabled.collectAsState()
     val mindfulPausePackages by preferences.mindfulPausePackages.collectAsState()
     val dailyAppUsageSeconds by preferences.dailyAppUsageSeconds.collectAsState()
+    val gameGuardEnabled by preferences.gameGuardEnabled.collectAsState()
+    val dailyGameTotalSeconds by preferences.dailyGameTotalSeconds.collectAsState()
 
     val activeAppName by protectionRepo.activeAppLabel.collectAsState()
 
@@ -371,6 +373,10 @@ fun LiveProtectionScreen(
                     val guardSubtitle = buildString {
                         append("$dailyReelsTotalCount / $scrollLimitCount Reels • $totalUsageToday Today")
                         append(if (scrollLockEnabled) " • Auto-Stop ON" else " • Counter ON")
+                        if (gameGuardEnabled) {
+                            val gameToday = ShortVideoScrollDetector.formatMinutesCompact(dailyGameTotalSeconds)
+                            append(" • Game Guard ON ($gameToday)")
+                        }
                         if (mindfulPauseEnabled) {
                             append(" • ${mindfulPausePackages.size} Pause App(s)")
                         }
