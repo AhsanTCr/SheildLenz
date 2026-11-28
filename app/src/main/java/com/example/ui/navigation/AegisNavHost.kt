@@ -47,6 +47,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.SupervisorAccount
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -108,6 +109,7 @@ import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisElectricBlue
 import com.example.ui.theme.AegisGoldBright
+import com.example.ui.theme.AegisLavenderBorder
 import com.example.ui.theme.AegisLavenderSoft
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
@@ -545,40 +547,20 @@ private fun VipAnimatedBottomBar(
         tabs.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
     }
 
-    val vipTransition = rememberInfiniteTransition(label = "VipBottomBarContinuous")
-    val auroraPhase by vipTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "VipAuroraSweep"
-    )
-    val glowPulse by vipTransition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "VipLineGlowPulse"
-    )
-
     val barBgBrush = remember {
         Brush.horizontalGradient(
             colors = listOf(
-                Color(0xFFF5FAFF),
-                AegisSecondaryBackground,
-                AegisLavenderSoft
+                Color(0xFFF6FAFF),
+                Color(0xFFF2F6FF),
+                AegisLavenderSoft.copy(alpha = 0.94f)
             )
         )
     }
     val pillBrush = remember {
         Brush.horizontalGradient(
             colors = listOf(
-                AegisPrimaryCyan.copy(alpha = 0.17f),
-                AegisPurple.copy(alpha = 0.17f)
+                AegisPrimaryCyan.copy(alpha = 0.14f),
+                AegisPurple.copy(alpha = 0.14f)
             )
         )
     }
@@ -588,29 +570,11 @@ private fun VipAnimatedBottomBar(
         modifier = Modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 10.dp,
-                ambientColor = AegisPurple.copy(alpha = 0.16f),
-                spotColor = AegisPrimaryCyan.copy(alpha = 0.16f)
+                elevation = 6.dp,
+                ambientColor = AegisPrimaryCyan.copy(alpha = 0.10f),
+                spotColor = AegisPurple.copy(alpha = 0.10f)
             )
             .background(barBgBrush)
-            .drawBehind {
-                // Continuous soft aurora shimmer sweeping across the whole bottom bar
-                val sweepWidth = size.width * 0.65f
-                val startX = (size.width + sweepWidth) * auroraPhase - sweepWidth
-                drawRect(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            AegisPrimaryCyan.copy(alpha = 0.08f * glowPulse),
-                            AegisPurple.copy(alpha = 0.09f * glowPulse),
-                            AegisChampagneGold.copy(alpha = 0.07f * glowPulse),
-                            Color.Transparent
-                        ),
-                        startX = startX,
-                        endX = startX + sweepWidth
-                    )
-                )
-            }
             .testTag("vip_animated_bottom_bar")
     ) {
         Column(
@@ -618,67 +582,40 @@ private fun VipAnimatedBottomBar(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            // Continuously flowing luminous top hairline across the bottom bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .drawBehind {
-                        val travel = size.width
-                        val shift = auroraPhase * travel
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    AegisElectricBlue.copy(alpha = 0.30f),
-                                    AegisPrimaryCyan.copy(alpha = 0.72f * glowPulse),
-                                    AegisPurple.copy(alpha = 0.65f),
-                                    AegisGoldBright.copy(alpha = 0.85f * glowPulse),
-                                    AegisElectricBlue.copy(alpha = 0.30f)
-                                ),
-                                startX = shift - travel,
-                                endX = shift + travel
-                            )
-                        )
-                    }
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = AegisLavenderBorder.copy(alpha = 0.45f)
             )
 
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(68.dp)
+                    .height(66.dp)
             ) {
                 val tabCount = tabs.size.coerceAtLeast(1)
                 val tabWidth = maxWidth / tabCount
-                val pillWidth = (tabWidth * 0.72f).coerceIn(48.dp, 68.dp)
-                val lineWidth = (tabWidth * 0.54f).coerceIn(30.dp, 48.dp)
+                val pillWidth = (tabWidth * 0.70f).coerceIn(48.dp, 68.dp)
 
                 val animatedTabOffset by animateDpAsState(
                     targetValue = tabWidth * activeIndex,
                     animationSpec = spring(
-                        dampingRatio = 0.78f,
+                        dampingRatio = 0.84f,
                         stiffness = Spring.StiffnessMediumLow
                     ),
                     label = "VipNavIndicatorSlide"
                 )
 
-                // Gliding soft active pill behind the selected icon with subtle continuous pulse
+                // Calm frosted active pill behind selected icon
                 Box(
                     modifier = Modifier
-                        .offset(x = animatedTabOffset + (tabWidth - pillWidth) / 2f, y = 8.dp)
+                        .offset(x = animatedTabOffset + (tabWidth - pillWidth) / 2f, y = 7.dp)
                         .width(pillWidth)
                         .height(30.dp)
                         .clip(RoundedCornerShape(50))
                         .background(pillBrush)
-                        .drawBehind {
-                            drawRoundRect(
-                                color = AegisPrimaryCyan.copy(alpha = 0.12f * glowPulse),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
-                            )
-                        }
                         .border(
                             width = 1.dp,
-                            color = AegisPrimaryCyan.copy(alpha = 0.26f),
+                            color = AegisPrimaryCyan.copy(alpha = 0.24f),
                             shape = RoundedCornerShape(50)
                         )
                 )
@@ -687,7 +624,7 @@ private fun VipAnimatedBottomBar(
                     modifier = Modifier.fillMaxSize(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    tabs.forEachIndexed { idx, tab ->
+                    tabs.forEach { tab ->
                         val selected = currentRoute == tab.route
                         val tabLabel = stringResource(tab.labelRes)
                         val interactionSource = remember(tab.route) { MutableInteractionSource() }
@@ -697,19 +634,13 @@ private fun VipAnimatedBottomBar(
                             label = "NavItemTint_${tab.route}"
                         )
                         val baseScale by animateFloatAsState(
-                            targetValue = if (selected) 1.15f else 1f,
+                            targetValue = if (selected) 1.07f else 1f,
                             animationSpec = spring(
-                                dampingRatio = 0.65f,
+                                dampingRatio = 0.78f,
                                 stiffness = Spring.StiffnessMedium
                             ),
                             label = "NavIconScale_${tab.route}"
                         )
-                        // Continuous per-icon breathing & micro-tilt directly on each switcher icon
-                        val phaseAngle = (auroraPhase * 2f * Math.PI + idx * 1.1).toFloat()
-                        val continuousBob = kotlin.math.sin(phaseAngle)
-                        val iconLiftDp = if (selected) (-1.8f + continuousBob * 1.6f) else (continuousBob * 0.9f)
-                        val iconBreath = 1f + (if (selected) 0.06f else 0.025f) * continuousBob
-                        val iconTilt = if (selected) kotlin.math.cos(phaseAngle) * 5.5f else kotlin.math.cos(phaseAngle) * 2.2f
 
                         Column(
                             modifier = Modifier
@@ -729,29 +660,10 @@ private fun VipAnimatedBottomBar(
                             Box(
                                 modifier = Modifier
                                     .testTag("vip_animated_nav_icon_${tab.route}")
-                                    .size(32.dp)
+                                    .size(30.dp)
                                     .graphicsLayer {
-                                        translationY = iconLiftDp.dp.toPx()
-                                        val s = baseScale * iconBreath
-                                        scaleX = s
-                                        scaleY = s
-                                        rotationZ = iconTilt
-                                    }
-                                    .drawBehind {
-                                        if (selected) {
-                                            drawCircle(
-                                                brush = Brush.sweepGradient(
-                                                    colors = listOf(
-                                                        AegisPrimaryCyan.copy(alpha = 0.45f * glowPulse),
-                                                        AegisPurple.copy(alpha = 0.45f * glowPulse),
-                                                        AegisGoldBright.copy(alpha = 0.40f * glowPulse),
-                                                        AegisPrimaryCyan.copy(alpha = 0.45f * glowPulse)
-                                                    )
-                                                ),
-                                                radius = size.minDimension * 0.56f,
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx())
-                                            )
-                                        }
+                                        scaleX = baseScale
+                                        scaleY = baseScale
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -759,10 +671,10 @@ private fun VipAnimatedBottomBar(
                                     imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
                                     contentDescription = tabLabel,
                                     tint = itemTint,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(21.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.height(3.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = tabLabel,
                                 color = if (selected) AegisTextPrimary else AegisTextMuted,

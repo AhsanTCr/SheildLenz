@@ -446,6 +446,9 @@ class TimeBlockerModuleTest {
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("piqorax_connector_prompt_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("piqorax_policy_info_toggle").assertIsDisplayed()
+        composeRule.onNodeWithTag("piqorax_policy_info_toggle").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("piqorax_coin_lock_rule_card").assertIsDisplayed()
         composeRule.onNodeWithTag("piqorax_coin_device_lock_button").performClick()
         composeRule.waitForIdle()

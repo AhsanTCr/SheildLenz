@@ -200,13 +200,8 @@ private val SheildlenzFaqs = listOf(
         icon = Icons.AutoMirrored.Filled.MenuBook
     ),
     FaqEntry(
-        question = "What do Smart Safe Search Packs block in browsers?",
-        answer = "Smart Safe Search inspects browser address bars and search terms locally across Chrome and 20+ browsers to block explicit queries, short-form distracting feeds, gambling domains, and proxy/bypass attempts.",
-        icon = Icons.Default.Security
-    ),
-    FaqEntry(
         question = "What are One-Tap Quick Protection Profiles in Edits?",
-        answer = "Strict Kids, Homework Focus, and Balanced Guard let you configure AI sensitivity, Safe DNS filtering, Safe Search packs, and Study sessions together with one tap—never weakening protection without PIN approval.",
+        answer = "Strict Kids, Homework Focus, and Balanced Guard let you configure AI sensitivity, Safe DNS filtering, keyword filters, and Study sessions together with one tap—never weakening protection without PIN approval.",
         icon = Icons.Default.Tune
     ),
     FaqEntry(
@@ -808,7 +803,7 @@ fun AboutScreen(
                                             fontFamily = ClassicalBodyFont
                                         )
                                         Text(
-                                            text = "• On-Device Vision: Local 256px TFLite inference with adaptive idle cadence & duplicate-frame skip.\n• Network & Search: Zero-battery loopback Safe DNS TUN + browser omnibox Safe Search packs.\n• Focus & Budgets: App time budgets track both during live capture and Accessibility standby, plus Bedtime & Study Lock.\n• Sync & Resilience: Anti-tamper guard, Device Admin hook, and Parent-Child sync preserving local Study timers.",
+                                            text = "• On-Device Vision: Local 256px TFLite inference with adaptive idle cadence & duplicate-frame skip.\n• Network & Browser: Zero-battery loopback Safe DNS TUN + Safe Browser local domain & keyword filtering.\n• Focus & Budgets: App time budgets track both during live capture and Accessibility standby, plus Bedtime & Study Lock.\n• Sync & Resilience: Anti-tamper guard, Device Admin hook, and Parent-Child sync preserving local Study timers.",
                                             color = AegisTextSecondary,
                                             fontSize = 11.5.sp,
                                             lineHeight = 17.sp,

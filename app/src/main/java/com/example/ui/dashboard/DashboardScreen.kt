@@ -98,6 +98,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import com.example.ui.components.AnimatedCountdownRing
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -197,7 +198,6 @@ fun DashboardScreen(
     val studyModeEnabled by preferences.studyModeEnabled.collectAsState()
     val studySessionEndMillis by preferences.studySessionEndMillis.collectAsState()
     val studyDurationMinutes by preferences.studyDurationMinutes.collectAsState()
-    val smartSafeSearchEnabled by preferences.smartSafeSearchEnabled.collectAsState()
     val appTimeBudgets by preferences.appTimeBudgets.collectAsState()
     val safeDnsEnabled by preferences.safeDnsEnabled.collectAsState()
     val bedtimeEnabled by preferences.bedtimeEnabled.collectAsState()
@@ -1328,7 +1328,7 @@ fun DashboardScreen(
                     }
                 }
 
-                // 1aa. VIP Safe Browser Card on Home (Light Quick Mode -> Full Chrome Replacement)
+                // 1aa. VIP Safe Browser Card on Home (Clean, uncrowded launch row)
                 item(key = "home_safe_browser") {
                     CyberCard(
                         borderColor = AegisLavenderBorder,
@@ -1350,10 +1350,10 @@ fun DashboardScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(end = 10.dp)
+                                    .padding(end = 12.dp)
                             ) {
                                 SafeBrowserBrandIcon(
-                                    size = 46.dp,
+                                    size = 44.dp,
                                     isProUnlocked = fullBrowserInstalled
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
@@ -1381,23 +1381,25 @@ fun DashboardScreen(
                                                 .padding(horizontal = 7.dp, vertical = 2.dp)
                                         ) {
                                             Text(
-                                                text = if (fullBrowserInstalled) "FULL PRO" else "LIGHT MODE",
+                                                text = if (fullBrowserInstalled) "PRO" else "SAFE",
                                                 color = if (fullBrowserInstalled) AegisPurple else AegisPrimaryCyan,
                                                 fontSize = 9.5.sp,
-                                                fontWeight = FontWeight.Bold
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                softWrap = false
                                             )
                                         }
                                     }
                                     Text(
                                         text = if (fullBrowserInstalled) {
-                                            "Full Chrome engine • Tabs, imports & dual Shield filter"
+                                            "Chrome-style engine • Tabs & dual Shield"
                                         } else {
-                                            "Fast private browser • Tap to launch or upgrade Pro"
+                                            "Clean Chrome-style private browser"
                                         },
                                         color = AegisTextSecondary,
-                                        fontSize = 11.sp,
+                                        fontSize = 11.5.sp,
                                         fontFamily = ClassicalBodyFont,
-                                        maxLines = 2,
+                                        maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
@@ -1411,15 +1413,16 @@ fun DashboardScreen(
                                     containerColor = if (fullBrowserInstalled) AegisPurple else AegisPrimaryCyan,
                                     contentColor = AegisOnPrimaryWhite
                                 ),
-                                shape = RoundedCornerShape(12.dp),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                                 modifier = Modifier
                                     .height(48.dp)
+                                    .widthIn(min = 84.dp)
                                     .testTag("home_safe_browser_open_button")
                             ) {
                                 Text(
                                     text = "OPEN",
-                                    fontSize = 11.5.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     softWrap = false
@@ -1447,11 +1450,11 @@ fun DashboardScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .padding(end = 10.dp)
+                                        .padding(end = 12.dp)
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(42.dp)
+                                            .size(44.dp)
                                             .clip(RoundedCornerShape(12.dp))
                                             .background(AegisChampagneSoft),
                                         contentAlignment = Alignment.Center
@@ -1463,21 +1466,21 @@ fun DashboardScreen(
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
-                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "Piqorax Study Companion",
                                             color = AegisTextPrimary,
-                                            fontSize = 14.sp,
+                                            fontSize = 14.5.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = ClassicalDisplayFont,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "Connect & apply PiqoraX • minute/hour app blocker",
+                                            text = "Connect PiqoraX • Coin lock & app blocker",
                                             color = AegisTextSecondary,
-                                            fontSize = 11.sp,
+                                            fontSize = 11.5.sp,
                                             fontFamily = ClassicalBodyFont,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -1493,16 +1496,19 @@ fun DashboardScreen(
                                         containerColor = AegisChampagneGold,
                                         contentColor = AegisOnPrimaryWhite
                                     ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    shape = RoundedCornerShape(14.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                                     modifier = Modifier
-                                        .height(44.dp)
+                                        .height(48.dp)
+                                        .widthIn(min = 96.dp)
                                         .testTag("home_open_piqorax_button")
                                 ) {
                                     Text(
-                                        text = "OPEN",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = "CONNECT",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -1516,6 +1522,7 @@ fun DashboardScreen(
                         ActiveStudyExtendBanner(
                             preferences = preferences,
                             studySessionEndMillis = studySessionEndMillis,
+                            studyDurationMinutes = studyDurationMinutes,
                             modifier = Modifier.widthIn(max = 540.dp)
                         )
                     }
@@ -1534,33 +1541,35 @@ fun DashboardScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(RoundedCornerShape(11.dp))
-                                        .background(AegisChampagneGold),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Bedtime,
-                                        contentDescription = "Bedtime Schedule Active",
-                                        tint = AegisOnPrimaryWhite,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
+                                AnimatedCountdownRing(
+                                    progress = 0.72f,
+                                    centerText = "",
+                                    primaryColor = AegisChampagneGold,
+                                    secondaryColor = AegisPurple,
+                                    ringSize = 44.dp,
+                                    strokeWidth = 4.dp,
+                                    centerIconContent = {
+                                        Icon(
+                                            imageVector = Icons.Default.Bedtime,
+                                            contentDescription = "Bedtime Schedule Active",
+                                            tint = AegisChampagneGold,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Column {
                                     Text(
                                         text = "Bedtime Lock Active",
                                         color = AegisTextPrimary,
-                                        fontSize = 13.5.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = ClassicalDisplayFont
                                     )
                                     Text(
                                         text = "${formatCompactHour(bedtimeStartMinutes)}–${formatCompactHour(bedtimeEndMinutes)} • Manage in Edits",
                                         color = AegisChampagneGold,
-                                        fontSize = 11.sp,
+                                        fontSize = 11.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         fontFamily = ClassicalBodyFont
                                     )
@@ -1594,19 +1603,6 @@ fun DashboardScreen(
                                     AegisSoundEffects.playModeOn(context)
                                     preferences.startStudySession(studyDurationMinutes)
                                 }
-                            }
-                        ),
-                        HomeQuickTileItem(
-                            title = "Safe Search",
-                            status = "Tap ON",
-                            icon = Icons.Default.Security,
-                            accentColor = AegisPrimaryCyan,
-                            borderColor = AegisCardBorder,
-                            testTag = "home_one_tap_safe_search",
-                            isEnabled = smartSafeSearchEnabled,
-                            onEnable = {
-                                AegisSoundEffects.playModeOn(context)
-                                preferences.setSmartSafeSearchEnabled(true)
                             }
                         ),
                         HomeQuickTileItem(
@@ -2081,6 +2077,7 @@ fun DashboardScreen(
 private fun ActiveStudyExtendBanner(
     preferences: AegisPreferences,
     studySessionEndMillis: Long,
+    studyDurationMinutes: Int,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -2096,6 +2093,9 @@ private fun ActiveStudyExtendBanner(
         }
     }
     if (remainingMillis <= 0L) return
+
+    val totalStudyMs = (studyDurationMinutes.coerceAtLeast(1) * 60_000L).toFloat()
+    val ringProgress = (remainingMillis / totalStudyMs).coerceIn(0.05f, 1f)
 
     CyberCard(
         borderColor = AegisLavenderBorder,
@@ -2113,20 +2113,22 @@ private fun ActiveStudyExtendBanner(
                     .weight(1f)
                     .padding(end = 10.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(AegisPurple),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                        contentDescription = "Study Lock Running",
-                        tint = AegisOnPrimaryWhite,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
+                AnimatedCountdownRing(
+                    progress = ringProgress,
+                    centerText = "",
+                    primaryColor = AegisPurple,
+                    secondaryColor = AegisPrimaryCyan,
+                    ringSize = 46.dp,
+                    strokeWidth = 4.dp,
+                    centerIconContent = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = "Study Lock Running",
+                            tint = AegisPurple,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                )
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
                     Text(

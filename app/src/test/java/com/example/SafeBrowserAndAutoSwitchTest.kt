@@ -298,10 +298,12 @@ class SafeBrowserAndAutoSwitchTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag("safe_browser_root").assertIsDisplayed()
-        composeRule.onNodeWithTag("safe_browser_upgrade_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("safe_browser_upgrade_card").assertDoesNotExist()
         composeRule.onNodeWithTag("safe_browser_tab_strip").assertDoesNotExist()
 
-        // Tap DOWNLOAD PRO -> Confirmation Dialog opens
+        // Open Chrome overflow menu -> Upgrade Pro -> Confirmation Dialog opens
+        composeRule.onNodeWithTag("safe_browser_overflow_button").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("safe_browser_upgrade_button").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("safe_browser_upgrade_confirm_dialog").assertIsDisplayed()
@@ -313,7 +315,9 @@ class SafeBrowserAndAutoSwitchTest {
 
         assertTrue(container.preferences.fullBrowserEngineInstalled.value)
         assertTrue(container.preferences.chromeComponentsAutoCached.value)
-        composeRule.onNodeWithTag("safe_browser_tab_strip").assertIsDisplayed()
+        composeRule.onNodeWithTag("safe_browser_tab_strip").assertDoesNotExist()
+        composeRule.onNodeWithTag("safe_browser_overflow_button").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("safe_browser_chrome_cache_badge").assertIsDisplayed()
         composeRule.onNodeWithTag("safe_browser_import_chrome_button").assertIsDisplayed()
         composeRule.onNodeWithTag("safe_browser_bookmarks_button").assertIsDisplayed()
@@ -343,9 +347,13 @@ class SafeBrowserAndAutoSwitchTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag("safe_browser_root").assertIsDisplayed()
+        composeRule.onNodeWithTag("safe_browser_overflow_button").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("safe_browser_settings_button").performScrollTo()
         composeRule.onNodeWithTag("safe_browser_settings_button").assertIsDisplayed()
         composeRule.onNodeWithTag("safe_browser_settings_button").performClick()
         composeRule.waitForIdle()
+        composeRule.onNodeWithTag("browser_setting_safesearch").assertDoesNotExist()
         composeRule.onNodeWithTag("browser_settings_close_button").assertIsDisplayed()
         composeRule.onNodeWithTag("browser_settings_close_button").performClick()
         composeRule.waitForIdle()

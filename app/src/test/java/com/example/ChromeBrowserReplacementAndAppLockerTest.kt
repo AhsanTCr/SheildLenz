@@ -73,7 +73,9 @@ class ChromeBrowserReplacementAndAppLockerTest {
         composeRule.onNodeWithTag("safe_browser_overflow_button").assertIsDisplayed()
         composeRule.onNodeWithTag("safe_browser_site_lock_button").assertIsDisplayed()
 
-        // Open new tab -> Speed Dial NTP renders
+        // Open new tab via Chrome overflow menu -> Speed Dial NTP renders
+        composeRule.onNodeWithTag("safe_browser_overflow_button").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("safe_browser_new_tab_button").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("safe_browser_speed_dial").assertIsDisplayed()

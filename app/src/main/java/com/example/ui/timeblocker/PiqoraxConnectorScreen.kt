@@ -23,10 +23,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Lock
@@ -36,12 +42,14 @@ import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -130,6 +138,7 @@ fun PiqoraxConnectorScreen(
     }
     var installedApps by remember { mutableStateOf<List<InstalledAppEntry>>(emptyList()) }
     var showAppPicker by remember { mutableStateOf(false) }
+    var showPolicyInfo by remember { mutableStateOf(false) }
 
     var allowanceInHours by remember { mutableStateOf(allowanceMinutes >= 60 && allowanceMinutes % 60 == 0) }
     var windowInHours by remember { mutableStateOf(windowMinutes >= 60 && windowMinutes % 60 == 0) }
@@ -184,11 +193,11 @@ fun PiqoraxConnectorScreen(
                 contentPadding = PaddingValues(top = 10.dp, bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // 1. Connect PiqoraX Connector Prompt Card
+                // 1. Connect PiqoraX Connector Prompt Card (compact Sky/Lavender/Gold with tiny info toggle)
                 item(key = "piqorax_connector_prompt") {
                     CyberCard(
-                        borderColor = if (isConnectorConnected) AegisEmeraldBorder else AegisGoldBorder,
-                        tone = if (isConnectorConnected) CyberCardTone.HERO else CyberCardTone.GOLD,
+                        borderColor = if (isConnectorConnected) AegisCardBorder else AegisGoldBorder,
+                        tone = if (isConnectorConnected) CyberCardTone.SKY else CyberCardTone.GOLD,
                         modifier = Modifier.testTag("piqorax_connector_prompt_card")
                     ) {
                         Row(
@@ -197,42 +206,60 @@ fun PiqoraxConnectorScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             StatusPill(
-                                label = if (isConnectorConnected) "CONNECTOR LINKED" else "NOT CONNECTED",
+                                label = if (isConnectorConnected) "CONNECTED" else "NOT CONNECTED",
                                 isActive = isConnectorConnected,
-                                activeColor = AegisEmeraldTeal,
+                                activeColor = AegisPrimaryCyan,
                                 inactiveColor = AegisWarningAmber
                             )
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isPiqoraxInstalled) AegisEmeraldSoft else AegisChampagneSoft,
-                                border = BorderStroke(1.dp, if (isPiqoraxInstalled) AegisEmeraldBorder else AegisGoldBorder)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text(
-                                    text = if (isPiqoraxInstalled) "PiqoraX Installed" else "PiqoraX Not Installed",
-                                    color = if (isPiqoraxInstalled) AegisEmeraldTeal else AegisChampagneGold,
-                                    fontSize = 10.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = ClassicalBodyFont,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isPiqoraxInstalled) AegisEmeraldSoft else AegisChampagneSoft,
+                                    border = BorderStroke(1.dp, if (isPiqoraxInstalled) AegisEmeraldBorder else AegisGoldBorder)
+                                ) {
+                                    Text(
+                                        text = if (isPiqoraxInstalled) "PiqoraX Ready" else "Not Installed",
+                                        color = if (isPiqoraxInstalled) AegisEmeraldTeal else AegisChampagneGold,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalBodyFont,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { showPolicyInfo = !showPolicyInfo },
+                                    modifier = Modifier
+                                        .minimumInteractiveComponentSize()
+                                        .testTag("piqorax_policy_info_toggle")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.HelpOutline,
+                                        contentDescription = "How PiqoraX Coin Lock works",
+                                        tint = AegisPurple,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(if (isConnectorConnected) AegisEmeraldSoft else AegisChampagneSoft),
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(13.dp))
+                                    .background(if (isConnectorConnected) Color.White else AegisChampagneSoft),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.VerifiedUser,
                                     contentDescription = "PiqoraX Connector",
-                                    tint = if (isConnectorConnected) AegisEmeraldTeal else AegisChampagneGold,
-                                    modifier = Modifier.size(26.dp)
+                                    tint = if (isConnectorConnected) AegisPrimaryCyan else AegisChampagneGold,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.width(12.dp))
@@ -244,21 +271,44 @@ fun PiqoraxConnectorScreen(
                                         "Could we connect and apply PiqoraX?"
                                     },
                                     color = AegisTextPrimary,
-                                    fontSize = 16.sp,
+                                    fontSize = 15.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     fontFamily = ClassicalDisplayFont
                                 )
-                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = if (isConnectorConnected) {
-                                        "PiqoraX coin passes unlock your timed-out apps and device lock automatically."
+                                        "Coin passes & app lock active"
                                     } else {
-                                        "Lock the device until unlock by coin in PiqoraX — or run minute/hour app blocking schedules below."
+                                        "Pair to unlock timed apps via coins"
                                     },
                                     color = AegisTextSecondary,
-                                    fontSize = 12.sp,
-                                    lineHeight = 16.sp,
+                                    fontSize = 11.5.sp,
                                     fontFamily = ClassicalBodyFont
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = showPolicyInfo,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color.White.copy(alpha = 0.84f),
+                                border = BorderStroke(1.dp, AegisLavenderBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp)
+                                    .testTag("piqorax_policy_info_content")
+                            ) {
+                                Text(
+                                    text = "When Coin Lock is active, distracting apps remain locked until you earn and spend a coin pass inside PiqoraX. Timed app schedules below run per minute or hour.",
+                                    color = AegisTextSecondary,
+                                    fontSize = 11.5.sp,
+                                    lineHeight = 16.sp,
+                                    fontFamily = ClassicalBodyFont,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                                 )
                             }
                         }
@@ -268,7 +318,7 @@ fun PiqoraxConnectorScreen(
                         // PiqoraX Coin-Unlock Rule Callout & Action
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = if (isCoinDeviceLockActive) AegisChampagneSoft else AegisCardBackground,
+                            color = if (isCoinDeviceLockActive) AegisChampagneSoft else Color.White.copy(alpha = 0.82f),
                             border = BorderStroke(
                                 width = 1.dp,
                                 color = if (isCoinDeviceLockActive) AegisChampagneGold else AegisCardBorder
@@ -280,7 +330,7 @@ fun PiqoraxConnectorScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -297,25 +347,17 @@ fun PiqoraxConnectorScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Column {
-                                        Text(
-                                            text = "Lock the device until unlock by coin in PiqoraX",
-                                            color = AegisTextPrimary,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = ClassicalBodyFont
-                                        )
-                                        Text(
-                                            text = if (isCoinDeviceLockActive) {
-                                                "ACTIVE: Apps locked until a coin unlock pass arrives from PiqoraX"
-                                            } else {
-                                                "Blocks distracting apps until unlocked with earned coins in PiqoraX"
-                                            },
-                                            color = if (isCoinDeviceLockActive) AegisWarningAmber else AegisTextSecondary,
-                                            fontSize = 11.sp,
-                                            fontFamily = ClassicalBodyFont
-                                        )
-                                    }
+                                    Text(
+                                        text = if (isCoinDeviceLockActive) {
+                                            "Coin Lock Active"
+                                        } else {
+                                            "Lock the device until unlock by coin in PiqoraX"
+                                        },
+                                        color = if (isCoinDeviceLockActive) AegisWarningAmber else AegisTextPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = ClassicalBodyFont
+                                    )
                                 }
                                 Button(
                                     onClick = {
@@ -829,38 +871,15 @@ fun PiqoraxConnectorScreen(
                     }
                 }
 
-                // 3. Active Timed-Blocked Apps List
-                item(key = "header_active_timed_apps") {
-                    LuxurySectionHeader(
-                        title = "Timed-Blocked Apps (${restrictedApps.size})",
-                        accentColor = AegisEmeraldTeal
-                    )
-                }
-
-                if (restrictedApps.isEmpty()) {
-                    item(key = "empty_timed_apps") {
-                        CyberCard(
-                            borderColor = AegisCardBorder,
-                            tone = CyberCardTone.SKY,
-                            modifier = Modifier.testTag("time_blocker_empty_apps_card")
-                        ) {
-                            Text(
-                                text = "No apps are scheduled for minute/hour time blocking yet.",
-                                color = AegisTextPrimary,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = ClassicalDisplayFont
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Pick apps above to allow a set number of minutes or hours before Sheildlenz locks them—and optionally connect PiqoraX to earn study-unlocked passes.",
-                                color = AegisTextSecondary,
-                                fontSize = 12.sp,
-                                fontFamily = ClassicalBodyFont
-                            )
-                        }
+                // 3. Active Timed-Blocked Apps List (rendered only when apps are added — no empty filler card)
+                if (restrictedApps.isNotEmpty()) {
+                    item(key = "header_active_timed_apps") {
+                        LuxurySectionHeader(
+                            title = "Timed-Blocked Apps (${restrictedApps.size})",
+                            accentColor = AegisPrimaryCyan
+                        )
                     }
-                } else {
+
                     items(restrictedApps, key = { it.packageName }) { entity ->
                         val appInfo = appsByPkg[entity.packageName]
                         val appLabel = appInfo?.label ?: entity.packageName.substringAfterLast('.').replaceFirstChar { it.uppercase() }

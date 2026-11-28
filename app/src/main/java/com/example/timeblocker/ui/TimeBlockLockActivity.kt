@@ -29,12 +29,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.LockClock
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
@@ -53,8 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -64,14 +61,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.di.AegisContainer
 import com.example.timeblocker.TimeBlockerEngine
-import com.example.ui.components.CyberCard
-import com.example.ui.components.CyberCardTone
+import com.example.ui.components.AnimatedCountdownRing
+import com.example.ui.components.ExpandableDetailsToggle
 import com.example.ui.components.SheildlenzBackdrop
-import com.example.ui.theme.AegisCardBackground
-import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisGoldBorder
+import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
@@ -79,7 +75,6 @@ import com.example.ui.theme.AegisShieldTheme
 import com.example.ui.theme.AegisTextMuted
 import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.AegisTextSecondary
-import com.example.ui.theme.AegisWarningAmber
 import com.example.ui.theme.ClassicalBodyFont
 import com.example.ui.theme.ClassicalDisplayFont
 import kotlinx.coroutines.delay
@@ -271,6 +266,10 @@ fun TimeBlockLockScreen(
     val countdownText = remember(remainingResetMs) {
         TimeBlockerEngine.formatCountdown(remainingResetMs)
     }
+    val ringProgress = remember(remainingResetMs, isCoinDeviceLock) {
+        if (isCoinDeviceLock) 1f
+        else (remainingResetMs.toFloat() / TimeBlockerEngine.HOURLY_WINDOW_MS.toFloat()).coerceIn(0.05f, 1f)
+    }
 
     SheildlenzBackdrop(
         modifier = Modifier
@@ -282,152 +281,72 @@ fun TimeBlockLockScreen(
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing)
                 .navigationBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 24.dp, vertical = 18.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
                 modifier = Modifier
-                    .widthIn(max = 560.dp)
+                    .widthIn(max = 520.dp)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(84.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(AegisPrimaryCyan, AegisPurple)
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LockClock,
-                        contentDescription = "App Time Limit Reached",
-                        tint = AegisOnPrimaryWhite,
-                        modifier = Modifier.size(42.dp)
-                    )
-                }
-
                 Text(
                     text = if (isCoinDeviceLock) "Device Locked by PiqoraX" else "Hourly Allowance Paused",
                     color = AegisTextPrimary,
-                    fontSize = 24.sp,
+                    fontSize = 25.sp,
                     fontWeight = FontWeight.ExtraBold,
                     fontFamily = ClassicalDisplayFont,
                     textAlign = TextAlign.Center
                 )
 
                 Text(
-                    text = if (isCoinDeviceLock) {
-                        "Lock the device until unlock by coin in PiqoraX. Open PiqoraX and spend coins to unlock apps."
-                    } else {
-                        "Your 5-minute hourly base allowance for this app has finished."
-                    },
-                    color = AegisTextSecondary,
-                    fontSize = 14.sp,
-                    fontFamily = ClassicalBodyFont,
-                    textAlign = TextAlign.Center
+                    text = appLabel.ifBlank { packageName },
+                    color = AegisPurple,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = ClassicalDisplayFont,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.testTag("time_blocker_blocked_app_label")
                 )
 
-                CyberCard(
-                    tone = CyberCardTone.HERO,
-                    borderColor = AegisCardBorder,
-                    modifier = Modifier.testTag("time_blocker_app_info_card")
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(AegisChampagneSoft),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.HourglassTop,
-                                contentDescription = null,
-                                tint = AegisChampagneGold,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = appLabel.ifBlank { packageName },
-                                color = AegisTextPrimary,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = ClassicalDisplayFont,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.testTag("time_blocker_blocked_app_label")
-                            )
-                            if (packageName.isNotBlank()) {
-                                Text(
-                                    text = packageName,
-                                    color = AegisTextMuted,
-                                    fontSize = 11.5.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.testTag("time_blocker_blocked_package_name")
-                                )
-                            }
-                        }
+                // Hero Animated Countdown Ring
+                AnimatedCountdownRing(
+                    progress = ringProgress,
+                    centerText = "",
+                    primaryColor = if (isCoinDeviceLock) AegisChampagneGold else AegisPrimaryCyan,
+                    secondaryColor = AegisPurple,
+                    accentColor = AegisGoldBright,
+                    ringSize = 176.dp,
+                    strokeWidth = 10.dp,
+                    centerIconContent = {
+                        Icon(
+                            imageVector = Icons.Default.LockClock,
+                            contentDescription = "App Time Limit Reached",
+                            tint = if (isCoinDeviceLock) AegisChampagneGold else AegisPrimaryCyan,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (isCoinDeviceLock) "COIN" else countdownText,
+                            color = AegisTextPrimary,
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.testTag("time_blocker_countdown_text")
+                        )
+                        Text(
+                            text = if (isCoinDeviceLock) "COIN LOCK" else "RESET TIMER",
+                            color = AegisTextSecondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp,
+                            fontFamily = ClassicalBodyFont
+                        )
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
-                        color = AegisCardBackground,
-                        border = BorderStroke(1.dp, AegisCardBorder)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp, horizontal = 12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = if (isCoinDeviceLock) "PIQORAX COIN LOCK" else "NEXT 5-MIN RESET IN",
-                                color = AegisTextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.1.sp,
-                                fontFamily = ClassicalBodyFont
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = if (isCoinDeviceLock) "COIN" else countdownText,
-                                color = AegisPrimaryCyan,
-                                fontSize = 38.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.testTag("time_blocker_countdown_text")
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (isCoinDeviceLock) {
-                                    "Unlock in PiqoraX with earned study coins"
-                                } else {
-                                    "Monotonic uptime timer protected"
-                                },
-                                color = AegisWarningAmber,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = ClassicalBodyFont
-                            )
-                        }
-                    }
-                }
+                )
 
                 Button(
                     onClick = onGoBackExit,
@@ -460,6 +379,7 @@ fun TimeBlockLockScreen(
                     onClick = { onRequestExtendedUnlock(packageName) },
                     border = BorderStroke(1.2.dp, AegisPurple.copy(alpha = 0.65f)),
                     colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color.White.copy(alpha = 0.72f),
                         contentColor = AegisPurple
                     ),
                     shape = RoundedCornerShape(16.dp),
@@ -480,6 +400,36 @@ fun TimeBlockLockScreen(
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalDisplayFont
+                    )
+                }
+
+                if (packageName.isNotBlank()) {
+                    Text(
+                        text = packageName,
+                        color = AegisTextMuted,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("time_blocker_blocked_package_name")
+                    )
+                }
+
+                ExpandableDetailsToggle(
+                    summaryLabel = "Allowance & unlock details",
+                    accentColor = AegisPurple,
+                    testTagPrefix = "time_blocker_details"
+                ) {
+                    Text(
+                        text = if (isCoinDeviceLock) {
+                            "Lock the device until unlock by coin in PiqoraX. Open PiqoraX and spend study coins to unlock apps."
+                        } else {
+                            "Your 5-minute hourly base allowance for this app has finished. Monotonic uptime timer protected."
+                        },
+                        color = AegisTextSecondary,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                        fontFamily = ClassicalBodyFont
                     )
                 }
 

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
@@ -68,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import com.example.BuildConfig
 import com.example.core.audio.AegisSoundEffects
 import com.example.data.preferences.AegisPreferences
+import com.example.ui.components.AnimatedCountdownRing
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberCardTone
 import com.example.ui.components.LuxurySectionHeader
@@ -921,75 +923,99 @@ private fun BlockScreenEditorCard(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Live Mini-Preview of Block Screen layout
+        // Live Mini-Preview of Calm Sky/Lavender/Gold Block Screen layout
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("block_screen_editor_preview"),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             color = AegisCardBackground,
             border = BorderStroke(1.dp, AegisLavenderBorder)
         ) {
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                AnimatedCountdownRing(
+                    progress = if (showTimer) 0.82f else 1f,
+                    centerText = if (showTimer) "10h" else "",
+                    primaryColor = AegisPrimaryCyan,
+                    secondaryColor = AegisPurple,
+                    accentColor = AegisGoldBright,
+                    ringSize = 62.dp,
+                    strokeWidth = 5.dp,
+                    centerFontSize = 11.sp,
+                    centerIconContent = {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = "Block screen ring preview",
+                            tint = AegisPrimaryCyan,
+                            modifier = Modifier.size(if (showTimer) 13.dp else 20.dp)
+                        )
+                    }
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = if (showAppBadge) "SHIELD BADGE • APP" else "BADGE HIDDEN",
-                        color = if (showAppBadge) AegisPrimaryCyan else AegisTextMuted,
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    if (showTimer) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = "09:59:42",
-                            color = AegisWarningAmber,
-                            fontSize = 10.sp,
+                            text = if (showAppBadge) "INTERVENTION • BADGE" else "BADGE HIDDEN",
+                            color = if (showAppBadge) AegisPrimaryCyan else AegisTextMuted,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
+                        if (showTimer) {
+                            Text(
+                                text = "09:59:42",
+                                color = AegisChampagneGold,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
+                    Text(
+                        text = customHeadline.ifBlank { "Content Blocked" },
+                        color = AegisTextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalDisplayFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = customMessage.ifBlank { "Calm countdown ring + Details toggle" },
+                        color = AegisTextSecondary,
+                        fontSize = 11.sp,
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val visibleControls = buildList {
+                        if (showQrUnlock) add("QR")
+                        if (showQuickActions) add("Actions")
+                        if (showReturnHome) add("Home")
+                        if (showEmergencyDialer) add("Emergency")
+                    }
+                    Text(
+                        text = "Controls: ${if (visibleControls.isEmpty()) "Safe Exit" else visibleControls.joinToString(" • ")}",
+                        color = AegisPurple,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = ClassicalBodyFont,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Text(
-                    text = customHeadline.ifBlank { "Shield Intervention Active" },
-                    color = AegisTextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = ClassicalDisplayFont,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = customMessage.ifBlank { "Pause for a mindful moment. Your device remains safe." },
-                    color = AegisTextSecondary,
-                    fontSize = 11.5.sp,
-                    fontFamily = ClassicalBodyFont,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val visibleControls = buildList {
-                    if (showQrUnlock) add("QR Unlock")
-                    if (showQuickActions) add("Quick Actions")
-                    if (showReturnHome) add("Home")
-                    if (showEmergencyDialer) add("Emergency")
-                }
-                Text(
-                    text = "Visible controls: ${if (visibleControls.isEmpty()) "Safe Exit Fallback" else visibleControls.joinToString(" • ")}",
-                    color = AegisPurple,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = ClassicalBodyFont,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
         }
 

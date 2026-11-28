@@ -556,17 +556,10 @@ fun LiveScannerTelemetryCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             TelemetryMetricBox(
-                label = "INSPECTION FPS",
-                value = String.format("%.1f", telemetry.currentInspectionFps),
+                label = "SCAN CADENCE",
+                value = "${displayIntervalMs}ms",
                 icon = Icons.Default.Speed,
                 accentColor = AegisPrimaryCyan,
-                modifier = Modifier.weight(1f)
-            )
-            TelemetryMetricBox(
-                label = "FRAMES SCANNED",
-                value = "${telemetry.framesProcessedCount}",
-                icon = Icons.Default.Bolt,
-                accentColor = AegisPurple,
                 modifier = Modifier.weight(1f)
             )
             TelemetryMetricBox(

@@ -64,24 +64,49 @@ class SheildlenzAppWidgetProvider : AppWidgetProvider() {
             val isShieldActive = isMasterOn && (telemetry.isProtectionEnabled || prefs.isShieldDesiredActive.value)
 
             val (statusLabel, statusColorHex) = when {
-                isLockdown -> "LOCKDOWN" to "#D9820B"
-                !isMasterOn -> "POWER OFF" to "#5D76B0"
-                isShieldActive -> "ARMED" to "#0D9488"
-                else -> "STANDBY" to "#2563EB"
+                isLockdown -> "LOCKDOWN" to "#E59712"
+                !isMasterOn -> "POWER OFF" to "#64748B"
+                isShieldActive -> "ARMED" to "#2563EB"
+                else -> "STANDBY" to "#7C5CFA"
             }
 
             val blockedTotal = container.blockedDnsLogRepository.liveLogs.value.size +
                 prefs.safeSearchBlockedCount.value
+            val dnsPrefix = if (prefs.safeDnsEnabled.value) "Safe DNS ON" else "Safe DNS Standby"
             val blockedSubtitle = if (blockedTotal == 1) {
-                "1 threat blocked safely"
+                "$dnsPrefix • 1 block today"
             } else {
-                "$blockedTotal threats blocked safely"
+                "$dnsPrefix • $blockedTotal blocks today"
+            }
+
+            val remainingStudyMillis = if (prefs.studyModeEnabled.value) prefs.getRemainingStudyMillis() else 0L
+            val remainingLockdownMillis = if (isLockdown) prefs.getRemainingLockdownMillis() else 0L
+            val (timerLabel, timerValue, timerColorHex) = when {
+                isLockdown -> {
+                    val mins = ((remainingLockdownMillis + 59_999L) / 60_000L).coerceAtLeast(1L)
+                    Triple("Lockdown Timer Active", "${mins}m left", "#E59712")
+                }
+                prefs.studyModeEnabled.value && remainingStudyMillis > 0L -> {
+                    val mins = ((remainingStudyMillis + 59_999L) / 60_000L).coerceAtLeast(1L)
+                    Triple("Study Focus Timer", "${mins}m left", "#7C5CFA")
+                }
+                prefs.isWithinBedtimeLockWindow() -> {
+                    Triple("Bedtime Quiet Lock", "ACTIVE", "#E59712")
+                }
+                else -> {
+                    val reelsCount = prefs.dailyReelsTotalCount.value
+                    val reelsLimit = prefs.scrollLimitCount.value
+                    Triple("Reels & App Guard", "$reelsCount / $reelsLimit", "#2563EB")
+                }
             }
 
             val views = RemoteViews(appCtx.packageName, R.layout.widget_sheildlenz_home)
             views.setTextViewText(R.id.widget_shield_status_badge, statusLabel)
             views.setTextColor(R.id.widget_shield_status_badge, Color.parseColor(statusColorHex))
             views.setTextViewText(R.id.widget_blocked_count, blockedSubtitle)
+            views.setTextViewText(R.id.widget_timer_label, timerLabel)
+            views.setTextViewText(R.id.widget_timer_value, timerValue)
+            views.setTextColor(R.id.widget_timer_value, Color.parseColor(timerColorHex))
 
             val browserBitmap = createSafeBrowserBrandBitmap(
                 sizePx = 128,

@@ -2,7 +2,6 @@ package com.example.ui.splash
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -50,10 +49,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -65,12 +62,10 @@ import androidx.compose.ui.unit.sp
 import com.example.core.update.UpdateChecker
 import com.example.ui.components.AhsanTcrBrandingPill
 import com.example.ui.components.SheildlenzBackdrop
-import com.example.ui.components.vipAnimatedCorners
 import com.example.ui.navigation.AegisDestinations
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisElectricBlue
 import com.example.ui.theme.AegisGoldBright
-import com.example.ui.theme.AegisLavenderLight
 import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
@@ -169,15 +164,6 @@ fun SplashScreen(
             repeatMode = RepeatMode.Restart
         ),
         label = "InternalBladeEnergyCycle"
-    )
-    val rimRotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "SplashRimRotation"
     )
     val sonarPulse by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -339,110 +325,30 @@ fun SplashScreen(
                     .fillMaxSize()
                     .padding(horizontal = 28.dp)
             ) {
+                // Pure Luminous Boxless Monogram Stage (zero dark box, zero heavy border clutter)
                 Box(
-                    modifier = Modifier.size(228.dp),
+                    modifier = Modifier
+                        .size(204.dp)
+                        .graphicsLayer {
+                            val combinedScale = shieldScale.value * logoBreath
+                            scaleX = combinedScale
+                            scaleY = combinedScale
+                            translationY = logoFloatY.dp.toPx()
+                            rotationY = shieldTiltY.value
+                            cameraDistance = 14f * density
+                            alpha = shieldAlpha.value
+                        }
+                        .testTag("splash_animated_logo"),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Subtle soft halo pulse behind the animated logo
-                    Canvas(modifier = Modifier.size(228.dp)) {
-                        val c = Offset(size.width / 2f, size.height / 2f)
-                        val maxR = size.minDimension * 0.47f
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    AegisElectricBlue.copy(alpha = 0.16f + 0.08f * (1f - sonarPulse)),
-                                    AegisPurple.copy(alpha = 0.09f),
-                                    Color.Transparent
-                                ),
-                                center = c,
-                                radius = maxR
-                            ),
-                            radius = maxR,
-                            center = c
-                        )
-                        val pulseR = maxR * (0.68f + 0.30f * sonarPulse)
-                        drawCircle(
-                            color = AegisPrimaryCyan.copy(alpha = (1f - sonarPulse) * 0.36f),
-                            radius = pulseR,
-                            center = c,
-                            style = Stroke(width = 2.dp.toPx())
-                        )
-                    }
-
-                    // Rotating luminous prismatic bezel + animated 3D centered logo itself
-                    Box(
-                        modifier = Modifier
-                            .size(164.dp)
-                            .graphicsLayer {
-                                val combinedScale = shieldScale.value * logoBreath
-                                scaleX = combinedScale
-                                scaleY = combinedScale
-                                translationY = logoFloatY.dp.toPx()
-                                rotationY = shieldTiltY.value
-                                cameraDistance = 14f * density
-                                alpha = shieldAlpha.value
-                            }
-                            .testTag("splash_animated_logo"),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val c = Offset(size.width / 2f, size.height / 2f)
-                            val rimR = (size.minDimension / 2f) - 2.dp.toPx()
-                            rotate(degrees = rimRotation, pivot = c) {
-                                drawArc(
-                                    brush = Brush.sweepGradient(
-                                        colors = listOf(
-                                            AegisElectricBlue,
-                                            AegisPrimaryCyan,
-                                            Color.White,
-                                            AegisPurple,
-                                            AegisGoldBright,
-                                            AegisElectricBlue
-                                        ),
-                                        center = c
-                                    ),
-                                    startAngle = 0f,
-                                    sweepAngle = 360f,
-                                    useCenter = false,
-                                    topLeft = Offset(c.x - rimR, c.y - rimR),
-                                    size = Size(rimR * 2f, rimR * 2f),
-                                    style = Stroke(width = 3.2.dp.toPx(), cap = StrokeCap.Round)
-                                )
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .size(152.dp)
-                                .shadow(
-                                    elevation = 16.dp,
-                                    shape = RoundedCornerShape(36.dp),
-                                    ambientColor = AegisElectricBlue.copy(alpha = 0.42f),
-                                    spotColor = AegisPurple.copy(alpha = 0.36f)
-                                )
-                                .clip(RoundedCornerShape(36.dp))
-                                .border(
-                                    width = 1.5.dp,
-                                    color = Color.White.copy(alpha = 0.72f),
-                                    shape = RoundedCornerShape(36.dp)
-                                )
-                                .vipAnimatedCorners(
-                                    cornerRadius = 36.dp,
-                                    accentStart = AegisPrimaryCyan,
-                                    accentEnd = AegisPurple,
-                                    strokeWidth = 2.4.dp
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AnimatedSheildlenzMonogram(
-                                bladeSpread = bladeSpread.value,
-                                energyCharge = bladeEnergyCharge.value,
-                                energyPulse = energyCycle,
-                                sheenProgress = logoSheen,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
+                    AnimatedSheildlenzMonogram(
+                        bladeSpread = bladeSpread.value,
+                        energyCharge = bladeEnergyCharge.value,
+                        energyPulse = energyCycle,
+                        sheenProgress = logoSheen,
+                        haloPulse = sonarPulse,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(22.dp))
@@ -471,7 +377,7 @@ fun SplashScreen(
                         if (fillW > 0f) {
                             drawRoundRect(
                                 brush = Brush.horizontalGradient(
-                                    colors = listOf(AegisElectricBlue, AegisPrimaryCyan, AegisPurple)
+                                    colors = listOf(AegisElectricBlue, AegisPrimaryCyan, AegisPurple, AegisGoldBright)
                                 ),
                                 topLeft = Offset.Zero,
                                 size = Size(fillW, size.height),
@@ -657,9 +563,9 @@ fun SplashScreen(
 }
 
 /**
- * Vectorized 3-blade brushed chrome monogram & glowing cyan diamond core matching the
- * Sheildlenz emblem, featuring real independent disassemble/assemble translation,
- * energy arcs along blade seams, and magnetic plasma core lock-in.
+ * Pure boxless 3-blade prism monogram floating directly on the Luminous Sky & Lavender canvas,
+ * featuring crisp radial disassemble/reassemble translation, Sky-Gold diamond energy lock-in,
+ * and a specular sheen sweep without any surrounding dark frame.
  */
 @Composable
 private fun AnimatedSheildlenzMonogram(
@@ -667,6 +573,7 @@ private fun AnimatedSheildlenzMonogram(
     energyCharge: Float,
     energyPulse: Float,
     sheenProgress: Float,
+    haloPulse: Float,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
@@ -674,25 +581,14 @@ private fun AnimatedSheildlenzMonogram(
         val h = size.height
         val c = Offset(w * 0.5f, h * 0.5f)
 
-        // 1. Deep Midnight Navy metallic surface backdrop
-        drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFF14244B),
-                    Color(0xFF0A142B)
-                ),
-                center = c,
-                radius = w * 0.72f
-            )
-        )
-
-        // Core plasma bloom pulsing from the central diamond gap
-        val plasmaRadius = w * (0.28f + 0.14f * bladeSpread + 0.06f * kotlin.math.sin(energyPulse * Math.PI).toFloat())
+        // Subtle pure atmospheric Sky-Lavender glow directly on canvas (no dark box)
+        val plasmaRadius = w * (0.34f + 0.12f * bladeSpread + 0.04f * kotlin.math.sin(energyPulse * Math.PI).toFloat())
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF00E5FF).copy(alpha = 0.52f * (0.65f + 0.35f * energyCharge)),
-                    Color(0xFF38BDF8).copy(alpha = 0.20f),
+                    AegisElectricBlue.copy(alpha = 0.24f * (0.65f + 0.35f * energyCharge)),
+                    AegisPurple.copy(alpha = 0.14f),
+                    AegisGoldBright.copy(alpha = 0.08f * (1f - bladeSpread)),
                     Color.Transparent
                 ),
                 center = c,
@@ -702,107 +598,105 @@ private fun AnimatedSheildlenzMonogram(
             center = c
         )
 
-        val bladeMetallic = Brush.linearGradient(
+        // Specular sheen gradient across the luminous Sky-Sapphire & Lavender prism blades
+        val bladeBrush = Brush.linearGradient(
             colors = listOf(
-                Color(0xFFFFFFFF),
-                Color(0xFFD6E0EF),
-                Color(0xFF94A3B8),
-                Color(0xFFE2E8F0)
+                Color(0xFF2563EB),
+                Color(0xFF0EA5E9),
+                Color(0xFF7C5CFA),
+                Color(0xFF1A3673)
             ),
-            start = Offset(w * (0.15f + sheenProgress * 0.3f), 0f),
-            end = Offset(w * 0.85f, h)
+            start = Offset(w * (0.08f + sheenProgress * 0.38f), 0f),
+            end = Offset(w * 0.92f, h)
         )
-        val bladeEdgeCyan = Color(0xFF38BDF8).copy(alpha = (0.35f + 0.65f * bladeSpread).coerceIn(0f, 1f))
-        val spreadPx = w * 0.125f * bladeSpread
+        val sheenStripe = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = 0.62f * (1f - bladeSpread * 0.7f)),
+                Color.Transparent
+            ),
+            start = Offset(w * (sheenProgress - 0.22f), 0f),
+            end = Offset(w * (sheenProgress + 0.14f), h)
+        )
+        val bladeHighlightEdge = Color.White.copy(alpha = (0.65f + 0.35f * (1f - bladeSpread)).coerceIn(0f, 1f))
+        val spreadPx = w * 0.145f * bladeSpread
 
-        // 2. Left Top-Slanted Metallic Blade (slides upper-left when disassembled)
-        translate(left = -spreadPx * 1.1f, top = -spreadPx * 0.9f) {
-            val leftBlade = Path().apply {
-                moveTo(w * 0.49f, h * 0.15f)
-                lineTo(w * 0.59f, h * 0.15f)
-                lineTo(w * 0.34f, h * 0.41f)
-                lineTo(w * 0.34f, h * 0.61f)
-                lineTo(w * 0.25f, h * 0.67f)
-                lineTo(w * 0.25f, h * 0.38f)
-                close()
-            }
-            drawPath(leftBlade, brush = bladeMetallic)
+        fun drawPrismBlade(path: Path) {
+            drawPath(path, brush = bladeBrush)
+            drawPath(path, brush = sheenStripe)
             drawPath(
-                leftBlade,
-                color = bladeEdgeCyan,
-                style = Stroke(width = 1.6.dp.toPx(), join = StrokeJoin.Round)
+                path,
+                color = bladeHighlightEdge,
+                style = Stroke(width = 1.8.dp.toPx(), join = StrokeJoin.Round)
             )
         }
 
-        // 3. Center Diagonal Blade Pair (splits vertically + horizontally around the Cyan Core)
-        // Upper-center ribbon arm
-        translate(left = spreadPx * 0.55f, top = -spreadPx * 1.15f) {
+        // 1. Left Top-Slanted Blade (radial upper-left split)
+        translate(left = -spreadPx * 1.15f, top = -spreadPx * 0.88f) {
+            val leftBlade = Path().apply {
+                moveTo(w * 0.49f, h * 0.14f)
+                lineTo(w * 0.59f, h * 0.14f)
+                lineTo(w * 0.33f, h * 0.40f)
+                lineTo(w * 0.33f, h * 0.61f)
+                lineTo(w * 0.23f, h * 0.68f)
+                lineTo(w * 0.23f, h * 0.37f)
+                close()
+            }
+            drawPrismBlade(leftBlade)
+        }
+
+        // 2. Center Diagonal Blade Pair (splits radially around the glowing core)
+        translate(left = spreadPx * 0.58f, top = -spreadPx * 1.18f) {
             val centerTopBlade = Path().apply {
-                moveTo(w * 0.69f, h * 0.15f)
-                lineTo(w * 0.82f, h * 0.15f)
+                moveTo(w * 0.69f, h * 0.14f)
+                lineTo(w * 0.83f, h * 0.14f)
                 lineTo(w * 0.54f, h * 0.44f)
                 lineTo(w * 0.40f, h * 0.44f)
                 close()
             }
-            drawPath(centerTopBlade, brush = bladeMetallic)
-            drawPath(
-                centerTopBlade,
-                color = bladeEdgeCyan,
-                style = Stroke(width = 1.6.dp.toPx(), join = StrokeJoin.Round)
-            )
+            drawPrismBlade(centerTopBlade)
         }
-        // Lower-center ribbon arm
-        translate(left = -spreadPx * 0.55f, top = spreadPx * 1.15f) {
+        translate(left = -spreadPx * 0.58f, top = spreadPx * 1.18f) {
             val centerBottomBlade = Path().apply {
                 moveTo(w * 0.46f, h * 0.56f)
                 lineTo(w * 0.60f, h * 0.56f)
-                lineTo(w * 0.31f, h * 0.85f)
-                lineTo(w * 0.18f, h * 0.85f)
+                lineTo(w * 0.31f, h * 0.86f)
+                lineTo(w * 0.17f, h * 0.86f)
                 close()
             }
-            drawPath(centerBottomBlade, brush = bladeMetallic)
-            drawPath(
-                centerBottomBlade,
-                color = bladeEdgeCyan,
-                style = Stroke(width = 1.6.dp.toPx(), join = StrokeJoin.Round)
-            )
+            drawPrismBlade(centerBottomBlade)
         }
 
-        // 4. Right Bottom-Slanted Metallic Blade (slides lower-right when disassembled)
-        translate(left = spreadPx * 1.1f, top = spreadPx * 0.9f) {
+        // 3. Right Bottom-Slanted Blade (radial lower-right split)
+        translate(left = spreadPx * 1.15f, top = spreadPx * 0.88f) {
             val rightBlade = Path().apply {
-                moveTo(w * 0.75f, h * 0.33f)
-                lineTo(w * 0.75f, h * 0.62f)
-                lineTo(w * 0.51f, h * 0.85f)
-                lineTo(w * 0.41f, h * 0.85f)
-                lineTo(w * 0.66f, h * 0.59f)
-                lineTo(w * 0.66f, h * 0.39f)
+                moveTo(w * 0.77f, h * 0.32f)
+                lineTo(w * 0.77f, h * 0.63f)
+                lineTo(w * 0.51f, h * 0.86f)
+                lineTo(w * 0.41f, h * 0.86f)
+                lineTo(w * 0.67f, h * 0.60f)
+                lineTo(w * 0.67f, h * 0.39f)
                 close()
             }
-            drawPath(rightBlade, brush = bladeMetallic)
-            drawPath(
-                rightBlade,
-                color = bladeEdgeCyan,
-                style = Stroke(width = 1.6.dp.toPx(), join = StrokeJoin.Round)
-            )
+            drawPrismBlade(rightBlade)
         }
 
-        // 5. Internal Electric Energy Diamond Core (rotates/pulses dynamically when blades reassemble)
-        val coreExpand = 1f + 0.24f * bladeSpread + 0.08f * kotlin.math.sin(energyPulse * Math.PI * 2).toFloat()
+        // 4. Central Luminous Sky-Gold Energy Diamond Core
+        val coreExpand = 1f + 0.22f * bladeSpread + 0.06f * kotlin.math.sin(energyPulse * Math.PI * 2).toFloat()
         val diamondPath = Path().apply {
-            moveTo(c.x - w * 0.12f * coreExpand, c.y - h * 0.055f * coreExpand)
-            lineTo(c.x + w * 0.02f * coreExpand, c.y - h * 0.055f * coreExpand)
-            lineTo(c.x + w * 0.12f * coreExpand, c.y + h * 0.055f * coreExpand)
-            lineTo(c.x - w * 0.02f * coreExpand, c.y + h * 0.055f * coreExpand)
+            moveTo(c.x - w * 0.125f * coreExpand, c.y - h * 0.058f * coreExpand)
+            lineTo(c.x + w * 0.025f * coreExpand, c.y - h * 0.058f * coreExpand)
+            lineTo(c.x + w * 0.125f * coreExpand, c.y + h * 0.058f * coreExpand)
+            lineTo(c.x - w * 0.025f * coreExpand, c.y + h * 0.058f * coreExpand)
             close()
         }
         drawPath(
             path = diamondPath,
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color(0xFF7DF9FF),
-                    Color(0xFF00E5FF),
-                    Color(0xFF0284C7)
+                    AegisGoldBright,
+                    AegisElectricBlue,
+                    AegisPurple
                 ),
                 start = Offset(c.x - w * 0.12f, c.y - h * 0.06f),
                 end = Offset(c.x + w * 0.12f, c.y + h * 0.06f)
@@ -810,15 +704,15 @@ private fun AnimatedSheildlenzMonogram(
         )
         drawPath(
             path = diamondPath,
-            color = Color.White.copy(alpha = 0.85f),
-            style = Stroke(width = 1.4.dp.toPx(), join = StrokeJoin.Round)
+            color = Color.White.copy(alpha = 0.90f),
+            style = Stroke(width = 1.6.dp.toPx(), join = StrokeJoin.Round)
         )
 
-        // Energy Conduit Discharge Arc when Disassembled / Locking
-        if (bladeSpread > 0.04f) {
+        // Crisp magnetic lock pulse arc when assembling
+        if (bladeSpread > 0.03f) {
             drawCircle(
-                color = Color(0xFF7DF9FF).copy(alpha = bladeSpread * 0.65f),
-                radius = w * (0.20f + 0.18f * (1f - bladeSpread)),
+                color = AegisElectricBlue.copy(alpha = bladeSpread * 0.55f * (0.6f + 0.4f * haloPulse)),
+                radius = w * (0.22f + 0.20f * (1f - bladeSpread)),
                 center = c,
                 style = Stroke(width = 2.dp.toPx())
             )

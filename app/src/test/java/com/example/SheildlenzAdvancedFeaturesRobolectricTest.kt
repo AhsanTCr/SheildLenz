@@ -452,8 +452,8 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
                 )
             }
         }
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_parent_connection_card"))
-        composeRule.onNodeWithTag("status_parent_connection_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("status_heartbeat_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("status_parent_connection_card").assertDoesNotExist()
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_edits_overview_card"))
         composeRule.onNodeWithTag("status_edits_overview_card").assertIsDisplayed()
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_open_wellbeing_button"))
@@ -895,8 +895,8 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         prefs.setGuardianPin("1234")
         prefs.lockGuardianSession()
         prefs.stopStudySession()
-        prefs.setSmartSafeSearchEnabled(false)
-        prefs.setScheduleEnabled(false)
+        prefs.setBedtimeEnabled(false)
+        prefs.setAntiTamperEnabled(false)
 
         composeRule.setContent {
             AegisShieldTheme {
@@ -910,13 +910,13 @@ class SheildlenzAdvancedFeaturesRobolectricTest {
         composeRule.waitForIdle()
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_one_tap_features_strip"))
 
-        // Enabling Safe Search removes it from the 6 tiles and rotates Quiet Hours (home_one_tap_schedule) in
-        composeRule.onNodeWithTag("home_one_tap_safe_search").performClick()
+        // Enabling Bedtime removes it from the 6 tiles and rotates Anti-Tamper (home_one_tap_anti_tamper) in
+        composeRule.onNodeWithTag("home_one_tap_bedtime").performClick()
         composeRule.waitForIdle()
-        assertTrue(prefs.smartSafeSearchEnabled.value)
-        composeRule.onNodeWithTag("home_one_tap_safe_search").assertDoesNotExist()
-        composeRule.onNodeWithTag("home_one_tap_schedule").performScrollTo()
-        composeRule.onNodeWithTag("home_one_tap_schedule").assertIsDisplayed()
+        assertTrue(prefs.bedtimeEnabled.value)
+        composeRule.onNodeWithTag("home_one_tap_bedtime").assertDoesNotExist()
+        composeRule.onNodeWithTag("home_one_tap_anti_tamper").performScrollTo()
+        composeRule.onNodeWithTag("home_one_tap_anti_tamper").assertIsDisplayed()
 
         // Active Study shows extend banner (+15M) with no PIN required
         composeRule.runOnUiThread {

@@ -790,13 +790,11 @@ class SheildlenzUiOverhaulRobolectricTest {
         }
         composeRule.waitForIdle()
 
+        composeRule.onNodeWithTag("status_heartbeat_card").assertIsDisplayed()
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_bypass_audit_card"))
         composeRule.onNodeWithTag("status_bypass_audit_card").assertIsDisplayed()
         composeRule.onNodeWithText("Bypass Shield Diagnostics").assertIsDisplayed()
-
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("status_live_activity_card"))
-        composeRule.onNodeWithTag("status_live_activity_card").assertIsDisplayed()
-        composeRule.onNodeWithTag("status_open_activity_feed_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("status_live_activity_card").assertDoesNotExist()
     }
 }
 

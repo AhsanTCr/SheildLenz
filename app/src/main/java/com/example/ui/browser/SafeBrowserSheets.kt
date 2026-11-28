@@ -118,12 +118,6 @@ internal fun SpeedDialNewTabCanvas(
     bookmarks: List<SafeBookmark>,
     isShieldActive: Boolean,
     onSearchOrUrlSubmit: (String) -> Unit,
-    onOpenTabGrid: () -> Unit,
-    onOpenNewIncognito: () -> Unit,
-    onOpenBookmarks: () -> Unit,
-    onOpenDownloads: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onPinBrowserIcon: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -336,86 +330,6 @@ internal fun SpeedDialNewTabCanvas(
                     }
                 }
             }
-        }
-
-        // Quick Utility Action Row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            SpeedDialQuickButton(
-                label = if (isIncognito) "Tab Grid" else "Incognito",
-                icon = if (isIncognito) Icons.Default.Public else Icons.Default.VisibilityOff,
-                onClick = if (isIncognito) onOpenTabGrid else onOpenNewIncognito,
-                modifier = Modifier.weight(1f)
-            )
-            SpeedDialQuickButton(
-                label = "Bookmarks",
-                icon = Icons.Default.Bookmark,
-                onClick = onOpenBookmarks,
-                modifier = Modifier.weight(1f)
-            )
-            SpeedDialQuickButton(
-                label = "Downloads",
-                icon = Icons.Default.Download,
-                onClick = onOpenDownloads,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            SpeedDialQuickButton(
-                label = "Pin to Home",
-                icon = Icons.Default.AddHome,
-                onClick = onPinBrowserIcon,
-                modifier = Modifier.weight(1f)
-            )
-            SpeedDialQuickButton(
-                label = "Browser Settings",
-                icon = Icons.Default.Security,
-                onClick = onOpenSettings,
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-}
-
-@Composable
-private fun SpeedDialQuickButton(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = Color.White.copy(alpha = 0.90f),
-        border = BorderStroke(1.dp, AegisLavenderBorder),
-        modifier = modifier.heightIn(min = 48.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = AegisPurple,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(
-                text = label,
-                color = AegisTextPrimary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }
@@ -780,7 +694,6 @@ internal fun BrowserSettingsFullDialog(
     popupsBlocked: Boolean,
     javaScriptEnabled: Boolean,
     desktopDefault: Boolean,
-    smartSafeActive: Boolean,
     blockAdult: Boolean,
     chromeCachedCount: Int,
     sitePermissionsJson: String,
@@ -903,12 +816,6 @@ internal fun BrowserSettingsFullDialog(
                     checked = desktopDefault,
                     tag = "browser_setting_desktop",
                     onCheckedChange = { preferences.setBrowserDesktopModeDefault(it) }
-                )
-                SettingsToggleRow(
-                    title = "Smart Safe Search",
-                    checked = smartSafeActive,
-                    tag = "browser_setting_safesearch",
-                    onCheckedChange = { preferences.setSmartSafeSearchEnabled(it) }
                 )
                 SettingsToggleRow(
                     title = "Block Adult Content",

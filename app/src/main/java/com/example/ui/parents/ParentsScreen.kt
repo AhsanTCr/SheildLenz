@@ -2075,33 +2075,6 @@ private fun ParentRemoteSettingsContent(
         }
     }
 
-    RemoteSwitchRow("Smart Safe Search Guard", smartSafeSearchEnabled) { smartSafeSearchEnabled = it }
-    AnimatedVisibility(visible = smartSafeSearchEnabled) {
-        FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            SafeSearchPack.entries.forEach { pack ->
-                val active = pack.id in safeSearchPacks
-                FilterChip(
-                    selected = active,
-                    onClick = {
-                        val next = safeSearchPacks.toMutableSet()
-                        if (!next.add(pack.id)) next.remove(pack.id)
-                        safeSearchPacks = next
-                    },
-                    label = { Text(pack.title, fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = AegisPrimaryCyan,
-                        selectedLabelColor = AegisOnPrimaryWhite
-                    ),
-                    modifier = Modifier.heightIn(min = 48.dp)
-                )
-            }
-        }
-    }
-
     RemoteSwitchRow("Warn Only (Don't Lockout)", warningOnlyNoLockout) { warningOnlyNoLockout = it }
     RemoteSwitchRow("Strict Everything Filter", strictEverything) { strictEverything = it }
     RemoteSwitchRow("Anti-Tamper Guard", antiTamper) { antiTamper = it }

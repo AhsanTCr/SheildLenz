@@ -90,20 +90,24 @@ class FocusFeaturesRobolectricTest {
         composeRule.waitForIdle()
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_one_tap_features_strip"))
         composeRule.onNodeWithTag("home_one_tap_study").assertIsDisplayed()
-        composeRule.onNodeWithTag("home_one_tap_safe_search").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_one_tap_safe_search").assertDoesNotExist()
+        composeRule.onNodeWithTag("home_one_tap_safe_dns").assertIsDisplayed()
         composeRule.onNodeWithTag("home_one_tap_budgets").assertIsDisplayed()
 
-        composeRule.onNodeWithTag("home_one_tap_safe_search").performClick()
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_one_tap_priority_strip"))
+        composeRule.onNodeWithTag("home_one_tap_strict").assertIsDisplayed()
+        composeRule.onNodeWithTag("home_one_tap_strict").performClick()
         composeRule.waitForIdle()
-        assertTrue(container.preferences.smartSafeSearchEnabled.value)
+        assertTrue(container.preferences.strictEverything.value)
 
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("home_one_tap_features_strip"))
         composeRule.onNodeWithTag("home_one_tap_budgets").performClick()
         composeRule.waitForIdle()
         assertTrue(openedFocusHub)
     }
 
     @Test
-    fun `focus safety hub renders study timer safe search packs and daily budgets cards`() {
+    fun `focus safety hub renders study timer and daily budgets cards without smart safe search clutter`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val container = AegisContainer(context)
 
@@ -118,8 +122,7 @@ class FocusFeaturesRobolectricTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("focus_safety_hub_root").assertIsDisplayed()
         composeRule.onNodeWithTag("focus_study_card").assertIsDisplayed()
-        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("focus_safe_search_card"))
-        composeRule.onNodeWithTag("focus_safe_search_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("focus_safe_search_card").assertDoesNotExist()
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("focus_app_budgets_card"))
         composeRule.onNodeWithTag("focus_app_budgets_card").assertIsDisplayed()
     }

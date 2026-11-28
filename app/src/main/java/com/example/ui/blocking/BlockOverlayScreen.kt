@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -72,22 +74,19 @@ import com.example.core.models.ThreatCategory
 import com.example.data.preferences.AegisPreferences
 import com.example.data.preferences.RecoveryQrMode
 import com.example.services.protection.AegisLockdownService
-import com.example.ui.components.AegisShieldGraphic
-import com.example.ui.components.CyberCard
-import com.example.ui.components.CyberCardTone
+import com.example.ui.components.AnimatedCountdownRing
+import com.example.ui.components.ExpandableDetailsToggle
 import com.example.ui.components.QrCodeImage
-import com.example.ui.theme.AegisCardBackground
 import com.example.ui.theme.AegisCardBorder
 import com.example.ui.theme.AegisChampagneGold
 import com.example.ui.theme.AegisChampagneSoft
 import com.example.ui.theme.AegisDangerRed
 import com.example.ui.theme.AegisGoldBorder
-import com.example.ui.theme.AegisLavenderBorder
+import com.example.ui.theme.AegisGoldBright
 import com.example.ui.theme.AegisLavenderSoft
 import com.example.ui.theme.AegisOnPrimaryWhite
 import com.example.ui.theme.AegisPrimaryCyan
 import com.example.ui.theme.AegisPurple
-import com.example.ui.theme.AegisSuccessGreen
 import com.example.ui.theme.AegisTextMuted
 import com.example.ui.theme.AegisTextPrimary
 import com.example.ui.theme.AegisTextSecondary
@@ -147,10 +146,10 @@ fun BlockOverlayScreen(
 
     val pulseTransition = rememberInfiniteTransition(label = "WarningPulse")
     val pulseAlpha by pulseTransition.animateFloat(
-        initialValue = 0.55f,
+        initialValue = 0.65f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = FastOutSlowInEasing),
+            animation = tween(1400, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "PulseAlpha"
@@ -164,7 +163,7 @@ fun BlockOverlayScreen(
     val headingColor = if (discreetMode) Color(0xFF1E293B) else AegisTextPrimary
     val bodyColor = if (discreetMode) Color(0xFF475569) else AegisTextSecondary
     val primaryAccent = if (discreetMode) Color(0xFF334155) else AegisPrimaryCyan
-    val alertAccent = if (discreetMode) Color(0xFF475569) else AegisDangerRed
+    val alertAccent = if (discreetMode) Color(0xFF475569) else AegisPurple
 
     val resolvedHeadline = customHeadline.trim().ifBlank {
         if (discreetMode) "Access Paused" else "Content Blocked"
@@ -188,9 +187,10 @@ fun BlockOverlayScreen(
     ) {
         Column(
             modifier = Modifier
+                .widthIn(max = 520.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -200,15 +200,15 @@ fun BlockOverlayScreen(
                         .clip(RoundedCornerShape(50))
                         .background(
                             if (discreetMode) Color(0xFFE2E8F0)
-                            else AegisDangerRed.copy(alpha = 0.12f * pulseAlpha)
+                            else AegisLavenderSoft.copy(alpha = 0.92f * pulseAlpha)
                         )
                         .border(
                             1.dp,
                             if (discreetMode) Color(0xFFCBD5E1)
-                            else AegisDangerRed.copy(alpha = 0.70f * pulseAlpha),
+                            else AegisPurple.copy(alpha = 0.45f * pulseAlpha),
                             RoundedCornerShape(50)
                         )
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
                         .testTag("block_screen_app_badge")
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -216,46 +216,45 @@ fun BlockOverlayScreen(
                             imageVector = if (discreetMode) Icons.Default.Lock else Icons.Default.Warning,
                             contentDescription = null,
                             tint = alertAccent,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (discreetMode) "SYSTEM DISPLAY NOTICE" else "SHEILDLENZ INTERVENTION ACTIVE",
+                            text = if (discreetMode) "SYSTEM DISPLAY NOTICE" else "SHEILDLENZ INTERVENTION",
                             color = alertAccent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = ClassicalBodyFont,
-                            letterSpacing = 1.sp
+                            letterSpacing = 0.9.sp
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(22.dp))
+                Spacer(modifier = Modifier.height(18.dp))
             }
 
-            if (discreetMode) {
-                Box(
-                    modifier = Modifier
-                        .size(88.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.White)
-                        .border(1.dp, Color(0xFFD8E0EA), RoundedCornerShape(24.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
+            // Calm animated countdown / policy ring on the resting surface
+            AnimatedCountdownRing(
+                progress = if (showTimer) 0.85f else 1f,
+                centerText = if (showTimer) stage1Label.uppercase() else "",
+                subLabel = if (showTimer) (if (discreetMode) "COOLDOWN" else "SHIELDED") else "",
+                primaryColor = AegisPrimaryCyan,
+                secondaryColor = AegisPurple,
+                accentColor = AegisGoldBright,
+                ringSize = 154.dp,
+                strokeWidth = 9.dp,
+                centerFontSize = 20.sp,
+                discreetMode = discreetMode,
+                modifier = if (showTimer) Modifier.testTag("block_screen_timer_badge") else Modifier,
+                centerIconContent = {
                     Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Display paused",
-                        tint = Color(0xFF334155),
-                        modifier = Modifier.size(40.dp)
+                        imageVector = if (discreetMode) Icons.Default.Lock else Icons.Default.Shield,
+                        contentDescription = if (discreetMode) "Access Paused" else "Sheildlenz Shield Active",
+                        tint = if (discreetMode) Color(0xFF334155) else AegisPrimaryCyan,
+                        modifier = Modifier.size(if (showTimer) 24.dp else 40.dp)
                     )
                 }
-            } else {
-                AegisShieldGraphic(
-                    isProtected = true,
-                    isThreatActive = true,
-                    size = 172.dp
-                )
-            }
+            )
 
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -271,8 +270,8 @@ fun BlockOverlayScreen(
 
             if (showAppBadge) {
                 Text(
-                    text = if (discreetMode) "System display filter is active" else "Inappropriate Visual Content Detected",
-                    color = alertAccent,
+                    text = if (discreetMode) "System display filter active" else category.displayName,
+                    color = if (discreetMode) bodyColor else AegisChampagneGold,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = ClassicalBodyFont,
@@ -280,65 +279,21 @@ fun BlockOverlayScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(if (discreetMode) Color.White else AegisChampagneSoft)
-                    .border(
-                        1.dp,
-                        if (discreetMode) Color(0xFFD8E0EA) else AegisGoldBorder,
-                        RoundedCornerShape(20.dp)
-                    )
-                    .padding(18.dp)
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = resolvedMessage,
-                        color = bodyColor,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 19.sp,
-                        fontFamily = ClassicalBodyFont,
-                        modifier = Modifier.testTag("block_screen_message")
-                    )
-
-                    if (showAppBadge) {
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text(
-                            text = if (discreetMode) "STATUS: PAUSED ($targetAppName)" else "TARGET: $targetAppName • ACTION: DISPLAY SHIELDED",
-                            color = if (discreetMode) Color(0xFF64748B) else AegisTextMuted,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.testTag("block_screen_target_label")
-                        )
-                    }
-
-                    if (showTimer) {
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        Text(
-                            text = if (discreetMode) {
-                                "Cooldown: ${stage1Label.uppercase()} • Extended wait: ${doubleTimeLabel.uppercase()}"
-                            } else {
-                                "TIMER: ${stage1Label.uppercase()} Lock or ${doubleTimeLabel.uppercase()} Double-Time Wait • Shield Remains ON"
-                            },
-                            color = primaryAccent,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = ClassicalBodyFont,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.testTag("block_screen_timer_badge")
-                        )
-                    }
-                }
+            if (customMessage.isNotBlank()) {
+                Text(
+                    text = customMessage.trim(),
+                    color = bodyColor,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 19.sp,
+                    fontFamily = ClassicalBodyFont,
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .testTag("block_screen_message")
+                )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
             if (effectiveReturnHome) {
                 Button(
@@ -352,13 +307,13 @@ fun BlockOverlayScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(52.dp)
                         .testTag("block_screen_return_home_button"),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = primaryAccent,
                         contentColor = AegisOnPrimaryWhite
                     ),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Icon(imageVector = Icons.Default.Home, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -371,7 +326,7 @@ fun BlockOverlayScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
             if (showQuickActions) {
@@ -390,7 +345,7 @@ fun BlockOverlayScreen(
                         containerColor = if (discreetMode) Color(0xFFE2E8F0) else AegisLavenderSoft,
                         contentColor = if (discreetMode) Color(0xFF334155) else AegisPurple
                     ),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -403,7 +358,7 @@ fun BlockOverlayScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
             if (showEmergencyDialer) {
@@ -419,10 +374,10 @@ fun BlockOverlayScreen(
                         .height(48.dp)
                         .testTag("block_screen_emergency_dialer_button"),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = Color.White.copy(alpha = 0.72f),
+                        containerColor = Color.White.copy(alpha = 0.78f),
                         contentColor = if (discreetMode) Color(0xFF334155) else AegisWarningAmber
                     ),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Icon(imageVector = Icons.Default.Call, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
@@ -432,6 +387,51 @@ fun BlockOverlayScreen(
                         fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalBodyFont,
                         letterSpacing = 0.6.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Secondary rule explanations, app target details, and extended timer info tucked behind tap toggle
+            ExpandableDetailsToggle(
+                summaryLabel = if (discreetMode) "Policy details" else "Why paused & details",
+                accentColor = if (discreetMode) Color(0xFF334155) else AegisPurple,
+                discreetMode = discreetMode,
+                testTagPrefix = "block_screen_details",
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                if (customMessage.isBlank()) {
+                    Text(
+                        text = resolvedMessage,
+                        color = bodyColor,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                        fontFamily = ClassicalBodyFont,
+                        modifier = Modifier.testTag("block_screen_message")
+                    )
+                }
+                if (showAppBadge) {
+                    Text(
+                        text = if (discreetMode) "STATUS: PAUSED ($targetAppName)" else "TARGET: $targetAppName • DISPLAY SHIELDED",
+                        color = if (discreetMode) Color(0xFF64748B) else AegisTextMuted,
+                        fontSize = 10.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag("block_screen_target_label")
+                    )
+                }
+                if (showTimer) {
+                    Text(
+                        text = if (discreetMode) {
+                            "Cooldown: ${stage1Label.uppercase()} • Extended wait: ${doubleTimeLabel.uppercase()}"
+                        } else {
+                            "Timer: ${stage1Label.uppercase()} Lock or ${doubleTimeLabel.uppercase()} Double-Time Wait • Shield stays ON"
+                        },
+                        color = primaryAccent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = ClassicalBodyFont
                     )
                 }
             }

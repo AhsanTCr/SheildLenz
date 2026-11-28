@@ -56,8 +56,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -266,7 +264,6 @@ fun SafeBrowserScreen(
     }
     var blockedState by remember { mutableStateOf<BlockedState?>(null) }
     var quietNoticeBanner by remember { mutableStateOf<String?>(null) }
-    var showPinHomeBanner by remember { mutableStateOf(false) }
     var activeSheet by remember { mutableStateOf(BrowserDrawerSheet.NONE) }
     var showFindBar by remember { mutableStateOf(false) }
     var findQuery by remember { mutableStateOf("") }
@@ -400,7 +397,6 @@ fun SafeBrowserScreen(
 
     fun triggerPinStandaloneBrowser() {
         val triggered = HomeShortcutHelper.pinStandaloneBrowserToHome(context)
-        showPinHomeBanner = false
         Toast.makeText(
             context,
             if (triggered) "Add Sheildlenz Browser icon via your Home Screen prompt" else "Pinned shortcut created in launcher shortcuts",
@@ -669,124 +665,11 @@ fun SafeBrowserScreen(
         }
     }
 
-    // Auto-hide the Sheildlenz app header once Full Pro or Default Browser is active or inside Standalone BrowserActivity
-    val showAppHeader = !isStandaloneWindow && !isFullScreen && !fullBrowserInstalled && !isDefaultBrowserHeld
     val isCurrentIncognito = activeTab.isIncognito
 
     SheildlenzBackdrop(modifier = Modifier.testTag("safe_browser_root")) {
         Scaffold(
             contentWindowInsets = WindowInsets.statusBars,
-            topBar = {
-                if (showAppHeader) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .vipAnimatedCorners(
-                                cornerRadius = 20.dp,
-                                accentStart = AegisPrimaryCyan,
-                                accentEnd = AegisPurple,
-                                strokeWidth = 2.dp
-                            ),
-                        shape = RoundedCornerShape(20.dp),
-                        color = AegisCardBackground.copy(alpha = 0.94f),
-                        border = BorderStroke(1.dp, AegisLavenderBorder)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                IconButton(
-                                    onClick = onNavigateBack,
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .testTag("safe_browser_back_home")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back to Home",
-                                        tint = AegisPurple
-                                    )
-                                }
-                                SafeBrowserBrandIcon(size = 34.dp, isProUnlocked = fullBrowserInstalled)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = "Safe Browser",
-                                            color = AegisTextPrimary,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = ClassicalDisplayFont,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(50))
-                                                .background(AegisPrimaryCyan.copy(alpha = 0.14f))
-                                                .padding(horizontal = 7.dp, vertical = 2.dp)
-                                        ) {
-                                            Text(
-                                                text = "LIGHT",
-                                                color = AegisPrimaryCyan,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = if (isSheildlenzActive) {
-                                            "Shield ON • Full Protection Rules"
-                                        } else {
-                                            "Shield OFF • Quiet Auto-Close Tab Guard"
-                                        },
-                                        color = if (isSheildlenzActive) AegisEmeraldTeal else AegisTextSecondary,
-                                        fontSize = 10.5.sp,
-                                        fontFamily = ClassicalBodyFont,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = { requestDefaultBrowserRole() },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, AegisLavenderBorder),
-                                modifier = Modifier
-                                    .height(36.dp)
-                                    .testTag("safe_browser_set_default_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Public,
-                                    contentDescription = "Set Default Browser",
-                                    tint = AegisPurple,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Default",
-                                    color = AegisPurple,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-                }
-            },
             containerColor = Color.Transparent
         ) { innerPadding ->
             Box(
@@ -798,134 +681,11 @@ fun SafeBrowserScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            horizontal = if (isFullScreen || fullBrowserInstalled || isStandaloneWindow || isDefaultBrowserHeld) 4.dp else 10.dp,
+                            horizontal = if (isFullScreen) 0.dp else 6.dp,
                             vertical = if (isFullScreen) 0.dp else 4.dp
                         ),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Light-to-Full Upgrade Card
-                    AnimatedVisibility(
-                        visible = !fullBrowserInstalled && !isFullScreen,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        CyberCard(
-                            borderColor = AegisGoldBorder,
-                            tone = CyberCardTone.GOLD,
-                            modifier = Modifier.testTag("safe_browser_upgrade_card")
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(end = 10.dp)
-                                ) {
-                                    Text(
-                                        text = "Upgrade to Full Browser Engine",
-                                        color = AegisTextPrimary,
-                                        fontSize = 13.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = ClassicalDisplayFont
-                                    )
-                                    Text(
-                                        text = "1-Tap Chrome Engine, Speed Dial, Tabs, Incognito, PDF, Permissions & Home Icon",
-                                        color = AegisTextSecondary,
-                                        fontSize = 11.sp,
-                                        fontFamily = ClassicalBodyFont
-                                    )
-                                }
-                                Button(
-                                    onClick = {
-                                        if (!isUpgradingEngine) {
-                                            AegisSoundEffects.playTap(context)
-                                            showUpgradeConfirmDialog = true
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = AegisPurple,
-                                        contentColor = AegisOnPrimaryWhite
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .height(48.dp)
-                                        .testTag("safe_browser_upgrade_button")
-                                ) {
-                                    Icon(Icons.Default.Upgrade, contentDescription = "Upgrade Browser", modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (isUpgradingEngine) "INSTALLING" else "DOWNLOAD PRO",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
-                            if (isUpgradingEngine) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                LinearProgressIndicator(
-                                    progress = { upgradeProgress },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(5.dp)
-                                        .clip(RoundedCornerShape(3.dp)),
-                                    color = AegisPurple,
-                                    trackColor = AegisPurple.copy(alpha = 0.2f)
-                                )
-                            }
-                        }
-                    }
-
-                    // Inline Pin Browser Prompt Banner after upgrade
-                    AnimatedVisibility(
-                        visible = showPinHomeBanner && !isFullScreen,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = Color(0xFFEAF6FF),
-                            border = BorderStroke(1.2.dp, AegisPrimaryCyan),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("safe_browser_pin_prompt_banner")
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                SafeBrowserBrandIcon(size = 28.dp, isProUnlocked = true)
-                                Text(
-                                    text = "Pin Sheildlenz Browser icon to Home Screen",
-                                    color = AegisTextPrimary,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Button(
-                                    onClick = { triggerPinStandaloneBrowser() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = AegisPrimaryCyan, contentColor = AegisOnPrimaryWhite),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(36.dp)
-                                ) {
-                                    Text("Pin", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-                                IconButton(
-                                    onClick = { showPinHomeBanner = false },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, contentDescription = "Dismiss pin banner", modifier = Modifier.size(15.dp))
-                                }
-                            }
-                        }
-                    }
 
                     // Quiet Auto-Closed Notice Banner
                     AnimatedVisibility(
@@ -1208,16 +968,92 @@ fun SafeBrowserScreen(
                                                 }
                                             }
                                             HorizontalDivider(color = AegisCardBorder)
+                                            if (!fullBrowserInstalled) {
+                                                DropdownMenuItem(
+                                                    text = { Text(if (isUpgradingEngine) "Installing Full Pro..." else "Upgrade to Full Browser Pro") },
+                                                    leadingIcon = { Icon(Icons.Default.Upgrade, contentDescription = null, tint = AegisChampagneGold) },
+                                                    modifier = Modifier.testTag("safe_browser_upgrade_button"),
+                                                    onClick = {
+                                                        showOverflowMenu = false
+                                                        if (!isUpgradingEngine) {
+                                                            AegisSoundEffects.playTap(context)
+                                                            showUpgradeConfirmDialog = true
+                                                        }
+                                                    }
+                                                )
+                                                HorizontalDivider(color = AegisCardBorder)
+                                            }
                                             DropdownMenuItem(
-                                                text = { Text("New Tab (Speed Dial)") },
+                                                text = { Text("New Tab") },
                                                 leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_new_tab_button"),
                                                 onClick = { showOverflowMenu = false; openNewTab(incognito = false) }
                                             )
                                             DropdownMenuItem(
                                                 text = { Text("New Incognito Tab") },
                                                 leadingIcon = { Icon(Icons.Default.VisibilityOff, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_new_incognito_button"),
                                                 onClick = { showOverflowMenu = false; openNewTab(incognito = true) }
                                             )
+                                            DropdownMenuItem(
+                                                text = { Text("Bookmarks (${bookmarks.size})") },
+                                                leadingIcon = { Icon(Icons.Default.Bookmark, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_bookmarks_button"),
+                                                onClick = { showOverflowMenu = false; activeSheet = BrowserDrawerSheet.BOOKMARKS }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("History") },
+                                                leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_history_button"),
+                                                onClick = { showOverflowMenu = false; activeSheet = BrowserDrawerSheet.HISTORY }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Downloads") },
+                                                leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_downloads_button"),
+                                                onClick = { showOverflowMenu = false; activeSheet = BrowserDrawerSheet.DOWNLOADS }
+                                            )
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        if (chromeComponentsCached) {
+                                                            "Auto-Cache Chrome (${chromeCachedCount.coerceAtLeast(ChromeComponentCacheManager.CORE_CHROME_MODULES.size)})"
+                                                        } else {
+                                                            "Auto-Cache Chrome"
+                                                        }
+                                                    )
+                                                },
+                                                leadingIcon = { Icon(Icons.Default.Shield, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_chrome_cache_badge"),
+                                                onClick = {
+                                                    showOverflowMenu = false
+                                                    val res = ChromeComponentCacheManager.autoCacheChromeComponents(
+                                                        context = context,
+                                                        preferences = preferences,
+                                                        webView = webViewHolder[0]
+                                                    )
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Auto-cached ${res.cachedModulesCount} Chrome components",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        if (chromeImportedCount > 0) "Import Chrome ($chromeImportedCount)" else "Import Chrome Bookmarks"
+                                                    )
+                                                },
+                                                leadingIcon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_import_chrome_button"),
+                                                onClick = {
+                                                    showOverflowMenu = false
+                                                    preferences.beginAuthorizedExternalFlow()
+                                                    chromeFileImportLauncher.launch(arrayOf("text/html", "application/json", "*/*"))
+                                                }
+                                            )
+                                            HorizontalDivider(color = AegisCardBorder)
                                             DropdownMenuItem(
                                                 text = { Text(if (activeTab.desktopMode) "Mobile Site" else "Desktop Site") },
                                                 leadingIcon = { Icon(Icons.Default.DesktopWindows, contentDescription = null) },
@@ -1292,13 +1128,15 @@ fun SafeBrowserScreen(
                                                 onClick = { showOverflowMenu = false; triggerPinStandaloneBrowser() }
                                             )
                                             DropdownMenuItem(
-                                                text = { Text("Set as Default Browser") },
+                                                text = { Text(if (isDefaultBrowserHeld) "Default Browser (Active)" else "Set as Default Browser") },
                                                 leadingIcon = { Icon(Icons.Default.Public, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_set_default_button"),
                                                 onClick = { showOverflowMenu = false; requestDefaultBrowserRole() }
                                             )
                                             DropdownMenuItem(
                                                 text = { Text("Browser Settings") },
                                                 leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                                modifier = Modifier.testTag("safe_browser_settings_button"),
                                                 onClick = { showOverflowMenu = false; showBrowserSettingsDialog = true }
                                             )
                                             if (!isStandaloneWindow) {
@@ -1345,204 +1183,19 @@ fun SafeBrowserScreen(
                                 }
                             }
                         }
-
-                        // Compact Tab Strip + Always-Visible Pro Action Grid (Full Pro unlocked)
-                        if (fullBrowserInstalled) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("safe_browser_tab_strip"),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                LazyRow(
-                                    modifier = Modifier.weight(1f),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    items(tabs, key = { it.id }) { tab ->
-                                        val isSelected = tab.id == activeTab.id
-                                        Surface(
-                                            shape = RoundedCornerShape(11.dp),
-                                            color = when {
-                                                tab.isIncognito && isSelected -> IncognitoIndigo
-                                                tab.isIncognito -> Color(0xFFE0E7FF)
-                                                isSelected -> AegisPrimaryCyan.copy(alpha = 0.16f)
-                                                else -> Color.White.copy(alpha = 0.88f)
-                                            },
-                                            border = BorderStroke(
-                                                width = if (isSelected) 1.4.dp else 1.dp,
-                                                color = when {
-                                                    tab.isIncognito -> IncognitoAccent
-                                                    isSelected -> AegisPrimaryCyan
-                                                    else -> AegisCardBorder
-                                                }
-                                            ),
-                                            modifier = Modifier
-                                                .clickable { selectTab(tab) }
-                                                .testTag("safe_browser_tab_${tab.id}")
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                if (tab.isIncognito) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.VisibilityOff,
-                                                        contentDescription = null,
-                                                        tint = if (isSelected) Color.White else IncognitoAccent,
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                }
-                                                Text(
-                                                    text = tab.title.take(15),
-                                                    color = when {
-                                                        tab.isIncognito && isSelected -> Color.White
-                                                        tab.isIncognito -> IncognitoIndigo
-                                                        isSelected -> AegisPrimaryCyan
-                                                        else -> AegisTextPrimary
-                                                    },
-                                                    fontSize = 10.5.sp,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                IconButton(
-                                                    onClick = { closeTab(tab) },
-                                                    modifier = Modifier.size(18.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "Close tab",
-                                                        tint = if (tab.isIncognito && isSelected) Color.White else AegisTextSecondary,
-                                                        modifier = Modifier.size(11.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = IncognitoIndigo,
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clickable { openNewTab(incognito = true) }
-                                        .testTag("safe_browser_new_incognito_button")
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.VisibilityOff,
-                                            contentDescription = "New Incognito Tab",
-                                            tint = AegisOnPrimaryWhite,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = AegisPurple,
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clickable { openNewTab(incognito = false) }
-                                        .testTag("safe_browser_new_tab_button")
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.Add,
-                                            contentDescription = "New Tab",
-                                            tint = AegisOnPrimaryWhite,
-                                            modifier = Modifier.size(17.dp)
-                                        )
-                                    }
-                                }
-                            }
-
-                            // 2-Row Compact Pro Action Strip (all 6 core Pro badges fit visibly at once with zero offscreen clipping)
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    BrowserToolChip(
-                                        label = if (chromeComponentsCached) {
-                                            "Cache (${chromeCachedCount.coerceAtLeast(ChromeComponentCacheManager.CORE_CHROME_MODULES.size)})"
-                                        } else {
-                                            "Auto-Cache"
-                                        },
-                                        icon = Icons.Default.Shield,
-                                        active = chromeComponentsCached,
-                                        tag = "safe_browser_chrome_cache_badge",
-                                        modifier = Modifier.weight(1f),
-                                        onClick = {
-                                            val res = ChromeComponentCacheManager.autoCacheChromeComponents(
-                                                context = context,
-                                                preferences = preferences,
-                                                webView = webViewHolder[0]
-                                            )
-                                            Toast.makeText(
-                                                context,
-                                                "Auto-cached ${res.cachedModulesCount} Chrome components",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    )
-                                    BrowserToolChip(
-                                        label = "Import",
-                                        icon = Icons.Default.FileOpen,
-                                        active = chromeImportedCount > 0,
-                                        tag = "safe_browser_import_chrome_button",
-                                        modifier = Modifier.weight(1f),
-                                        onClick = {
-                                            preferences.beginAuthorizedExternalFlow()
-                                            chromeFileImportLauncher.launch(arrayOf("text/html", "application/json", "*/*"))
-                                        }
-                                    )
-                                    BrowserToolChip(
-                                        label = "Bookmarks (${bookmarks.size})",
-                                        icon = Icons.Default.Bookmark,
-                                        active = activeSheet == BrowserDrawerSheet.BOOKMARKS,
-                                        tag = "safe_browser_bookmarks_button",
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { activeSheet = BrowserDrawerSheet.BOOKMARKS }
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                ) {
-                                    BrowserToolChip(
-                                        label = "History",
-                                        icon = Icons.Default.History,
-                                        active = activeSheet == BrowserDrawerSheet.HISTORY,
-                                        tag = "safe_browser_history_button",
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { activeSheet = BrowserDrawerSheet.HISTORY }
-                                    )
-                                    BrowserToolChip(
-                                        label = "Downloads",
-                                        icon = Icons.Default.Download,
-                                        active = activeSheet == BrowserDrawerSheet.DOWNLOADS,
-                                        tag = "safe_browser_downloads_button",
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { activeSheet = BrowserDrawerSheet.DOWNLOADS }
-                                    )
-                                    BrowserToolChip(
-                                        label = "Settings",
-                                        icon = Icons.Default.Settings,
-                                        active = showBrowserSettingsDialog,
-                                        tag = "safe_browser_settings_button",
-                                        modifier = Modifier.weight(1f),
-                                        onClick = { showBrowserSettingsDialog = true }
-                                    )
-                                }
-                            }
-                        }
                     }
 
-                    if (activeTab.progress in 1..99 && !activeTab.isNewTabPage) {
+                    if (isUpgradingEngine) {
+                        LinearProgressIndicator(
+                            progress = { upgradeProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = AegisPurple,
+                            trackColor = AegisPurple.copy(alpha = 0.2f)
+                        )
+                    } else if (activeTab.progress in 1..99 && !activeTab.isNewTabPage) {
                         LinearProgressIndicator(
                             progress = { activeTab.progress / 100f },
                             modifier = Modifier
@@ -1672,12 +1325,6 @@ fun SafeBrowserScreen(
                                 bookmarks = bookmarks,
                                 isShieldActive = isSheildlenzActive,
                                 onSearchOrUrlSubmit = { input -> navigateToUrl(input) },
-                                onOpenTabGrid = { showTabGridDialog = true },
-                                onOpenNewIncognito = { openNewTab(incognito = true) },
-                                onOpenBookmarks = { activeSheet = BrowserDrawerSheet.BOOKMARKS },
-                                onOpenDownloads = { activeSheet = BrowserDrawerSheet.DOWNLOADS },
-                                onOpenSettings = { showBrowserSettingsDialog = true },
-                                onPinBrowserIcon = { triggerPinStandaloneBrowser() },
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else {
@@ -2300,7 +1947,6 @@ fun SafeBrowserScreen(
                                 if (!preferences.browserPinPromptShown.value) {
                                     preferences.setBrowserPinPromptShown(true)
                                     HomeShortcutHelper.pinStandaloneBrowserToHome(context)
-                                    showPinHomeBanner = true
                                 }
                                 isUpgradingEngine = false
                                 Toast.makeText(
@@ -2342,7 +1988,6 @@ fun SafeBrowserScreen(
             popupsBlocked = popupsBlocked,
             javaScriptEnabled = javaScriptEnabled,
             desktopDefault = desktopDefault,
-            smartSafeActive = smartSafeActive,
             blockAdult = blockAdult,
             chromeCachedCount = chromeCachedCount,
             sitePermissionsJson = sitePermissionsJson,
@@ -2456,47 +2101,5 @@ fun SafeBrowserScreen(
                 }
             }
         )
-    }
-}
-
-@Composable
-private fun BrowserToolChip(
-    label: String,
-    icon: ImageVector,
-    active: Boolean,
-    tag: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = if (active) AegisPurple else AegisSurfaceElevated,
-        border = BorderStroke(1.dp, if (active) AegisPurple else AegisCardBorder),
-        modifier = modifier
-            .heightIn(min = 34.dp)
-            .clickable(onClick = onClick)
-            .testTag(tag)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (active) AegisOnPrimaryWhite else AegisPurple,
-                modifier = Modifier.size(13.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = label,
-                color = if (active) AegisOnPrimaryWhite else AegisTextPrimary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
     }
 }

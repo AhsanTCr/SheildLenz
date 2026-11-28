@@ -3,8 +3,12 @@ package com.example.blocking.overlay
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
+import android.graphics.SweepGradient
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -19,6 +23,7 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -91,6 +96,11 @@ class SystemOverlayController(private val context: Context) {
     private var gameLockPackageName: String = ""
     private var gameLockReason: GameLockReason = GameLockReason.NONE
     private var gameLockTimerView: TextView? = null
+    private var lockdownRingProgressView: CountdownRingArcView? = null
+    private var softWarningRingView: CountdownRingArcView? = null
+    private var scrollLockRingView: CountdownRingArcView? = null
+    private var gameWrapupRingView: CountdownRingArcView? = null
+    private var gameLockRingView: CountdownRingArcView? = null
 
     private val tickerRunnable = object : Runnable {
         override fun run() {
@@ -112,6 +122,7 @@ class SystemOverlayController(private val context: Context) {
                 return
             }
             softWarningClockView?.text = "${softWarningRemainingSec}s"
+            softWarningRingView?.setProgress((softWarningRemainingSec / 15f).coerceIn(0.05f, 1f))
             mainHandler.postDelayed(this, 1000L)
         }
     }
@@ -155,7 +166,8 @@ class SystemOverlayController(private val context: Context) {
                 dismissBlockOverlay()
                 return
             }
-            scrollLockTimerView?.text = "Unlocks in ${formatDuration(remainingMs)}"
+            scrollLockTimerView?.text = formatDuration(remainingMs)
+            scrollLockRingView?.setProgress((remainingMs / (60f * 60_000f)).coerceIn(0.08f, 1f))
             mainHandler.postDelayed(this, 1000L)
         }
     }
@@ -169,6 +181,7 @@ class SystemOverlayController(private val context: Context) {
                 return
             }
             gameWrapupClockView?.text = "${gameWrapupRemainingSec}s"
+            gameWrapupRingView?.setProgress((gameWrapupRemainingSec / 60f).coerceIn(0.05f, 1f))
             mainHandler.postDelayed(this, 1000L)
         }
     }
@@ -182,7 +195,8 @@ class SystemOverlayController(private val context: Context) {
                 dismissBlockOverlay()
                 return
             }
-            gameLockTimerView?.text = "Unlocks in ${formatDuration(decision.remainingUnlockMs)}"
+            gameLockTimerView?.text = formatDuration(decision.remainingUnlockMs)
+            gameLockRingView?.setProgress((decision.remainingUnlockMs / (30f * 60_000f)).coerceIn(0.08f, 1f))
             mainHandler.postDelayed(this, 1000L)
         }
     }
@@ -964,52 +978,47 @@ class SystemOverlayController(private val context: Context) {
         }
         root.addView(subTitle)
 
+        val (ringContainer, ringArc, ringClock, ringSub) = createCircularTimerRing(
+            initialClock = "10:00:00",
+            initialSubLabel = if (discreet) "POLICY TIMER" else "LOCKDOWN",
+            discreet = discreet,
+            primaryHex = "#2563EB",
+            secondaryHex = "#7C5CFA",
+            accentHex = "#E59712",
+            sizeDp = 178
+        )
+        lockdownRingProgressView = ringArc
+        countdownClockView = ringClock
+        countdownTitleView = ringSub
+
         val timerCard = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 36f) else roundedBox("#FFF1CE", "#F2C667", 36f)
-            setPadding(36, 30, 36, 30)
+            setPadding(16, 12, 16, 12)
             visibility = if (showTimer) View.VISIBLE else View.GONE
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
         }
-
-        countdownTitleView = TextView(context).apply {
-            text = if (discreet) "REMAINING POLICY TIMER" else "REMAINING LOCKDOWN PENALTY"
-            setTextColor(Color.parseColor(if (discreet) "#475569" else "#2563EB"))
-            textSize = 11f
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-            gravity = Gravity.CENTER
-        }
-        timerCard.addView(countdownTitleView)
-
-        countdownClockView = TextView(context).apply {
-            text = "10:00:00"
-            setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#E59712"))
-            textSize = 38f
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 8)
-        }
-        timerCard.addView(countdownClockView)
+        timerCard.addView(ringContainer)
 
         unlockHintView = TextView(context).apply {
             text = if (discreet) {
                 "Access resumes automatically when timer completes."
             } else {
-                "Guardian password prompt unlocks after countdown completes."
+                "Guardian password unlocks after countdown."
             }
             setTextColor(Color.parseColor(if (discreet) "#64748B" else "#5D76B0"))
-            textSize = 12f
+            textSize = 11.5f
             gravity = Gravity.CENTER
+            setPadding(12, 12, 12, 4)
         }
         timerCard.addView(unlockHintView)
         root.addView(timerCard)
 
         if (showTimer) {
-            root.addView(verticalSpacer(20))
+            root.addView(verticalSpacer(16))
         }
 
         if (showAppBadge) {
@@ -1022,8 +1031,8 @@ class SystemOverlayController(private val context: Context) {
 
             val forensicsCard = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
-                background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 36f) else roundedBox("#EDE6FF", "#C0AEFD", 36f)
-                setPadding(34, 28, 34, 28)
+                background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 32f) else roundedBox("#EDE6FF", "#C0AEFD", 32f)
+                setPadding(30, 24, 30, 24)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1031,11 +1040,11 @@ class SystemOverlayController(private val context: Context) {
             }
 
             val forensicsHeading = TextView(context).apply {
-                text = if (discreet) "SYSTEM NOTICE DETAILS" else "INCIDENT FORENSICS — WHAT WAS DETECTED"
+                text = if (discreet) "SYSTEM NOTICE DETAILS" else "INCIDENT DETAILS"
                 setTextColor(Color.parseColor(if (discreet) "#334155" else "#7C5CFA"))
                 textSize = 11f
                 typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-                setPadding(0, 0, 0, 12)
+                setPadding(0, 0, 0, 10)
             }
             forensicsCard.addView(forensicsHeading)
 
@@ -1057,7 +1066,7 @@ class SystemOverlayController(private val context: Context) {
                         append("• Evidence / AI Scores:\n${incident.details.ifBlank { "Threshold violated on screen frame" }}\n")
                         val stage1Label = AegisPreferences.formatMinutesLabel(prefs.lockdownDurationMinutes.value)
                         val doubleLabel = AegisPreferences.formatMinutesLabel(prefs.getDoubleTimeDurationMinutes())
-                        append("• Actions Taken: Offending app closed & Recents guard armed, background process stopped, $stage1Label lock (or $doubleLabel Double-Time wait without Master Code). Sheildlenz Shield remains ON after unlock.")
+                        append("• Actions Taken: Offending app closed & Recents guard armed, $stage1Label lock (or $doubleLabel Double-Time wait). Shield stays ON.")
                     }
                 }
                 setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
@@ -1065,8 +1074,14 @@ class SystemOverlayController(private val context: Context) {
                 setLineSpacing(6f, 1.0f)
             }
             forensicsCard.addView(forensicsBody)
-            root.addView(forensicsCard)
-            root.addView(verticalSpacer(22))
+            root.addView(
+                createExpandableDetailsSection(
+                    summaryLabel = if (discreet) "Notice details" else "Why paused & forensics",
+                    discreet = discreet,
+                    contentView = forensicsCard
+                )
+            )
+            root.addView(verticalSpacer(18))
         }
 
         val pinCard = LinearLayout(context).apply {
@@ -1473,6 +1488,18 @@ class SystemOverlayController(private val context: Context) {
             root.addView(badge)
         }
 
+        val (ringContainer, _, _, _) = createCircularTimerRing(
+            initialClock = if (discreet) "LOCKED" else "GUARD",
+            initialSubLabel = if (discreet) "ADMIN" else "ANTI-TAMPER",
+            discreet = discreet,
+            primaryHex = "#7C5CFA",
+            secondaryHex = "#2563EB",
+            accentHex = "#E59712",
+            sizeDp = 128
+        )
+        root.addView(ringContainer)
+        root.addView(verticalSpacer(14))
+
         val title = TextView(context).apply {
             text = customHeadline.ifBlank {
                 if (discreet) "Administrator Authorization" else "Guardian Authorization Required"
@@ -1481,7 +1508,7 @@ class SystemOverlayController(private val context: Context) {
             textSize = 23f
             typeface = Typeface.create(displayTypeface, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, if (showAppBadge) 26 else 8, 0, 12)
+            setPadding(0, 4, 0, 12)
         }
         root.addView(title)
 
@@ -1496,12 +1523,18 @@ class SystemOverlayController(private val context: Context) {
             setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
             textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(28, 20, 28, 24)
-            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 32f) else roundedBox("#E8F2FF", "#9AC2FE", 32f)
+            setPadding(24, 18, 24, 18)
+            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 28f) else roundedBox("#E8F2FF", "#9AC2FE", 28f)
         }
-        root.addView(desc)
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = if (discreet) "Authorization details" else "Why paused & details",
+                discreet = discreet,
+                contentView = desc
+            )
+        )
 
-        root.addView(verticalSpacer(22))
+        root.addView(verticalSpacer(18))
 
         if (showQuickActions) {
             val pinField = EditText(context).apply {
@@ -1639,6 +1672,18 @@ class SystemOverlayController(private val context: Context) {
             root.addView(badge)
         }
 
+        val (ringContainer, _, _, _) = createCircularTimerRing(
+            initialClock = "$warningNumber/$maxWarnings",
+            initialSubLabel = if (discreet) "NOTICE" else "WARNING",
+            discreet = discreet,
+            primaryHex = "#E59712",
+            secondaryHex = "#2563EB",
+            accentHex = "#7C5CFA",
+            sizeDp = 136
+        )
+        root.addView(ringContainer)
+        root.addView(verticalSpacer(14))
+
         val title = TextView(context).apply {
             text = customHeadline.ifBlank {
                 com.example.core.alerts.DiscreetAlertFormatter.warningNoticeHeadline(discreet)
@@ -1647,7 +1692,7 @@ class SystemOverlayController(private val context: Context) {
             textSize = 24f
             typeface = Typeface.create(displayTypeface, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, if (showAppBadge) 26 else 8, 0, 12)
+            setPadding(0, 4, 0, 12)
         }
         root.addView(title)
 
@@ -1667,12 +1712,18 @@ class SystemOverlayController(private val context: Context) {
             setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
             textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(28, 22, 28, 24)
-            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 32f) else roundedBox("#E8F2FF", "#9AC2FE", 32f)
+            setPadding(24, 18, 24, 18)
+            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 28f) else roundedBox("#E8F2FF", "#9AC2FE", 28f)
         }
-        root.addView(desc)
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = if (discreet) "Notice details" else "Why flagged & details",
+                discreet = discreet,
+                contentView = desc
+            )
+        )
 
-        root.addView(verticalSpacer(22))
+        root.addView(verticalSpacer(18))
 
         val homeBtn = Button(context).apply {
             text = if (discreet) "DISMISS & GO HOME" else "ACKNOWLEDGE & RETURN HOME"
@@ -1746,13 +1797,25 @@ class SystemOverlayController(private val context: Context) {
             root.addView(badge)
         }
 
+        val (ringContainer, _, _, _) = createCircularTimerRing(
+            initialClock = if (discreet) "PAUSED" else "LIMIT",
+            initialSubLabel = "WELLBEING",
+            discreet = discreet,
+            primaryHex = "#2563EB",
+            secondaryHex = "#7C5CFA",
+            accentHex = "#E59712",
+            sizeDp = 134
+        )
+        root.addView(ringContainer)
+        root.addView(verticalSpacer(14))
+
         val title = TextView(context).apply {
             text = customHeadline.ifBlank { titleText }
             setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#1A3673"))
             textSize = 23f
             typeface = Typeface.create(displayTypeface, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, if (showAppBadge) 26 else 8, 0, 12)
+            setPadding(0, 4, 0, 12)
         }
         root.addView(title)
 
@@ -1767,12 +1830,18 @@ class SystemOverlayController(private val context: Context) {
             setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
             textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(28, 22, 28, 24)
-            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 32f) else roundedBox("#EDE6FF", "#C0AEFD", 32f)
+            setPadding(24, 18, 24, 18)
+            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 28f) else roundedBox("#EDE6FF", "#C0AEFD", 28f)
         }
-        root.addView(desc)
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = "Schedule & limit details",
+                discreet = discreet,
+                contentView = desc
+            )
+        )
 
-        root.addView(verticalSpacer(20))
+        root.addView(verticalSpacer(18))
 
         if (hasExtension) {
             val pinField = EditText(context).apply {
@@ -1902,38 +1971,21 @@ class SystemOverlayController(private val context: Context) {
         }
         root.addView(title)
 
-        val clockCard = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 32f) else roundedBox("#FFF1CE", "#F2C667", 32f)
-            setPadding(36, 26, 36, 26)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+        val (ringContainer, ringArc, ringClock, _) = createCircularTimerRing(
+            initialClock = "${initialSeconds}s",
+            initialSubLabel = "WRAP UP",
+            discreet = discreet,
+            primaryHex = "#2563EB",
+            secondaryHex = "#7C5CFA",
+            accentHex = "#E59712",
+            sizeDp = 158
+        )
+        softWarningRingView = ringArc
+        softWarningClockView = ringClock
+        if (showTimer) {
+            root.addView(ringContainer)
+            root.addView(verticalSpacer(12))
         }
-
-        val clockLabel = TextView(context).apply {
-            text = "WRAPPING UP BEFORE FOCUS LOCK"
-            setTextColor(Color.parseColor(if (discreet) "#64748B" else "#7C5CFA"))
-            textSize = 10.5f
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            visibility = if (showTimer) View.VISIBLE else View.GONE
-        }
-        clockCard.addView(clockLabel)
-
-        val countdownClock = TextView(context).apply {
-            text = "${initialSeconds}s"
-            setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#D9820B"))
-            textSize = 42f
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 6, 0, 6)
-            visibility = if (showTimer) View.VISIBLE else View.GONE
-        }
-        softWarningClockView = countdownClock
-        clockCard.addView(countdownClock)
 
         val remainingStudyMins = (prefs.getRemainingStudyMillis() / 60_000L).coerceAtLeast(1L)
         val desc = TextView(context).apply {
@@ -1943,11 +1995,18 @@ class SystemOverlayController(private val context: Context) {
             setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
             textSize = 12.5f
             gravity = Gravity.CENTER
+            setPadding(24, 18, 24, 18)
+            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 28f) else roundedBox("#FFF1CE", "#F2C667", 28f)
         }
-        clockCard.addView(desc)
-        root.addView(clockCard)
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = "Session details",
+                discreet = discreet,
+                contentView = desc
+            )
+        )
 
-        root.addView(verticalSpacer(22))
+        root.addView(verticalSpacer(18))
 
         val returnBtn = Button(context).apply {
             text = "RETURN TO FOCUS (GO HOME)"
@@ -2022,6 +2081,18 @@ class SystemOverlayController(private val context: Context) {
             root.addView(badge)
         }
 
+        val (ringContainer, _, _, _) = createCircularTimerRing(
+            initialClock = if (showTimer) "${remainingMins}m" else "STUDY",
+            initialSubLabel = if (showTimer) "FOCUS LEFT" else "PAUSED",
+            discreet = discreet,
+            primaryHex = "#7C5CFA",
+            secondaryHex = "#2563EB",
+            accentHex = "#E59712",
+            sizeDp = 148
+        )
+        root.addView(ringContainer)
+        root.addView(verticalSpacer(14))
+
         val title = TextView(context).apply {
             text = customHeadline.ifBlank {
                 if (showAppBadge) "$appName Paused for Focus" else "App Paused for Focus"
@@ -2030,7 +2101,7 @@ class SystemOverlayController(private val context: Context) {
             textSize = 23f
             typeface = Typeface.create(displayTypeface, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, if (showAppBadge) 26 else 8, 0, 12)
+            setPadding(0, 4, 0, 12)
         }
         root.addView(title)
 
@@ -2046,12 +2117,18 @@ class SystemOverlayController(private val context: Context) {
             setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
             textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(28, 22, 28, 24)
-            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 32f) else roundedBox("#EDE6FF", "#C0AEFD", 32f)
+            setPadding(24, 18, 24, 18)
+            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 28f) else roundedBox("#EDE6FF", "#C0AEFD", 28f)
         }
-        root.addView(desc)
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = "Study rule details",
+                discreet = discreet,
+                contentView = desc
+            )
+        )
 
-        root.addView(verticalSpacer(20))
+        root.addView(verticalSpacer(18))
 
         if (hasUnlockAction) {
             val pinField = EditText(context).apply {
@@ -2169,13 +2246,25 @@ class SystemOverlayController(private val context: Context) {
             root.addView(badge)
         }
 
+        val (ringContainer, _, _, _) = createCircularTimerRing(
+            initialClock = "LOCKED",
+            initialSubLabel = appName.take(12).uppercase(Locale.US),
+            discreet = discreet,
+            primaryHex = "#7C5CFA",
+            secondaryHex = "#2563EB",
+            accentHex = "#E59712",
+            sizeDp = 134
+        )
+        root.addView(ringContainer)
+        root.addView(verticalSpacer(14))
+
         val title = TextView(context).apply {
             text = "App Locked by Guardian"
             setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#1A3673"))
             textSize = 23f
             typeface = Typeface.create(displayTypeface, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, if (showAppBadge) 24 else 8, 0, 10)
+            setPadding(0, 4, 0, 10)
         }
         root.addView(title)
 
@@ -2190,12 +2279,18 @@ class SystemOverlayController(private val context: Context) {
             setTextColor(Color.parseColor(if (discreet) "#475569" else "#3E5894"))
             textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(28, 22, 28, 24)
-            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 32f) else roundedBox("#E8F2FF", "#9AC2FE", 32f)
+            setPadding(24, 18, 24, 18)
+            background = if (discreet) roundedBox("#FFFFFF", "#D8E0EA", 28f) else roundedBox("#E8F2FF", "#9AC2FE", 28f)
         }
-        root.addView(desc)
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = "Lock policy details",
+                discreet = discreet,
+                contentView = desc
+            )
+        )
 
-        root.addView(verticalSpacer(20))
+        root.addView(verticalSpacer(18))
 
         val pinField = EditText(context).apply {
             hint = if (discreet) "Enter Access Code" else "Enter Guardian PIN"
@@ -2312,20 +2407,20 @@ class SystemOverlayController(private val context: Context) {
         val doubleLabel = AegisPreferences.formatMinutesLabel(prefs.getDoubleTimeDurationMinutes())
         val doubleLabelUpper = doubleLabel.uppercase(Locale.US)
 
+        val stage1TotalMs = (prefs.lockdownDurationMinutes.value.coerceAtLeast(1) * 60_000L).toFloat()
+        val dblTotalMs = (prefs.getDoubleTimeDurationMinutes().coerceAtLeast(1) * 60_000L).toFloat()
+        val ringTotal = if (isDoubleTime) dblTotalMs else stage1TotalMs
+        lockdownRingProgressView?.setProgress((remainingMs.toFloat() / ringTotal).coerceIn(0.05f, 1f))
         countdownClockView?.text = formatDuration(remainingMs)
 
         when {
             isDoubleTime && remainingMs > 0L -> {
-                countdownTitleView?.text = if (discreet) {
-                    "EXTENDED WAIT PERIOD ($doubleLabelUpper)"
-                } else {
-                    "STAGE 2 • DOUBLE-TIME WAIT ($doubleLabelUpper)"
-                }
-                countdownClockView?.setTextColor(Color.parseColor(if (discreet) "#334155" else "#E59712"))
+                countdownTitleView?.text = if (discreet) "EXTENDED ($doubleLabelUpper)" else "DOUBLE-TIME ($doubleLabelUpper)"
+                countdownClockView?.setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#1A3673"))
                 unlockHintView?.text = if (discreet) {
-                    "Extended wait active. Access restores automatically when timer reaches 00:00:00 (or earlier with an access code)."
+                    "Extended wait active. Access restores automatically when timer finishes."
                 } else {
-                    "Double-time wait active. Device opens automatically when timer hits 00:00:00 (or earlier with Guardian Master Code). Sheildlenz Shield remains ON."
+                    "Double-time wait active. Shield stays ON."
                 }
                 pinInputView?.visibility = View.VISIBLE
                 unlockButtonView?.isEnabled = true
@@ -2483,6 +2578,163 @@ class SystemOverlayController(private val context: Context) {
             setColor(Color.parseColor(fillHex))
             setStroke(2, Color.parseColor(strokeHex))
             cornerRadius = radiusPx
+        }
+    }
+
+    private data class CircularRingViews(
+        val container: FrameLayout,
+        val ringView: CountdownRingArcView,
+        val clockView: TextView,
+        val subLabelView: TextView
+    )
+
+    private fun createCircularTimerRing(
+        initialClock: String,
+        initialSubLabel: String,
+        discreet: Boolean,
+        primaryHex: String = "#2563EB",
+        secondaryHex: String = "#7C5CFA",
+        accentHex: String = "#E59712",
+        sizeDp: Int = 168
+    ): CircularRingViews {
+        val density = context.resources.displayMetrics.density
+        val sizePx = (sizeDp * density).toInt()
+        val container = FrameLayout(context).apply {
+            layoutParams = LinearLayout.LayoutParams(sizePx, sizePx).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+        }
+        val ring = CountdownRingArcView(
+            context = context,
+            primaryColor = Color.parseColor(if (discreet) "#334155" else primaryHex),
+            secondaryColor = Color.parseColor(if (discreet) "#64748B" else secondaryHex),
+            accentColor = Color.parseColor(if (discreet) "#94A3B8" else accentHex),
+            trackColor = Color.parseColor(if (discreet) "#D8E0EA" else "#DCEBFF")
+        ).apply {
+            layoutParams = FrameLayout.LayoutParams(sizePx, sizePx)
+        }
+        container.addView(ring)
+
+        val inner = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            val innerSize = (sizePx * 0.72f).toInt()
+            layoutParams = FrameLayout.LayoutParams(innerSize, innerSize, Gravity.CENTER)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor(if (discreet) "#FFFFFF" else "#F7FAFF"))
+                setStroke(2, Color.parseColor(if (discreet) "#E2E8F0" else "#DCEBFF"))
+            }
+            setPadding(16, 16, 16, 16)
+        }
+
+        val clockView = TextView(context).apply {
+            text = initialClock
+            setTextColor(Color.parseColor(if (discreet) "#1E293B" else "#1A3673"))
+            textSize = if (initialClock.length >= 8) 21f else 28f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            gravity = Gravity.CENTER
+        }
+        inner.addView(clockView)
+
+        val subLabelView = TextView(context).apply {
+            text = initialSubLabel
+            setTextColor(Color.parseColor(if (discreet) "#64748B" else "#7C5CFA"))
+            textSize = 10f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, 4, 0, 0)
+        }
+        inner.addView(subLabelView)
+        container.addView(inner)
+
+        return CircularRingViews(container, ring, clockView, subLabelView)
+    }
+
+    private fun createExpandableDetailsSection(
+        summaryLabel: String,
+        discreet: Boolean,
+        contentView: View
+    ): LinearLayout {
+        val wrapper = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        contentView.visibility = View.GONE
+        val density = context.resources.displayMetrics.density
+        val minTouchPx = (48 * density).toInt()
+        val toggleBtn = Button(context).apply {
+            text = "$summaryLabel ▾"
+            isAllCaps = false
+            minHeight = minTouchPx
+            setTextColor(Color.parseColor(if (discreet) "#334155" else "#7C5CFA"))
+            background = if (discreet) roundedBox("#FFFFFF", "#CBD5E1", 50f) else roundedBox("#EDE6FF", "#C0AEFD", 50f)
+            textSize = 12f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            setPadding(36, 14, 36, 14)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                val expand = contentView.visibility != View.VISIBLE
+                contentView.visibility = if (expand) View.VISIBLE else View.GONE
+                text = if (expand) "$summaryLabel ▴" else "$summaryLabel ▾"
+            }
+        }
+        wrapper.addView(toggleBtn)
+        wrapper.addView(verticalSpacer(12))
+        wrapper.addView(contentView)
+        return wrapper
+    }
+
+    private class CountdownRingArcView(
+        context: Context,
+        private val primaryColor: Int,
+        private val secondaryColor: Int,
+        private val accentColor: Int,
+        private val trackColor: Int
+    ) : View(context) {
+        private var progressFraction: Float = 0.85f
+        private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            color = trackColor
+        }
+        private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val rect = RectF()
+
+        fun setProgress(progress: Float) {
+            progressFraction = progress.coerceIn(0.04f, 1f)
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val stroke = 9f * resources.displayMetrics.density
+            trackPaint.strokeWidth = stroke
+            arcPaint.strokeWidth = stroke
+            val inset = stroke / 2f + 4f * resources.displayMetrics.density
+            val size = minOf(width, height).toFloat()
+            val left = (width - size) / 2f + inset
+            val top = (height - size) / 2f + inset
+            rect.set(left, top, left + size - inset * 2f, top + size - inset * 2f)
+
+            arcPaint.shader = SweepGradient(
+                width / 2f,
+                height / 2f,
+                intArrayOf(primaryColor, secondaryColor, accentColor, primaryColor),
+                null
+            )
+            canvas.drawArc(rect, 0f, 360f, false, trackPaint)
+            canvas.drawArc(rect, -90f, 360f * progressFraction, false, arcPaint)
         }
     }
 
@@ -2780,16 +3032,19 @@ class SystemOverlayController(private val context: Context) {
         }
         root.addView(title)
 
-        val timerView = TextView(context).apply {
-            text = "Unlocks in ${formatDuration(remainingMs.coerceAtLeast(1000L))}"
-            setTextColor(Color.parseColor("#7C5CFA"))
-            textSize = 18f
-            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 4, 0, 16)
-        }
-        scrollLockTimerView = timerView
-        root.addView(timerView)
+        val (ringContainer, ringArc, ringClock, _) = createCircularTimerRing(
+            initialClock = formatDuration(remainingMs.coerceAtLeast(1000L)),
+            initialSubLabel = if (isDetoxMode) "DETOX" else "UNLOCKS IN",
+            discreet = false,
+            primaryHex = "#2563EB",
+            secondaryHex = "#7C5CFA",
+            accentHex = "#E59712",
+            sizeDp = 166
+        )
+        scrollLockRingView = ringArc
+        scrollLockTimerView = ringClock
+        root.addView(ringContainer)
+        root.addView(verticalSpacer(14))
 
         val desc = TextView(context).apply {
             text = if (isDetoxMode) {
@@ -2800,11 +3055,17 @@ class SystemOverlayController(private val context: Context) {
             setTextColor(Color.parseColor("#3E5894"))
             textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(28, 22, 28, 24)
-            background = roundedBox("#FFFFFF", "#F2C667", 32f)
+            setPadding(24, 18, 24, 18)
+            background = roundedBox("#FFFFFF", "#F2C667", 28f)
         }
-        root.addView(desc)
-        root.addView(verticalSpacer(20))
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = "Break details & tips",
+                discreet = false,
+                contentView = desc
+            )
+        )
+        root.addView(verticalSpacer(16))
 
         if (hasPin) {
             val pinField = EditText(context).apply {
@@ -2925,27 +3186,36 @@ class SystemOverlayController(private val context: Context) {
         }
         root.addView(title)
 
-        val clock = TextView(context).apply {
-            text = "${remainingSeconds}s"
-            setTextColor(Color.parseColor("#7C5CFA"))
-            textSize = 36f
-            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 8, 0, 10)
-        }
-        gameWrapupClockView = clock
-        root.addView(clock)
+        val (ringContainer, ringArc, ringClock, _) = createCircularTimerRing(
+            initialClock = "${remainingSeconds}s",
+            initialSubLabel = "WRAP UP",
+            discreet = false,
+            primaryHex = "#2563EB",
+            secondaryHex = "#7C5CFA",
+            accentHex = "#E59712",
+            sizeDp = 152
+        )
+        gameWrapupRingView = ringArc
+        gameWrapupClockView = ringClock
+        root.addView(ringContainer)
+        root.addView(verticalSpacer(12))
 
         val desc = TextView(context).apply {
             text = "Save your match or progress. A mandatory ${cooldownMins}-minute break starts when this session timer ends."
             setTextColor(Color.parseColor("#3E5894"))
-            textSize = 13.5f
+            textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(28, 22, 28, 24)
-            background = roundedBox("#FFFFFF", "#C0AEFD", 32f)
+            setPadding(24, 18, 24, 18)
+            background = roundedBox("#FFFFFF", "#C0AEFD", 28f)
         }
-        root.addView(desc)
-        root.addView(verticalSpacer(24))
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = "Cooldown details",
+                discreet = false,
+                contentView = desc
+            )
+        )
+        root.addView(verticalSpacer(18))
 
         val finishBtn = Button(context).apply {
             text = "FINISH ROUND (UNDER 1 MIN)"
@@ -3050,31 +3320,40 @@ class SystemOverlayController(private val context: Context) {
             textSize = 23f
             typeface = Typeface.create(displayTypeface, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, 22, 0, 8)
+            setPadding(0, 22, 0, 12)
         }
         root.addView(title)
 
-        val timerView = TextView(context).apply {
-            text = "Unlocks in ${formatDuration(remainingMs.coerceAtLeast(1000L))}"
-            setTextColor(Color.parseColor("#7C5CFA"))
-            textSize = 18f
-            typeface = Typeface.create(displayTypeface, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, 4, 0, 16)
-        }
-        gameLockTimerView = timerView
-        root.addView(timerView)
+        val (ringContainer, ringArc, ringClock, _) = createCircularTimerRing(
+            initialClock = formatDuration(remainingMs.coerceAtLeast(1000L)),
+            initialSubLabel = "UNLOCKS IN",
+            discreet = false,
+            primaryHex = "#2563EB",
+            secondaryHex = "#7C5CFA",
+            accentHex = "#E59712",
+            sizeDp = 166
+        )
+        gameLockRingView = ringArc
+        gameLockTimerView = ringClock
+        root.addView(ringContainer)
+        root.addView(verticalSpacer(14))
 
         val desc = TextView(context).apply {
             text = descText
             setTextColor(Color.parseColor("#3E5894"))
             textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(28, 22, 28, 24)
-            background = roundedBox("#FFFFFF", "#F2C667", 32f)
+            setPadding(24, 18, 24, 18)
+            background = roundedBox("#FFFFFF", "#F2C667", 28f)
         }
-        root.addView(desc)
-        root.addView(verticalSpacer(20))
+        root.addView(
+            createExpandableDetailsSection(
+                summaryLabel = "Gaming rule details",
+                discreet = false,
+                contentView = desc
+            )
+        )
+        root.addView(verticalSpacer(16))
 
         if (hasPin) {
             val pinField = EditText(context).apply {

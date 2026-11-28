@@ -124,11 +124,6 @@ fun FocusSafetyHubScreen(
     val studySoftWarningSeconds by preferences.studySoftWarningSeconds.collectAsState()
     val studyAllowedPackages by preferences.studyAllowedPackages.collectAsState()
 
-    val smartSafeSearchEnabled by preferences.smartSafeSearchEnabled.collectAsState()
-    val activePacks by preferences.safeSearchPacks.collectAsState()
-    val safeSearchBlockedCount by preferences.safeSearchBlockedCount.collectAsState()
-    val customKeywords by preferences.customBlockedKeywords.collectAsState()
-
     val appTimeBudgets by preferences.appTimeBudgets.collectAsState()
     val dailyAppUsageSeconds by preferences.dailyAppUsageSeconds.collectAsState()
 
@@ -150,7 +145,6 @@ fun FocusSafetyHubScreen(
     var showStudyAppsDialog by remember { mutableStateOf(false) }
     var showBudgetPickerDialog by remember { mutableStateOf(false) }
     var showOverlayRequiredDialog by remember { mutableStateOf(false) }
-    var customKeywordInput by remember { mutableStateOf("") }
 
     var installedApps by remember { mutableStateOf<List<InstalledAppEntry>>(emptyList()) }
     var isLoadingApps by remember { mutableStateOf(false) }
@@ -171,7 +165,7 @@ fun FocusSafetyHubScreen(
             topBar = {
                 CyberTopBar(
                     title = "Focus & Safety Hub",
-                    subtitle = "Study Timer, Safe Search Packs & App Budgets",
+                    subtitle = "Study Timer & Daily App Budgets",
                     onNavigateBack = onNavigateBack
                 )
             },
@@ -227,7 +221,7 @@ fun FocusSafetyHubScreen(
                                     fontFamily = ClassicalDisplayFont
                                 )
                                 Text(
-                                    text = "Filtered web browsing with forced SafeSearch & local blocklists",
+                                    text = "Filtered web browsing with Safe DNS & local blocklists",
                                     color = AegisTextSecondary,
                                     fontSize = 11.5.sp,
                                     fontFamily = ClassicalBodyFont
@@ -475,236 +469,7 @@ fun FocusSafetyHubScreen(
                 }
 
                 // ─────────────────────────────────────────────────────────────────────────────
-                // 2. Smart Safe Search & Keyword Guard
-                // ─────────────────────────────────────────────────────────────────────────────
-                item {
-                    LuxurySectionHeader(
-                        title = "Smart Safe Search & Keyword Guard",
-                        accentColor = AegisPrimaryCyan,
-                        modifier = Modifier.widthIn(max = 600.dp)
-                    )
-                }
-                item {
-                    CyberCard(
-                        borderColor = if (smartSafeSearchEnabled) AegisPrimaryCyan else AegisCardBorder,
-                        tone = CyberCardTone.SKY,
-                        modifier = Modifier
-                            .widthIn(max = 600.dp)
-                            .testTag("focus_safe_search_card")
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f).padding(end = 10.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(RoundedCornerShape(13.dp))
-                                        .background(AegisPrimaryCyan.copy(alpha = 0.14f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Security,
-                                        contentDescription = "Smart Safe Search",
-                                        tint = AegisPrimaryCyan,
-                                        modifier = Modifier.size(21.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = "Smart Safe Search Guard",
-                                        color = AegisTextPrimary,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = ClassicalDisplayFont
-                                    )
-                                    Text(
-                                        text = if (smartSafeSearchEnabled) {
-                                            "${activePacks.size} packs active • $safeSearchBlockedCount queries stopped"
-                                        } else {
-                                            "Off • Tap to filter risky searches & proxies"
-                                        },
-                                        color = if (smartSafeSearchEnabled) AegisPrimaryCyan else AegisTextSecondary,
-                                        fontSize = 11.5.sp,
-                                        fontFamily = ClassicalBodyFont
-                                    )
-                                }
-                            }
-                            Switch(
-                                checked = smartSafeSearchEnabled,
-                                onCheckedChange = { next ->
-                                    if (!next) {
-                                        Toast.makeText(
-                                            context,
-                                            "Safe Search active • Turn off in Edits",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        AegisSoundEffects.playModeOn(context)
-                                        preferences.setSmartSafeSearchEnabled(true)
-                                    }
-                                },
-                                modifier = Modifier.testTag("focus_smart_safe_search_switch"),
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = AegisOnPrimaryWhite,
-                                    checkedTrackColor = AegisPrimaryCyan
-                                )
-                            )
-                        }
-
-                        HorizontalDivider(
-                            color = AegisCardBorder.copy(alpha = 0.45f),
-                            modifier = Modifier.padding(vertical = 10.dp)
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SafeSearchPack.entries.forEach { pack ->
-                                val packEnabled = pack.id in activePacks
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 54.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                            if (packEnabled) AegisPrimaryCyan.copy(alpha = 0.12f) else AegisCardBackground
-                                        )
-                                        .border(
-                                            width = if (packEnabled) 1.3.dp else 1.dp,
-                                            color = if (packEnabled) AegisPrimaryCyan else AegisCardBorder,
-                                            shape = RoundedCornerShape(14.dp)
-                                        )
-                                        .clickable {
-                                            if (packEnabled) {
-                                                Toast.makeText(
-                                                    context,
-                                                    "${pack.title} active • Disable in Edits",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            } else {
-                                                AegisSoundEffects.playModeOn(context)
-                                                preferences.toggleSafeSearchPack(pack.id)
-                                            }
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 10.dp)
-                                        .testTag("safe_search_pack_${pack.id}"),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                                        Text(
-                                            text = pack.title,
-                                            color = AegisTextPrimary,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = ClassicalDisplayFont
-                                        )
-                                        Text(
-                                            text = pack.subtitle,
-                                            color = AegisTextSecondary,
-                                            fontSize = 11.sp,
-                                            fontFamily = ClassicalBodyFont,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = if (packEnabled) "${pack.title} Enabled" else "${pack.title} Disabled",
-                                        tint = if (packEnabled) AegisPrimaryCyan else AegisCardBorder,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                value = customKeywordInput,
-                                onValueChange = { customKeywordInput = it },
-                                placeholder = { Text("Block custom search keyword...", fontSize = 12.sp) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = AegisPrimaryCyan,
-                                    unfocusedBorderColor = AegisCardBorder,
-                                    focusedContainerColor = AegisCardBackground,
-                                    unfocusedContainerColor = AegisCardBackground,
-                                    focusedTextColor = AegisTextPrimary,
-                                    unfocusedTextColor = AegisTextPrimary
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("focus_custom_keyword_input")
-                            )
-                            Button(
-                                onClick = {
-                                    val clean = customKeywordInput.trim()
-                                    if (preferences.addCustomBlockedKeyword(clean)) {
-                                        AegisSoundEffects.playModeOn(context)
-                                        customKeywordInput = ""
-                                        Toast.makeText(context, "Added '$clean'", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Enter at least 2 characters", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = AegisPrimaryCyan,
-                                    contentColor = AegisOnPrimaryWhite
-                                ),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .height(48.dp)
-                                    .testTag("focus_add_keyword_button")
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = "Add Keyword", modifier = Modifier.size(18.dp))
-                            }
-                        }
-
-                        AnimatedVisibility(visible = customKeywords.isNotEmpty()) {
-                            Column {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    customKeywords.sorted().forEach { kw ->
-                                        Row(
-                                            modifier = Modifier
-                                                .heightIn(min = 32.dp)
-                                                .clip(RoundedCornerShape(50))
-                                                .background(AegisSurfaceElevated)
-                                                .border(1.dp, AegisCardBorder, RoundedCornerShape(50))
-                                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = kw,
-                                                color = AegisTextPrimary,
-                                                fontSize = 11.5.sp,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ─────────────────────────────────────────────────────────────────────────────
-                // 3. Daily App Time Budgets
+                // 2. Daily App Time Budgets
                 // ─────────────────────────────────────────────────────────────────────────────
                 item {
                     LuxurySectionHeader(
