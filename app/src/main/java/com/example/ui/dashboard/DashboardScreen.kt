@@ -180,7 +180,8 @@ fun DashboardScreen(
     onNavigateToProgress: () -> Unit = {},
     onNavigateToWellbeing: () -> Unit = {},
     onNavigateToFocusHub: () -> Unit = {},
-    onNavigateToSafeBrowser: () -> Unit = {}
+    onNavigateToSafeBrowser: () -> Unit = {},
+    onNavigateToPiqorax: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -1474,7 +1475,7 @@ fun DashboardScreen(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "Connected via offline signature pass bridge",
+                                            text = "Connect & apply PiqoraX • minute/hour app blocker",
                                             color = AegisTextSecondary,
                                             fontSize = 11.sp,
                                             fontFamily = ClassicalBodyFont,
@@ -1486,7 +1487,7 @@ fun DashboardScreen(
                                 Button(
                                     onClick = {
                                         AegisSoundEffects.playTap(context)
-                                        TimeBlockLockActivity.launchPiqoraxCompanion(context, context.packageName)
+                                        onNavigateToPiqorax()
                                     },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = AegisChampagneGold,

@@ -355,4 +355,23 @@ class MindfulScrollGuardTest {
         composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("seven_day_trends_card"))
         composeRule.onNodeWithTag("seven_day_trends_card").assertIsDisplayed()
     }
+
+    @Test
+    fun `tiktok lite packages and static tab chrome filtering work accurately`() {
+        val liteFeed = ShortVideoScrollDetector.detectActivePlatform(
+            packageName = "com.zhiliaoapp.musically.lite",
+            viewIds = listOf("com.zhiliaoapp.musically.lite:id/pager"),
+            labels = listOf("Following", "For You", "Friends", "LIVE", "@creator_lite", "Street food tour")
+        )
+        assertEquals(ShortVideoPlatform.TIKTOK, liteFeed)
+        assertTrue("com.zhiliaoapp.musically.lite" in ShortVideoPlatform.ALL_PACKAGES)
+        assertTrue("com.ss.android.ugc.awemelite" in ShortVideoPlatform.ALL_PACKAGES)
+        assertTrue("com.zhiliaoapp.musically.go" in ShortVideoPlatform.ALL_PACKAGES)
+
+        val sig = ShortVideoScrollDetector.buildContentSignature(
+            labels = listOf("Following", "For You", "Friends", "LIVE", "@creator_lite", "Street food tour"),
+            viewIds = listOf("com.zhiliaoapp.musically.lite:id/pager")
+        )
+        assertEquals("@creator_lite|Street food tour", sig)
+    }
 }

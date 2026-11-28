@@ -16,4 +16,5 @@ object AegisDestinations {
     const val GUARDIAN_GATE = "guardian_gate"
     const val SAFE_BROWSER = "safe_browser"
     const val USAGE_SCROLL_GUARD = "usage_scroll_guard"
+    const val PIQORAX_CONNECTOR = "piqorax_connector"
 }

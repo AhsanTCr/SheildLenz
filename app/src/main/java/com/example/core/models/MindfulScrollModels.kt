@@ -36,7 +36,11 @@ enum class ShortVideoPlatform(
         packageNames = setOf(
             "com.zhiliaoapp.musically",
             "com.ss.android.ugc.trill",
-            "com.ss.android.ugc.aweme"
+            "com.ss.android.ugc.aweme",
+            "com.zhiliaoapp.musically.lite",
+            "com.ss.android.ugc.awemelite",
+            "com.ss.android.ugc.trill.lite",
+            "com.zhiliaoapp.musically.go"
         )
     ),
     FACEBOOK_REELS(
@@ -230,7 +234,40 @@ object ShortVideoScrollDetector {
         "inbox",
         "chat_input",
         "login",
-        "settings"
+        "settings",
+        "comment_list",
+        "comment_container",
+        "comment_panel"
+    )
+
+    val IGNORED_CHROME_LABELS = setOf(
+        "shorts",
+        "reels",
+        "like",
+        "dislike",
+        "comment",
+        "comments",
+        "share",
+        "remix",
+        "home",
+        "following",
+        "for you",
+        "friends",
+        "live",
+        "shop",
+        "explore",
+        "discover",
+        "inbox",
+        "profile",
+        "search",
+        "notifications",
+        "subscriptions",
+        "you",
+        "add",
+        "create",
+        "follow",
+        "mute",
+        "unmute"
     )
 
     fun detectActivePlatform(
@@ -294,15 +331,19 @@ object ShortVideoScrollDetector {
         return null
     }
 
+    fun hasDynamicTextLabel(labels: List<String>): Boolean {
+        return labels.any { raw ->
+            val trimmed = raw.trim()
+            trimmed.length in 2..120 && trimmed.lowercase() !in IGNORED_CHROME_LABELS
+        }
+    }
+
     fun buildContentSignature(labels: List<String>, viewIds: List<String>): String {
         val meaningful = labels
             .map { it.trim() }
             .filter { it.length in 2..120 }
-            .filterNot { token ->
-                val low = token.lowercase()
-                low == "shorts" || low == "reels" || low == "like" || low == "dislike" ||
-                    low == "comment" || low == "share" || low == "remix" || low == "home"
-            }
+            .filterNot { it.lowercase() in IGNORED_CHROME_LABELS }
+            .distinct()
             .take(4)
         if (meaningful.isNotEmpty()) {
             return meaningful.joinToString("|")

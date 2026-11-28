@@ -427,4 +427,39 @@ class TimeBlockerModuleTest {
             launchedIntent.getStringExtra(TimeBlockLockActivity.EXTRA_REQUESTED_PACKAGE)
         )
     }
+
+    @Test
+    fun `piqorax connector screen shows connect and apply coin lock rule and clears on valid pass`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val container = com.example.di.AegisContainer(context)
+        container.preferences.setPiqoraxConnectorConnected(false)
+        container.preferences.setPiqoraxCoinDeviceLockActive(false)
+
+        composeRule.setContent {
+            AegisShieldTheme {
+                com.example.ui.timeblocker.PiqoraxConnectorScreen(
+                    preferences = container.preferences,
+                    timeBlockerRepository = container.timeBlockerRepository,
+                    onNavigateBack = {}
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("piqorax_connector_prompt_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("piqorax_coin_lock_rule_card").assertIsDisplayed()
+        composeRule.onNodeWithTag("piqorax_coin_device_lock_button").performClick()
+        composeRule.waitForIdle()
+
+        assertTrue(container.preferences.piqoraxConnectorConnected.value)
+        assertTrue(container.preferences.piqoraxCoinDeviceLockActive.value)
+
+        // Valid PiqoraX pass broadcast clears the coin device lock
+        val intent = Intent(AppPassConnectorReceiver.ACTION_GRANT_APP_PASS).apply {
+            putExtra(AppPassConnectorReceiver.EXTRA_TARGET_PACKAGE, "com.instagram.android")
+            putExtra(AppPassConnectorReceiver.EXTRA_DURATION_MINUTES, 15)
+            putExtra(AppPassConnectorReceiver.EXTRA_NONCE, "coin-unlock-nonce-${System.nanoTime()}")
+        }
+        val res = AppPassConnectorReceiver.processPassBroadcast(intent, container.timeBlockerRepository)
+        assertEquals(com.example.timeblocker.PassBridgeResult.GRANTED, res)
+    }
 }

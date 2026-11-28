@@ -97,6 +97,7 @@ import com.example.ui.dashboard.DashboardScreen
 import com.example.ui.focus.FocusSafetyHubScreen
 import com.example.ui.history.SecurityHistoryScreen
 import com.example.ui.mindful.UsageAndScrollGuardScreen
+import com.example.ui.timeblocker.PiqoraxConnectorScreen
 import com.example.ui.onboarding.OnboardingScreen
 import com.example.ui.parents.ParentsScreen
 import com.example.ui.protection.LiveProtectionScreen
@@ -365,6 +366,11 @@ fun AegisNavHost(
                                         launchSingleTop = true
                                     }
                                 }
+                            },
+                            onNavigateToPiqorax = {
+                                navController.navigate(AegisDestinations.PIQORAX_CONNECTOR) {
+                                    launchSingleTop = true
+                                }
                             }
                         )
                     }
@@ -440,6 +446,14 @@ fun AegisNavHost(
                         UsageAndScrollGuardScreen(
                             preferences = container.preferences,
                             protectionRepo = container.protectionRepository,
+                            onNavigateBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable(AegisDestinations.PIQORAX_CONNECTOR) {
+                        PiqoraxConnectorScreen(
+                            preferences = container.preferences,
+                            timeBlockerRepository = container.timeBlockerRepository,
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }

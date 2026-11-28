@@ -78,8 +78,9 @@ class AegisAccessibilityService : AccessibilityService() {
             ?: return
         val prefs = container.preferences
         val timeBlockerRepo = container.timeBlockerRepository
+        val hasPiqoraxCoinLock = prefs.piqoraxConnectorConnected.value && prefs.piqoraxCoinDeviceLockActive.value
         val hasTimeBlocked = runCatching { timeBlockerRepo.hasAnyRestrictedApps() }.getOrDefault(false)
-        if (!prefs.masterPowerEnabled.value && !hasTimeBlocked) {
+        if (!prefs.masterPowerEnabled.value && !hasTimeBlocked && !hasPiqoraxCoinLock) {
             disableSelf()
             return
         }
@@ -102,6 +103,20 @@ class AegisAccessibilityService : AccessibilityService() {
             }
         }
 
+        // PiqoraX Coin-Unlock Device Lock (keeps PiqoraX, Sheildlenz, dialer & launcher accessible)
+        if (hasPiqoraxCoinLock &&
+            resolvedPkg != com.example.timeblocker.ui.TimeBlockLockActivity.PIQORAX_PACKAGE_NAME &&
+            !isExemptSystemOrLauncherPackage(resolvedPkg) &&
+            !isTransientOverlayPackage(resolvedPkg)
+        ) {
+            val nowMs = SystemClock.uptimeMillis()
+            if (nowMs - lastLockdownInterceptTimeMs > 700L) {
+                lastLockdownInterceptTimeMs = nowMs
+                com.example.timeblocker.ui.TimeBlockLockActivity.launchPiqoraxCoinDeviceLock(this, resolvedPkg)
+            }
+            return
+        }
+
         if (!prefs.masterPowerEnabled.value) {
             return
         }
@@ -115,7 +130,7 @@ class AegisAccessibilityService : AccessibilityService() {
                 !overlayController.isOverlayVisible &&
                 resolvedPkg in ShortVideoPlatform.ALL_PACKAGES
             ) {
-                inspectShortVideoScroll(resolvedPkg, event, now)
+                inspectShortVideoScroll(resolvedPkg, event, eventType, now)
             }
             return
         }
@@ -374,7 +389,7 @@ class AegisAccessibilityService : AccessibilityService() {
             !overlayController.isOverlayVisible &&
             resolvedPkg in ShortVideoPlatform.ALL_PACKAGES
         ) {
-            inspectShortVideoScroll(resolvedPkg, event, now)
+            inspectShortVideoScroll(resolvedPkg, event, eventType, now)
         }
 
         // 5. Real-time Chrome & Third-Party Browser URL / Search Safety Guard
@@ -447,9 +462,14 @@ class AegisAccessibilityService : AccessibilityService() {
     private fun inspectShortVideoScroll(
         pkgName: String,
         event: AccessibilityEvent,
+        eventType: Int,
         nowUptime: Long
     ) {
-        if (nowUptime - lastReelsScanTimeMs < 450L) return
+        if (eventType != AccessibilityEvent.TYPE_VIEW_SCROLLED &&
+            nowUptime - lastReelsScanTimeMs < 450L
+        ) {
+            return
+        }
         lastReelsScanTimeMs = nowUptime
 
         val viewIds = mutableListOf<String>()
@@ -463,6 +483,23 @@ class AegisAccessibilityService : AccessibilityService() {
             }
         }
         event.className?.toString()?.let { classNames.add(it) }
+
+        val sourceNode = try {
+            event.source
+        } catch (_: Exception) {
+            null
+        }
+        if (sourceNode != null) {
+            try {
+                collectShortVideoSignals(sourceNode, depth = 0, viewIds = viewIds, labels = labels, classNames = classNames)
+            } finally {
+                @Suppress("DEPRECATION")
+                try {
+                    sourceNode.recycle()
+                } catch (_: Exception) {
+                }
+            }
+        }
 
         val root = try {
             rootInActiveWindow
@@ -492,11 +529,21 @@ class AegisAccessibilityService : AccessibilityService() {
             enabledPlatformIds = ShortVideoPlatform.ALL_IDS
         ) ?: return
 
+        val hasDynamicText = ShortVideoScrollDetector.hasDynamicTextLabel(labels)
         val contentSig = ShortVideoScrollDetector.buildContentSignature(labels, viewIds)
-        if (contentSig.isBlank()) return
-        val fullSignature = "${platform.id}|$contentSig"
+        val fullSignature = when {
+            hasDynamicText && contentSig.isNotBlank() -> "${platform.id}|$contentSig"
+            eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                val scrollY = event.scrollY
+                val fromIdx = event.fromIndex
+                val deltaY = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) event.scrollDeltaY else 0
+                "${platform.id}|viewscroll|$fromIdx|$scrollY|$deltaY|$nowUptime"
+            }
+            contentSig.isNotBlank() -> "${platform.id}|$contentSig"
+            else -> return
+        }
         if (fullSignature == lastScrollSignature) return
-        if (nowUptime - lastScrollCountTimeMs < 1800L) return
+        if (nowUptime - lastScrollCountTimeMs < 1500L) return
 
         lastScrollSignature = fullSignature
         lastScrollCountTimeMs = nowUptime

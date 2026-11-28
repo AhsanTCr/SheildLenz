@@ -33,8 +33,11 @@ class AppPassConnectorReceiver : BroadcastReceiver() {
 
         if (pendingResult == null) {
             val res = processPassBroadcast(intent, container.timeBlockerRepository)
-            if (res == PassBridgeResult.GRANTED && targetPackage.isNotBlank()) {
-                container.preferences.recordPiqoraxPassGranted(targetPackage, durationMinutes)
+            if (res == PassBridgeResult.GRANTED) {
+                container.preferences.setPiqoraxCoinDeviceLockActive(false)
+                if (targetPackage.isNotBlank()) {
+                    container.preferences.recordPiqoraxPassGranted(targetPackage, durationMinutes)
+                }
             }
             return
         }
@@ -42,8 +45,11 @@ class AppPassConnectorReceiver : BroadcastReceiver() {
         receiverScope.launch {
             try {
                 val res = processPassBroadcast(intent, container.timeBlockerRepository)
-                if (res == PassBridgeResult.GRANTED && targetPackage.isNotBlank()) {
-                    container.preferences.recordPiqoraxPassGranted(targetPackage, durationMinutes)
+                if (res == PassBridgeResult.GRANTED) {
+                    container.preferences.setPiqoraxCoinDeviceLockActive(false)
+                    if (targetPackage.isNotBlank()) {
+                        container.preferences.recordPiqoraxPassGranted(targetPackage, durationMinutes)
+                    }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed handling companion pass broadcast", t)

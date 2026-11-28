@@ -65,7 +65,9 @@ object ChromeComponentCacheManager {
                 cacheMode = WebSettings.LOAD_DEFAULT
                 domStorageEnabled = true
                 databaseEnabled = true
-                safeBrowsingEnabled = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    safeBrowsingEnabled = true
+                }
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {

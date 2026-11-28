@@ -100,7 +100,9 @@ class TimeBlockLockActivity : ComponentActivity() {
         setFinishOnTouchOutside(false)
         applyIntentExtras(intent)
 
-        val repository = AegisContainer.getInstance(this).timeBlockerRepository
+        val container = AegisContainer.getInstance(this)
+        val repository = container.timeBlockerRepository
+        val preferences = container.preferences
 
         setContent {
             AegisShieldTheme {
@@ -108,20 +110,33 @@ class TimeBlockLockActivity : ComponentActivity() {
                 BackHandler(enabled = true) { }
 
                 val pkg = blockedPackageState
-                val label = blockedAppLabelState.ifBlank { resolveAppLabel(pkg) }
+                val isCoinDeviceLock = pkg == PIQORAX_DEVICE_LOCK_SENTINEL ||
+                    (preferences.piqoraxConnectorConnected.value && preferences.piqoraxCoinDeviceLockActive.value)
+                val label = if (isCoinDeviceLock && blockedAppLabelState.isBlank()) {
+                    "Device Locked by PiqoraX"
+                } else {
+                    blockedAppLabelState.ifBlank { resolveAppLabel(pkg) }
+                }
                 var remainingResetMs by remember(pkg, initialResetMsState) {
                     mutableLongStateOf(
                         repository.getRemainingResetMs(pkg).takeIf { it > 0L } ?: initialResetMsState
                     )
                 }
 
-                LaunchedEffect(pkg) {
+                LaunchedEffect(pkg, isCoinDeviceLock) {
                     while (true) {
-                        val decision = repository.evaluatePackageAccess(pkg)
-                        remainingResetMs = decision.remainingResetMs
-                        if (pkg.isNotBlank() && decision.isRestricted && !decision.shouldBlock) {
-                            finishAndRemoveTaskSafe()
-                            break
+                        if (isCoinDeviceLock) {
+                            if (!preferences.piqoraxCoinDeviceLockActive.value) {
+                                finishAndRemoveTaskSafe()
+                                break
+                            }
+                        } else {
+                            val decision = repository.evaluatePackageAccess(pkg)
+                            remainingResetMs = decision.remainingResetMs
+                            if (pkg.isNotBlank() && decision.isRestricted && !decision.shouldBlock) {
+                                finishAndRemoveTaskSafe()
+                                break
+                            }
                         }
                         delay(1_000L)
                     }
@@ -133,12 +148,18 @@ class TimeBlockLockActivity : ComponentActivity() {
                     packageName = pkg,
                     appLabel = label,
                     remainingResetMs = remainingResetMs,
+                    isCoinDeviceLock = isCoinDeviceLock,
                     companionNotice = companionNotice,
                     onGoBackExit = { navigateSafelyToHome() },
                     onRequestExtendedUnlock = { targetPkg ->
-                        val handledByHook = repository.invokeExtendedUnlock(this@TimeBlockLockActivity, targetPkg)
+                        val handledByHook = if (!isCoinDeviceLock) {
+                            repository.invokeExtendedUnlock(this@TimeBlockLockActivity, targetPkg)
+                        } else {
+                            false
+                        }
                         if (!handledByHook) {
-                            val launched = launchPiqoraxCompanion(this@TimeBlockLockActivity, targetPkg)
+                            val passPkg = if (isCoinDeviceLock) packageName else targetPkg
+                            val launched = launchPiqoraxCompanion(this@TimeBlockLockActivity, passPkg)
                             if (launched) {
                                 companionNotice = null
                             } else {
@@ -165,7 +186,9 @@ class TimeBlockLockActivity : ComponentActivity() {
         val resetMs = intent?.getLongExtra(EXTRA_REMAINING_RESET_MS, TimeBlockerEngine.HOURLY_WINDOW_MS)
             ?: TimeBlockerEngine.HOURLY_WINDOW_MS
         blockedPackageState = pkg
-        blockedAppLabelState = label.ifBlank { resolveAppLabel(pkg) }
+        blockedAppLabelState = label.ifBlank {
+            if (pkg == PIQORAX_DEVICE_LOCK_SENTINEL) "Device Locked Until Unlock by Coin in PiqoraX" else resolveAppLabel(pkg)
+        }
         initialResetMsState = resetMs.coerceIn(0L, 24L * TimeBlockerEngine.HOURLY_WINDOW_MS)
     }
 
@@ -198,6 +221,25 @@ class TimeBlockLockActivity : ComponentActivity() {
         const val EXTRA_REMAINING_RESET_MS = "extra_time_block_remaining_reset_ms"
         const val PIQORAX_PACKAGE_NAME = "com.ahsantcr.piqorax"
         const val EXTRA_REQUESTED_PACKAGE = "EXTRA_REQUESTED_PACKAGE"
+        const val PIQORAX_DEVICE_LOCK_SENTINEL = "__piqorax_coin_device_lock__"
+
+        fun launchPiqoraxCoinDeviceLock(context: Context, attemptedPackage: String) {
+            val label = runCatching {
+                val info = context.packageManager.getApplicationInfo(attemptedPackage, 0)
+                context.packageManager.getApplicationLabel(info).toString()
+            }.getOrDefault(attemptedPackage)
+            val intent = Intent(context, TimeBlockLockActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                )
+                putExtra(EXTRA_PACKAGE_NAME, PIQORAX_DEVICE_LOCK_SENTINEL)
+                putExtra(EXTRA_APP_LABEL, label)
+                putExtra(EXTRA_REMAINING_RESET_MS, 0L)
+            }
+            runCatching { context.startActivity(intent) }
+        }
 
         fun launchPiqoraxCompanion(context: Context, targetPackage: String): Boolean {
             val launchIntent = context.packageManager
@@ -221,6 +263,7 @@ fun TimeBlockLockScreen(
     packageName: String,
     appLabel: String,
     remainingResetMs: Long,
+    isCoinDeviceLock: Boolean = false,
     companionNotice: String? = null,
     onGoBackExit: () -> Unit,
     onRequestExtendedUnlock: (String) -> Unit
@@ -270,7 +313,7 @@ fun TimeBlockLockScreen(
                 }
 
                 Text(
-                    text = "Hourly Allowance Paused",
+                    text = if (isCoinDeviceLock) "Device Locked by PiqoraX" else "Hourly Allowance Paused",
                     color = AegisTextPrimary,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -279,7 +322,11 @@ fun TimeBlockLockScreen(
                 )
 
                 Text(
-                    text = "Your 5-minute hourly base allowance for this app has finished.",
+                    text = if (isCoinDeviceLock) {
+                        "Lock the device until unlock by coin in PiqoraX. Open PiqoraX and spend coins to unlock apps."
+                    } else {
+                        "Your 5-minute hourly base allowance for this app has finished."
+                    },
                     color = AegisTextSecondary,
                     fontSize = 14.sp,
                     fontFamily = ClassicalBodyFont,
@@ -350,7 +397,7 @@ fun TimeBlockLockScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "NEXT 5-MIN RESET IN",
+                                text = if (isCoinDeviceLock) "PIQORAX COIN LOCK" else "NEXT 5-MIN RESET IN",
                                 color = AegisTextMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -359,7 +406,7 @@ fun TimeBlockLockScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = countdownText,
+                                text = if (isCoinDeviceLock) "COIN" else countdownText,
                                 color = AegisPrimaryCyan,
                                 fontSize = 38.sp,
                                 fontWeight = FontWeight.ExtraBold,
@@ -368,7 +415,11 @@ fun TimeBlockLockScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Monotonic uptime timer protected",
+                                text = if (isCoinDeviceLock) {
+                                    "Unlock in PiqoraX with earned study coins"
+                                } else {
+                                    "Monotonic uptime timer protected"
+                                },
                                 color = AegisWarningAmber,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -425,7 +476,7 @@ fun TimeBlockLockScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Request Extended Unlock",
+                        text = if (isCoinDeviceLock) "Unlock by Coin in PiqoraX" else "Request Extended Unlock",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = ClassicalDisplayFont

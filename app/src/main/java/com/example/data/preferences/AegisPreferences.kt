@@ -1031,6 +1031,11 @@ class AegisPreferences(context: Context) {
     )
     val piqoraxLastPassSummary: StateFlow<String> = _piqoraxLastPassSummary.asStateFlow()
 
+    private val _piqoraxCoinDeviceLockActive = MutableStateFlow(
+        prefs.getBoolean(KEY_PIQORAX_COIN_DEVICE_LOCK, false)
+    )
+    val piqoraxCoinDeviceLockActive: StateFlow<Boolean> = _piqoraxCoinDeviceLockActive.asStateFlow()
+
     init {
         AegisSoundEffects.setEnabled(_touchSoundsEnabled.value)
         AegisSoundEffects.setAutoSelectorEnabled(_autoSoundSelectorEnabled.value)
@@ -2987,6 +2992,14 @@ class AegisPreferences(context: Context) {
     fun setPiqoraxConnectorConnected(connected: Boolean) {
         prefs.edit().putBoolean(KEY_PIQORAX_CONNECTOR_CONNECTED, connected).apply()
         _piqoraxConnectorConnected.value = connected
+        if (!connected && _piqoraxCoinDeviceLockActive.value) {
+            setPiqoraxCoinDeviceLockActive(false)
+        }
+    }
+
+    fun setPiqoraxCoinDeviceLockActive(active: Boolean) {
+        prefs.edit().putBoolean(KEY_PIQORAX_COIN_DEVICE_LOCK, active).apply()
+        _piqoraxCoinDeviceLockActive.value = active
     }
 
     fun setTimeBlockerAllowanceMinutes(minutes: Int) {
@@ -3441,5 +3454,6 @@ class AegisPreferences(context: Context) {
         private const val KEY_TIME_BLOCKER_ALLOWANCE_MINUTES = "key_time_blocker_allowance_minutes"
         private const val KEY_TIME_BLOCKER_WINDOW_MINUTES = "key_time_blocker_window_minutes"
         private const val KEY_PIQORAX_LAST_PASS_SUMMARY = "key_piqorax_last_pass_summary"
+        private const val KEY_PIQORAX_COIN_DEVICE_LOCK = "key_piqorax_coin_device_lock"
     }
 }
